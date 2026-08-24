@@ -161,7 +161,8 @@ build_arch() {
 		--build-arg "HCORRAL_SOURCE_REVISION=${source_revision}" --build-arg "HCORRAL_BUILD_INPUT_DIGEST=${build_input_digest}" \
 		"${codex_checksum_args[@]}" --tag "${ref}" "${project_root}"
 	if [[ "${push}" != true ]]; then
-		docker run --rm --entrypoint bash "${ref}" -lc "test ! -e /workspace; command -v ${harness}; ${harness} --version; for tool in codex claude pi; do [[ \"\$tool\" == ${harness} ]] || ! command -v \"\$tool\"; done"
+		docker run --rm --entrypoint bash "${ref}" -c "test ! -e /workspace; command -v ${harness}; ${harness} --version; for tool in codex claude pi; do [[ \"\$tool\" == ${harness} ]] || ! command -v \"\$tool\"; done"
+		docker run --rm --entrypoint "${harness}" "${ref}" --version | grep -F "${version}"
 		docker image tag "${ref}" "${image_name}:${release_tag}"
 	fi
 }

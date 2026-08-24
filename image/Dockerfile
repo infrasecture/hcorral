@@ -118,8 +118,8 @@ ENV HCORRAL_IMAGE_HARNESS=claude DISABLE_AUTOUPDATER=1
 FROM common AS pi
 ARG HCORRAL_PI_VERSION=0.84.2
 ARG HCORRAL_IMAGE_REVISION=1
-RUN npm install --global --ignore-scripts "@earendil-works/pi-coding-agent@${HCORRAL_PI_VERSION}" \
-    && pi --version | grep -F "${HCORRAL_PI_VERSION}"
+RUN NPM_CONFIG_PREFIX=/usr/local npm install --global --ignore-scripts "@earendil-works/pi-coding-agent@${HCORRAL_PI_VERSION}" \
+    && /usr/local/bin/pi --version | grep -F "${HCORRAL_PI_VERSION}"
 RUN printf '%s\n\n%s\n  %s\n' 'Pi container session is running.' 'Run Pi:' 'pi' >/etc/hcorral/session-banner.txt
 LABEL org.opencontainers.image.version="${HCORRAL_PI_VERSION}-r${HCORRAL_IMAGE_REVISION}" \
       ai.infrasecture.hcorral.harness.type="pi" \
