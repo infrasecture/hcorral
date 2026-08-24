@@ -21,7 +21,7 @@ runtime_uid="${HCORRAL_HOST_UID}"
 runtime_home="${HCORRAL_CONTAINER_HOME}"
 runtime_workdir="${HCORRAL_WORKDIR}"
 session="${HCORRAL_BYOBU_SESSION:-hcorral}"
-codex_home="${CODEX_HOME:-${runtime_home}/.codex}"
+codex_home="${runtime_home}/.codex"
 
 [[ "${runtime_uid}" =~ ^[0-9]+$ ]] || die "HCORRAL_HOST_UID must be numeric"
 [[ "${session}" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || die "HCORRAL_BYOBU_SESSION must match [A-Za-z0-9_.-]{1,64}"
