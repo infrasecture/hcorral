@@ -69,6 +69,7 @@ jobs:
       - env:
           HARNESS: ${{ matrix.harness }}
           ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           identity="$(./scripts/build-harness-image.sh --harness "$HARNESS" --revision auto --resolve-only)"
           version="$(sed -n 's/^version=//p' <<<"$identity")"

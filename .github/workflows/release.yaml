@@ -185,6 +185,8 @@ jobs:
           ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
           colima start --cpu 2 --memory 4 --disk 10
           trap 'colima stop' EXIT
+          export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
+          mkdir -p "$TEST_TMPDIR"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
           chmod 0755 "$HCORRAL_TEST_BINARY"
           ./tests/integration/run.sh

@@ -71,9 +71,18 @@ case "${harness}" in
 	pi) version_arg=HCORRAL_PI_VERSION ;;
 esac
 
+github_api_get() {
+	local url="$1" token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+	local args=(--fail --silent --show-error --location --retry 3 --retry-all-errors
+		--header 'Accept: application/vnd.github+json'
+		--header 'X-GitHub-Api-Version: 2022-11-28')
+	if [[ -n "${token}" ]]; then args+=(--header "Authorization: Bearer ${token}"); fi
+	curl "${args[@]}" "${url}"
+}
+
 resolve_latest() {
 	case "${harness}" in
-		codex) curl -fsSL https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))' ;;
+		codex) github_api_get https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))' ;;
 		claude) curl -fsSL https://downloads.claude.ai/claude-code-releases/latest ;;
 		pi) curl -fsSL https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' ;;
 	esac
@@ -138,7 +147,7 @@ fi
 
 codex_checksum_args=()
 if [[ "${harness}" == codex ]]; then
-	release_json="$(curl -fsSL "https://api.github.com/repos/openai/codex/releases/tags/rust-v${version}")"
+	release_json="$(github_api_get "https://api.github.com/repos/openai/codex/releases/tags/rust-v${version}")"
 	for pair in 'amd64 x86_64' 'arm64 aarch64'; do
 		read -r docker_arch upstream_arch <<<"${pair}"
 		digest="$(python3 -c 'import json,sys; d=json.load(sys.stdin); name=sys.argv[1]; print(next(a["digest"].removeprefix("sha256:") for a in d["assets"] if a["name"] == name))' "codex-${upstream_arch}-unknown-linux-musl.tar.gz" <<<"${release_json}")"
