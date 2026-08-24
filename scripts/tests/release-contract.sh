@@ -142,6 +142,13 @@ fi
   if is_pointer_bump_child HEAD; then fail 'arbitrary descendant was accepted as pointer-bump child'; fi
 )
 
+(
+  source ./release.sh --version v1.2.3 --prepare-only
+  prepare() { :; }
+  publish() { fail 'prepare-only dispatched publication'; }
+  run_selected_phases || fail 'successful prepare-only dispatch returned nonzero'
+)
+
 while IFS= read -r use; do
   [[ "${use}" =~ @[0-9a-f]{40}$ ]] || fail "workflow action is not pinned to a full commit: ${use}"
 done < <(sed -nE 's/^[[:space:]]*- uses: ([^#[:space:]]+).*$/\1/p' .github/workflows/*.yaml)
