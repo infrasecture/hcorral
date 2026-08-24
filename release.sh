@@ -374,7 +374,15 @@ publish() {
   echo "Published ${version}; formula commit $(git -C homebrew-tap rev-parse HEAD); repository commit $(git rev-parse HEAD)."
 }
 
+run_selected_phases() {
+	if [[ "${do_prepare}" == true ]]; then
+		prepare
+	fi
+	if [[ "${do_publish}" == true ]]; then
+		publish
+	fi
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-	[[ "${do_prepare}" == true ]] && prepare
-	[[ "${do_publish}" == true ]] && publish
+	run_selected_phases
 fi
