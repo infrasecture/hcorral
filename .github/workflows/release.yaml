@@ -180,7 +180,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          brew install colima docker docker-compose
+          brew install colima coreutils docker docker-compose
           mkdir -p "$HOME/.docker/cli-plugins"
           ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
           colima start --cpu 2 --memory 4 --disk 10
