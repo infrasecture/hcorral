@@ -109,12 +109,12 @@ jobs:
           path: dist
       - run: |
           docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 \
-            sh -c 'dpkg -i /packages/hcorral_0.0.0_linux_${{ matrix.arch }}.deb && hcorral version && dpkg -r hcorral && ! command -v hcorral'
+            sh -c 'dpkg -i /packages/hcorral_0.0.0_linux_${{ matrix.arch }}.deb && hcorral version && dpkg -r hcorral && test ! -e /usr/bin/hcorral'
           docker run --rm -v "$PWD/dist:/packages:ro" fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 \
-            sh -c 'rpm -i /packages/hcorral-0.0.0-1.${{ matrix.rpm_arch }}.rpm && hcorral version && rpm -e hcorral && ! command -v hcorral'
+            sh -c 'rpm -i /packages/hcorral-0.0.0-1.${{ matrix.rpm_arch }}.rpm && hcorral version && rpm -e hcorral && test ! -e /usr/bin/hcorral'
           if [[ '${{ matrix.arch }}' == amd64 ]]; then
             docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
-              sh -c 'pacman -U --noconfirm /packages/hcorral-0.0.0-1-x86_64.pkg.tar.zst && hcorral version && pacman -R --noconfirm hcorral && ! command -v hcorral'
+              sh -c 'pacman -U --noconfirm /packages/hcorral-0.0.0-1-x86_64.pkg.tar.zst && hcorral version && pacman -R --noconfirm hcorral && test ! -e /usr/bin/hcorral'
           else
             root="$(mktemp -d)"
             trap 'rm -rf -- "$root"' EXIT
