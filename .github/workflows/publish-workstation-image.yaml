@@ -1,0 +1,90 @@
+name: Publish workstation image
+
+on:
+  workflow_dispatch:
+    inputs:
+      codex_version:
+        description: Exact Codex SemVer; empty resolves bounded latest
+        required: false
+        type: string
+      image_revision:
+        description: Positive integer or auto
+        required: true
+        default: auto
+        type: string
+      publish_latest:
+        description: Permit monotonic latest promotion
+        required: true
+        default: true
+        type: boolean
+  repository_dispatch:
+    types: [codex-version]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workstation-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: image/${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    environment: image-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - env:
+          HCORRAL_IMAGE_ARCHS: ${{ matrix.arch }}
+          HCORRAL_IMAGE_RELEASE_ARCHS: amd64 arm64
+          HCORRAL_PUBLISH_LATEST: ${{ github.event_name == 'repository_dispatch' && 'true' || inputs.publish_latest }}
+          CODEX_VERSION: ${{ inputs.codex_version || github.event.client_payload.codex_version }}
+          IMAGE_REVISION: ${{ inputs.image_revision || 'auto' }}
+        run: |
+          args=(--revision "$IMAGE_REVISION" --push)
+          [[ -z "$CODEX_VERSION" ]] || args+=(--version "$CODEX_VERSION")
+          ./scripts/build-workstation-image.sh "${args[@]}"
+
+  manifest:
+    name: image/manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: image-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - env:
+          HCORRAL_IMAGE_RELEASE_ARCHS: amd64 arm64
+          HCORRAL_PUBLISH_LATEST: ${{ github.event_name == 'repository_dispatch' && 'true' || inputs.publish_latest }}
+          CODEX_VERSION: ${{ inputs.codex_version || github.event.client_payload.codex_version }}
+          IMAGE_REVISION: ${{ inputs.image_revision || 'auto' }}
+        run: |
+          args=(--revision "$IMAGE_REVISION" --manifest)
+          [[ -z "$CODEX_VERSION" ]] || args+=(--version "$CODEX_VERSION")
+          ./scripts/build-workstation-image.sh "${args[@]}"

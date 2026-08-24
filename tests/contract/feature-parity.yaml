@@ -1,0 +1,60 @@
+schema: 1
+baseline:
+  mycodex_commit: cf3ee24af2b077996ac176ffffd1e34e892df061
+  inspected: 2026-08-23
+features:
+  - id: CLI-001
+    requirement: Typed CLI, environment precedence, JSON Compose argv, and exact process arguments
+    platforms: [linux, darwin]
+    evidence: [internal/config/config_test.go, internal/compose/argv_test.go, internal/command/runner_test.go]
+    status: implemented
+  - id: ID-001
+    requirement: Physical workspace, underscore slug, seven-character name hash, and full-label ownership
+    platforms: [linux, darwin]
+    evidence: [internal/identity/identity_test.go, tests/integration/real-docker.sh]
+    status: implemented
+  - id: LEGACY-001
+    requirement: Read-only same-workspace myCodex guard with zero mutation
+    platforms: [linux, darwin]
+    evidence: [internal/legacyguard/guard_test.go]
+    status: implemented
+  - id: STATE-001
+    requirement: Shared, private, and custom state with ownership-safe deletion
+    platforms: [linux, darwin]
+    evidence: [internal/app/state.go, tests/integration/real-docker.sh]
+    status: implemented
+  - id: COMPOSE-001
+    requirement: Built-in definition, ordered overlays, managed-field validation, sidecars, and drift
+    platforms: [linux, darwin]
+    evidence: [internal/compose, tests/integration/real-docker.sh]
+    status: implemented
+  - id: LIFE-001
+    requirement: Attach-first lifecycle, explicit pull/reconciliation, readiness, and process fidelity
+    platforms: [linux, darwin]
+    evidence: [internal/app/launch.go, tests/integration/real-docker.sh]
+    status: implemented
+  - id: SESSION-001
+    requirement: Idempotent entrypoint and in-place missing-session recovery
+    platforms: [linux, darwin]
+    evidence: [image/session-init.sh, tests/integration/real-docker.sh]
+    status: implemented
+  - id: UPDATE-001
+    requirement: Non-mutating bounded Codex version notice with SemVer and pin awareness
+    platforms: [linux, darwin]
+    evidence: [internal/update/semver_test.go]
+    status: implemented
+  - id: GUI-001
+    requirement: Narrow Linux X11 and Wayland forwarding; unconditional Darwin rejection
+    platforms: [linux, darwin]
+    evidence: [internal/gui, internal/config/config_test.go]
+    status: implemented
+  - id: IMAGE-001
+    requirement: Complete workstation tools, identity bootstrap, architectures, and immutable publication
+    platforms: [linux/amd64, linux/arm64]
+    evidence: [image, scripts/tests/image-versioning.sh]
+    status: implemented
+  - id: RELEASE-001
+    requirement: Four launcher targets, Linux packages, GitHub release, Homebrew, and exact-byte publication
+    platforms: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
+    evidence: [build.sh, release.sh, scripts/tests/release-contract.sh, .github/workflows]
+    status: implemented

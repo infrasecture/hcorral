@@ -1,0 +1,184 @@
+name: Release launcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact vMAJOR.MINOR.PATCH version
+        required: true
+        type: string
+      channel:
+        description: Release qualification channel
+        required: true
+        default: preview
+        type: choice
+        options: [preview, stable]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-launcher
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: release/prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: true
+      - env:
+          GITHUB_REF_NAME: main
+        run: ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --prepare-only
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+
+  qualify-linux:
+    name: release/linux-${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          pkg_version="${VERSION#v}"
+          case '${{ matrix.arch }}' in
+            amd64) rpm_arch=x86_64; arch_arch=x86_64 ;;
+            arm64) rpm_arch=aarch64; arch_arch=aarch64 ;;
+          esac
+          docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 \
+            sh -c "dpkg -i /packages/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb && hcorral version"
+          docker run --rm -v "$PWD/dist:/packages:ro" fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 \
+            sh -c "rpm -i /packages/hcorral-${pkg_version}-1.${rpm_arch}.rpm && hcorral version"
+          docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
+            sh -c "pacman -U --noconfirm /packages/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst && hcorral version"
+          chmod 0755 "dist/bin/hcorral-linux-${{ matrix.arch }}"
+          HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}" ./tests/integration/real-docker.sh
+
+  qualify-darwin:
+    name: release/homebrew-${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          pkg_version="${VERSION#v}"
+          tar -xzf "dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/hcorral" version
+          ruby -c dist/Formula/hcorral.rb
+          formula="$RUNNER_TEMP/hcorral.rb"
+          cp dist/Formula/hcorral.rb "$formula"
+          archive="$PWD/dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz"
+          ARCHIVE="$archive" ARCH="$ARCH" ruby -pi -e '
+            if $_.include?("darwin_#{ENV.fetch("ARCH")}.tar.gz\"")
+              $_ = "    url \"file://#{ENV.fetch("ARCHIVE")}\"\n"
+            end
+          ' "$formula"
+          brew install --formula "$formula"
+          hcorral version
+          brew test "$formula"
+          brew uninstall hcorral
+
+  qualify-docker-desktop:
+    name: release/docker-desktop
+    if: inputs.channel == 'stable'
+    needs: prepare
+    runs-on: [self-hosted, macOS, hcorral-docker-desktop]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - run: |
+          arch="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
+          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${arch}"
+          chmod 0755 "$HCORRAL_TEST_BINARY"
+          ./tests/integration/real-docker.sh
+
+  approve:
+    name: release/approve
+    needs: [qualify-linux, qualify-darwin, qualify-docker-desktop]
+    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && (needs.qualify-docker-desktop.result == 'success' || (inputs.channel == 'preview' && needs.qualify-docker-desktop.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    environment: release
+    steps:
+      - run: echo 'Publication approved for ${{ inputs.version }}'
+
+  publish:
+    name: release/publish
+    needs: approve
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          HCORRAL_TAP_TOKEN: ${{ secrets.HCORRAL_TAP_TOKEN }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C homebrew-tap config user.name github-actions[bot]
+          git -C homebrew-tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C homebrew-tap remote set-url origin "https://x-access-token:${HCORRAL_TAP_TOKEN}@github.com/infrasecture/homebrew-tap.git"
+          ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --publish-prepared
+
+  verify:
+    name: release/verify
+    needs: publish
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view '${{ inputs.version }}' --repo infrasecture/hcorral
+          brew install infrasecture/tap/hcorral
+          hcorral version
+          brew test infrasecture/tap/hcorral
+          brew audit --strict --online infrasecture/tap/hcorral
+          brew uninstall hcorral

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: ci/source
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: true
+      - run: ./scripts/ci-source.sh
+
+  build:
+    name: build/release-matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: true
+      - run: ./build.sh --release --cli-version v0.0.0 --packages
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
+  linux:
+    name: ci/linux
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist
+      - run: |
+          chmod 0755 "dist/bin/hcorral-linux-${{ matrix.arch }}"
+          "dist/bin/hcorral-linux-${{ matrix.arch }}" version
+      - if: matrix.arch == 'amd64'
+        env:
+          HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-amd64
+        run: ./tests/integration/real-docker.sh
+
+  darwin:
+    name: ci/darwin
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist
+      - run: |
+          tar -xzf "dist/hcorral_0.0.0_darwin_${{ matrix.arch }}.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/hcorral" version
+          "$RUNNER_TEMP/hcorral" --help
+          if "$RUNNER_TEMP/hcorral" --gui=x11 info; then
+            echo 'macOS GUI request unexpectedly succeeded' >&2
+            exit 1
+          fi
+
+  reproducible:
+    name: ci/reproducible
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: true
+      - run: |
+          ./build.sh --release --cli-version v0.0.0 --packages
+          cp dist/SHA256SUMS "$RUNNER_TEMP/first"
+          rm -rf dist
+          ./build.sh --release --cli-version v0.0.0 --packages
+          diff -u "$RUNNER_TEMP/first" dist/SHA256SUMS

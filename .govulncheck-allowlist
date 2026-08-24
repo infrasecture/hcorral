@@ -1,0 +1,2 @@
+# One reachable GO-YYYY-NNNN identifier per line, with an explanatory comment.
+# Public releases may not use HCORRAL_SKIP_VULNCHECK.

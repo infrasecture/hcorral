@@ -1,0 +1,14 @@
+services:
+  hcorral:
+    labels:
+      ai.infrasecture.hcorral.gui: wayland
+    environment:
+      WAYLAND_DISPLAY: /tmp/.hcorral-wayland
+      XDG_SESSION_TYPE: wayland
+    volumes:
+      - type: bind
+        source: ${HCORRAL_WAYLAND_SOCKET:?hcorral must provide the selected Wayland socket}
+        target: /tmp/.hcorral-wayland
+        read_only: true
+        bind:
+          create_host_path: false

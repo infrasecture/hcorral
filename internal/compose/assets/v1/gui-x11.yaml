@@ -1,0 +1,20 @@
+services:
+  hcorral:
+    labels:
+      ai.infrasecture.hcorral.gui: x11
+    environment:
+      DISPLAY: ${HCORRAL_X11_DISPLAY:?hcorral must provide the selected X11 display}
+      XAUTHORITY: /tmp/.hcorral-xauthority
+    volumes:
+      - type: bind
+        source: ${HCORRAL_X11_SOCKET:?hcorral must provide the selected X11 socket}
+        target: ${HCORRAL_X11_SOCKET:?hcorral must provide the selected X11 socket}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HCORRAL_X11_AUTHORITY:?hcorral must provide the copied X11 credential}
+        target: /tmp/.hcorral-xauthority
+        read_only: true
+        bind:
+          create_host_path: false

@@ -1,0 +1,5 @@
+image/Dockerfile
+image/entrypoint.sh
+image/session-init.sh
+scripts/build-workstation-image.sh
+scripts/lib/hcorral-image.sh

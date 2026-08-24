@@ -1,0 +1,41 @@
+services:
+  hcorral:
+    image: ${HCORRAL_IMAGE_NAME:?hcorral launcher must select an image}:${HCORRAL_IMAGE_TAG:?hcorral launcher must select an image tag}
+    container_name: ${HCORRAL_CONTAINER_NAME:?hcorral launcher must select a container name}
+    restart: unless-stopped
+    init: true
+    tty: true
+    stdin_open: true
+    working_dir: ${HCORRAL_WORKDIR:?hcorral launcher must select a workdir}
+    labels:
+      ai.infrasecture.hcorral.workspace-id: ${HCORRAL_WORKSPACE_ID:?Run this project through hcorral; direct Compose use is unsafe.}
+      ai.infrasecture.hcorral.workspace-id-scheme: v1
+      ai.infrasecture.hcorral.gui: ${HCORRAL_GUI_MODE:-none}
+      ai.infrasecture.hcorral.runtime-schema: "1"
+    environment:
+      HCORRAL_LAUNCHED_BY_WRAPPER: ${HCORRAL_LAUNCHED_BY_WRAPPER:?Run this project through hcorral; direct Compose use lacks host identity and ownership checks.}
+      HCORRAL_HOST_UID: ${HCORRAL_HOST_UID:?hcorral launcher must provide the host UID}
+      HCORRAL_HOST_GID: ${HCORRAL_HOST_GID:?hcorral launcher must provide the host GID}
+      HCORRAL_HOST_USER: ${HCORRAL_HOST_USER:?hcorral launcher must provide the host user}
+      HCORRAL_HOST_GROUP: ${HCORRAL_HOST_GROUP:?hcorral launcher must provide the host group}
+      HCORRAL_HOST_GROUPS: ${HCORRAL_HOST_GROUPS:?hcorral launcher must provide supplementary groups}
+      HCORRAL_CONTAINER_HOME: ${HCORRAL_CONTAINER_HOME:?hcorral launcher must provide the container home}
+      HCORRAL_WORKDIR: ${HCORRAL_WORKDIR:?hcorral launcher must provide the workdir}
+      CODEX_HOME: ${HCORRAL_CONTAINER_HOME:?hcorral launcher must provide the container home}/.codex
+      HCORRAL_BYOBU_SESSION: ${HCORRAL_BYOBU_SESSION:-hcorral}
+      HCORRAL_AUTO_ATTACH: ${HCORRAL_AUTO_ATTACH:-false}
+      HCORRAL_ATTACH_HINT: ${HCORRAL_ATTACH_HINT:-hcorral}
+    volumes:
+      - type: bind
+        source: ${HCORRAL_WORKSPACE:?hcorral launcher must provide the workspace}
+        target: ${HCORRAL_WORKSPACE:?hcorral launcher must provide the workspace}
+        bind:
+          create_host_path: false
+      - type: volume
+        source: hcorral_state
+        target: ${HCORRAL_CONTAINER_HOME:?hcorral launcher must provide the container home}
+
+volumes:
+  hcorral_state:
+    external: true
+    name: ${HCORRAL_STATE_VOLUME_NAME:?hcorral launcher must provide the state volume}
