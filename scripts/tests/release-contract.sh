@@ -33,10 +33,14 @@ grep -Fq 'object_type}" == tag' release.sh || fail 'existing release tag type is
 grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .github/workflows/release.yaml || fail 'protected repository publication credential is missing'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
-grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
+# shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
+grep -Fq 'brew audit --strict "$qualified_formula"' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
 grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
+if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml; then fail 'Homebrew qualification audits a disabled formula path'; fi
+# shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
+grep -Fq 'brew tap-new --no-git "$qualification_tap"' .github/workflows/release.yaml || fail 'Homebrew qualification does not use an isolated local tap'
 grep -Fq "grep -Fxq 'arch = aarch64'" .github/workflows/release.yaml || fail 'arm64 Arch package metadata qualification is missing'
 grep -Fq 'pacman -U --noconfirm' .github/workflows/release.yaml || fail 'amd64 Arch package installation qualification is missing'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
