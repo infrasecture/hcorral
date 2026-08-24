@@ -5,7 +5,9 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 binary="${HCORRAL_TEST_BINARY:-${repo_root}/dist/bin/hcorral-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')}"
 [[ -x "${binary}" ]] || { echo "missing test binary: ${binary}" >&2; exit 2; }
 
-test_root="$(mktemp -d /tmp/hcorral-integration.XXXXXX)"
+test_tmpdir="${TEST_TMPDIR:-${TMPDIR:-/tmp}}"
+mkdir -p "${test_tmpdir}"
+test_root="$(mktemp -d "${test_tmpdir%/}/hcorral-integration.XXXXXX")"
 workspace="${test_root}/Client Portal"
 mkdir -p "${workspace}" "${test_root}/cache"
 fixture_image="hcorral-integration-fixture:$(date +%s)-$$"
