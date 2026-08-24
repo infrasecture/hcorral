@@ -65,13 +65,12 @@ class Hcorral < Formula
   homepage "https://github.com/infrasecture/hcorral"
   version "${pkg_version}"
   license "AGPL-3.0-or-later"
+  depends_on :macos
 
-  on_arm do
+  if Hardware::CPU.arm?
     url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_arm64.tar.gz"
     sha256 "${arm_sha}"
-  end
-
-  on_intel do
+  else
     url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_amd64.tar.gz"
     sha256 "${amd_sha}"
   end

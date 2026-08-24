@@ -21,6 +21,9 @@ release_help="$(./release.sh --help)"
 grep -Fq -- '--prepare-only' <<<"${release_help}" || fail 'release help lacks prepare-only'
 grep -Fq -- '--publish-prepared' <<<"${release_help}" || fail 'release help lacks publish-prepared'
 grep -Fq 'AGPL-3.0-or-later' release.sh || fail 'formula license missing'
+grep -Fq 'depends_on :macos' release.sh || fail 'formula is not constrained to macOS'
+grep -Fq 'if Hardware::CPU.arm?' release.sh || fail 'formula lacks supported architecture selection'
+if grep -A3 -F 'on_arm do' release.sh | grep -Fq 'url '; then fail 'formula uses unsupported URL inside on_arm'; fi
 grep -Fq 'bin.install "hcorral"' release.sh || fail 'formula install contract missing'
 grep -Fq 'publish-prepared' release.sh || fail 'publish phase missing'
 grep -Fq 'verify_qualifications' release.sh || fail 'publish phase does not enforce qualification records'
