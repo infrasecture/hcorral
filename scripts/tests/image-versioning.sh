@@ -124,7 +124,7 @@ fi
 if hcorral_assert_clean_image_inputs "${identity_repo}" >/dev/null 2>&1; then
   fail "dirty image inputs were accepted for publication"
 fi
-git -C "${identity_repo}" checkout -q -- entrypoint.sh
+git -C "${identity_repo}" checkout -q -- image/entrypoint.sh
 printf 'documentation only\n' >"${identity_repo}/README.md"
 if [[ "$(hcorral_build_input_digest "${identity_repo}")" != "${baseline_input_digest}" ]]; then
   fail "unrelated documentation changed the image-input digest"

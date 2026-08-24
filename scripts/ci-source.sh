@@ -19,6 +19,7 @@ run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=2s
 shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/integration/*.sh tests/fixtures/minimal-image/*.sh
 bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/integration/*.sh tests/fixtures/minimal-image/*.sh
 scripts/tests/release-contract.sh
+scripts/tests/image-versioning.sh
 
 grep -Fq 'GNU AFFERO GENERAL PUBLIC LICENSE' LICENSE
 grep -Fq 'AGPL-3.0-or-later' README.md
