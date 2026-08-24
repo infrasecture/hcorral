@@ -305,6 +305,7 @@ verify_release_tag() {
 
 publish() {
 	require_command gh
+	[[ -n "${GH_TOKEN:-}" ]] || { echo 'ERROR: GH_TOKEN is required for publication' >&2; exit 1; }
 	[[ -n "${HCORRAL_TAP_TOKEN:-}" ]] || { echo 'ERROR: HCORRAL_TAP_TOKEN is required for publication' >&2; exit 1; }
   require_clean_source
   load_and_verify

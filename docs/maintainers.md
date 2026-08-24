@@ -34,6 +34,11 @@ Preparation is non-publishing and records exact artifact hashes under ignored
 `dist/release-state/`. Publication never rebuilds. Public releases normally use
 `.github/workflows/release.yaml`, including Linux package, macOS/Homebrew, and
 Docker Desktop qualification.
+The protected `release` environment must contain two fine-grained secrets:
+`HCORRAL_REPOSITORY_TOKEN` has contents-write access only to
+`infrasecture/hcorral` and uses the repository ruleset's explicit owner bypass;
+`HCORRAL_TAP_TOKEN` has contents-write access only to
+`infrasecture/homebrew-tap`. The default workflow token remains read-only.
 The official Arch Linux container is amd64-only, so its qualification installs
 through `pacman` on amd64. The native arm64 job instead extracts the Arch package
 into an isolated root, verifies its metadata, paths, and modes, and executes the

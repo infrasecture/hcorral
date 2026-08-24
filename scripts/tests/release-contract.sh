@@ -29,6 +29,10 @@ grep -Fq 'reconcile_existing_release' release.sh || fail 'partial release recove
 grep -Fq 'existing pointer-bump child references a different formula' release.sh || fail 'tap retry identity check is missing'
 grep -Fq 'actions/artifacts/' release.sh || fail 'Actions transport identity is not verified remotely'
 grep -Fq 'object_type}" == tag' release.sh || fail 'existing release tag type is not verified'
+# shellcheck disable=SC2016 # Match literal workflow expressions.
+grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .github/workflows/release.yaml || fail 'protected repository publication credential is missing'
+# shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
+grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
 grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
 grep -Fq "grep -Fxq 'arch = aarch64'" .github/workflows/release.yaml || fail 'arm64 Arch package metadata qualification is missing'

@@ -289,7 +289,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment: release
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -310,7 +310,8 @@ jobs:
           name: release-transport-${{ github.sha }}
           path: dist
       - env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}
+          HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}
           HCORRAL_TAP_TOKEN: ${{ secrets.HCORRAL_TAP_TOKEN }}
           HCORRAL_REQUIRE_ACTIONS_TRANSPORT: "true"
           HCORRAL_RELEASE_SOURCE_COMMIT: ${{ github.sha }}
@@ -319,6 +320,7 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C homebrew-tap config user.name github-actions[bot]
           git -C homebrew-tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"
           git -C homebrew-tap remote set-url origin "https://x-access-token:${HCORRAL_TAP_TOKEN}@github.com/infrasecture/homebrew-tap.git"
           ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --publish-prepared
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
