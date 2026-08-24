@@ -60,7 +60,7 @@ preserve_home=/home/hcorral-preserve
 mkdir -p "${preserve_workspace}"
 docker volume create "${preserve_volume}" >/dev/null
 docker run --rm --entrypoint sh --mount "type=volume,source=${preserve_volume},target=${preserve_home}" "${image}" -c \
-  'mkdir -p "$1/.codex"; printf "custom = true\n" >"$1/.codex/config.toml"; printf keep >"$1/preexisting"' sh "${preserve_home}"
+  'mkdir -p "$1/.codex"; printf "custom = true\n" >"$1/.codex/config.toml"; printf keep >"$1/preexisting"; chown -R 12347:23458 "$1"' sh "${preserve_home}"
 docker run --rm \
   --env HCORRAL_LAUNCHED_BY_WRAPPER=1 \
   --env HCORRAL_HOST_UID=12347 --env HCORRAL_HOST_GID=23458 \
