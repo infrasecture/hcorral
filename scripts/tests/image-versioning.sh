@@ -305,6 +305,10 @@ docker() {
   fi
 
   if [[ "$1" == "run" ]]; then
+		if [[ " $* " == *" HCORRAL_BYOBU_SESSION=bad:window "* ]]; then
+			printf 'hcorral: HCORRAL_BYOBU_SESSION must match [A-Za-z0-9_.-]{1,64}\n' >&2
+			return 2
+		fi
     return
   fi
 
