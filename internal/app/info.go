@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/compose"
@@ -42,14 +43,24 @@ type snapshotLauncher struct {
 }
 
 type snapshotProject struct {
-	Name      string `json:"name"`
-	Service   string `json:"service"`
-	Container string `json:"container"`
+	Name      string                 `json:"name"`
+	Service   string                 `json:"service"`
+	Container string                 `json:"container"`
+	Others    []snapshotOtherProject `json:"other_workspace_projects"`
+}
+
+type snapshotOtherProject struct {
+	Name     string `json:"name"`
+	Harness  string `json:"harness"`
+	CorralID string `json:"corral_id"`
+	Status   string `json:"status"`
 }
 
 type snapshotConfig struct {
-	ImageName        string            `json:"image_name"`
-	ImageTag         string            `json:"image_tag"`
+	Harness          string            `json:"harness"`
+	Image            string            `json:"image"`
+	UserConfigFile   string            `json:"user_config_file"`
+	Warnings         []string          `json:"warnings"`
 	StateMode        config.StateMode  `json:"state_mode"`
 	StateVolume      string            `json:"state_volume"`
 	GUI              config.GUIIntent  `json:"gui"`
@@ -87,8 +98,13 @@ type snapshotContainer struct {
 }
 
 type snapshotImage struct {
-	SelectedReference string `json:"selected_reference"`
-	DeployedReference string `json:"deployed_reference"`
+	SelectedReference string   `json:"selected_reference"`
+	SelectedID        string   `json:"selected_id"`
+	SelectedDigests   []string `json:"selected_digests"`
+	RenderedReference string   `json:"rendered_reference"`
+	DeployedReference string   `json:"deployed_reference"`
+	DeployedID        string   `json:"deployed_id"`
+	DeployedDigests   []string `json:"deployed_digests"`
 }
 
 type snapshotState struct {
@@ -164,10 +180,12 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 		Schema:    1,
 		Launcher:  snapshotLauncher{Version: Version, Commit: Commit, Schema: identity.RuntimeSchemaVersion},
 		Workspace: workspace,
-		Project:   snapshotProject{Name: workspace.Project, Service: "hcorral", Container: workspace.Project},
+		Project:   snapshotProject{Name: workspace.Project, Service: "hcorral", Container: workspace.Project, Others: []snapshotOtherProject{}},
 		Configuration: snapshotConfig{
-			ImageName:        cfg.ImageName,
-			ImageTag:         cfg.ImageTag,
+			Harness:          cfg.Harness,
+			Image:            cfg.Image,
+			UserConfigFile:   cfg.ConfigFile,
+			Warnings:         nonNilStrings(cfg.Warnings),
 			StateMode:        cfg.StateMode,
 			StateVolume:      stateVolumeName(cfg, workspace),
 			GUI:              cfg.GUI,
@@ -186,7 +204,7 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 		Ownership: snapshotOwnership{Status: "absent"},
 		MyCodex:   snapshotMyCodex{Status: "clear", Conflict: legacy},
 		Container: snapshotContainer{Status: "absent"},
-		Image:     snapshotImage{SelectedReference: cfg.ImageName + ":" + cfg.ImageTag},
+		Image:     snapshotImage{SelectedReference: cfg.Image, SelectedDigests: []string{}, DeployedDigests: []string{}},
 		State: snapshotState{
 			Mode:    cfg.StateMode,
 			Volume:  stateVolumeName(cfg, workspace),
@@ -197,7 +215,7 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 		GUI:     snapshotGUI{Requested: cfg.GUI, Effective: effectiveGUI(cfg, candidate), Deployed: deployedGUI(candidate)},
 		Compose: snapshotCompose{Command: commandSummary, Files: nonNilStrings(cfg.ComposeFiles), Services: []string{}, DesiredHashes: map[string]string{}, DeployedHashes: map[string]string{}, Drift: "unknown"},
 		Session: snapshotSession{Name: cfg.Session, Status: "absent"},
-		Update:  update.Facts{Enabled: cfg.UpdateCheck, Pinned: cfg.ImageTag != "latest", LookupStatus: "unavailable", LookupErrorKind: "docker"},
+		Update:  update.Facts{Enabled: cfg.UpdateCheck, Pinned: !strings.HasSuffix(cfg.Image, ":latest"), LookupStatus: "unavailable", LookupErrorKind: "docker"},
 		Docker:  snapshotDocker{Available: dockerErr == nil},
 	}
 	if legacy != nil {
@@ -224,6 +242,21 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 }
 
 func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config, workspace identity.Workspace, candidate *containerruntime.Container, containers []containerruntime.Container, ownershipErr error, runner command.Runner, docker containerruntime.Docker) {
+	for _, container := range containers {
+		if container.Config.Labels[identity.LabelWorkspaceID] != workspace.FullID {
+			continue
+		}
+		project := container.Config.Labels["com.docker.compose.project"]
+		if project == "" || project == workspace.Project {
+			continue
+		}
+		s.Project.Others = append(s.Project.Others, snapshotOtherProject{Name: project, Harness: container.Config.Labels[identity.LabelHarnessType], CorralID: container.Config.Labels[identity.LabelCorralID], Status: container.State.Status})
+	}
+	sort.Slice(s.Project.Others, func(i, j int) bool { return s.Project.Others[i].Name < s.Project.Others[j].Name })
+	if image, err := docker.InspectImage(ctx, cfg.Image); err == nil && image != nil {
+		s.Image.SelectedID = image.ID
+		s.Image.SelectedDigests = nonNilStrings(image.RepoDigests)
+	}
 	managed := candidate
 	if ownershipErr != nil {
 		managed = nil
@@ -241,6 +274,10 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		}
 		s.Container = snapshotContainer{Status: candidate.State.Status, ID: candidate.ID, StartedAt: candidate.State.Started, Image: candidate.Config.Image}
 		s.Image.DeployedReference = candidate.Config.Image
+		if image, err := docker.InspectImage(ctx, candidate.Config.Image); err == nil && image != nil {
+			s.Image.DeployedID = image.ID
+			s.Image.DeployedDigests = nonNilStrings(image.RepoDigests)
+		}
 		for _, mount := range candidate.Mounts {
 			s.Mounts = append(s.Mounts, snapshotMount{Type: mount.Type, Name: mount.Name, Source: mount.Source, Destination: mount.Destination, ReadWrite: mount.RW})
 		}
@@ -281,10 +318,13 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		if generated.Path != "" {
 			s.Compose.Files = append(s.Compose.Files, generated.Path)
 		}
-		rendered, renderErr := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+		rendered, renderErr := project.Render(ctx)
 		if renderErr != nil {
 			s.Compose.Error = "rendered project unavailable or invalid"
 		} else {
+			if service, ok := rendered.Services["hcorral"]; ok {
+				s.Image.RenderedReference = service.Image
+			}
 			for service := range rendered.Services {
 				s.Compose.Services = append(s.Compose.Services, service)
 			}
@@ -305,7 +345,7 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		}
 	}
 
-	s.Update = update.Checker{Docker: docker}.Inspect(ctx, cfg, managed)
+	s.Update = update.Checker{Docker: docker, LauncherVersion: Version}.Inspect(ctx, cfg, managed)
 }
 
 func removalSnapshot(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container, exists bool) snapshotRemoval {
@@ -318,6 +358,10 @@ func removalSnapshot(ctx context.Context, docker containerruntime.Docker, cfg co
 		result.Reason = "user-managed custom volume"
 		return result
 	}
+	if cfg.StateMode == config.StateShared {
+		result.Reason = "global shared state is retained by down -v"
+		return result
+	}
 	remove, _, err := planManagedStateRemoval(ctx, docker, cfg, workspace, containers)
 	if err != nil {
 		result.Action, result.Reason = "refuse", "ownership or reference check failed"
@@ -326,7 +370,7 @@ func removalSnapshot(ctx context.Context, docker containerruntime.Docker, cfg co
 	if remove {
 		result.Action, result.Reason = "remove", "launcher-managed volume is safe to remove"
 	} else {
-		result.Reason = "launcher-managed shared volume remains referenced"
+		result.Reason = "workspace-private volume remains referenced"
 	}
 	return result
 }
@@ -430,13 +474,16 @@ func copyStringMap(values map[string]string) map[string]string {
 func printHumanSnapshot(out interface{ Write([]byte) (int, error) }, s snapshot) {
 	fmt.Fprintf(out, "Harness Corral %s\n", s.Launcher.Version)
 	fmt.Fprintf(out, "Workspace: %s\nWorkspace ID: %s\n", s.Workspace.Path, s.Workspace.FullID)
-	fmt.Fprintf(out, "Project: %s\nContainer: %s (%s)\n", s.Project.Name, s.Project.Container, s.Container.Status)
-	fmt.Fprintf(out, "Ownership: %s\nImage: %s\n", s.Ownership.Status, s.Image.SelectedReference)
+	fmt.Fprintf(out, "Harness: %s\nCorral ID: %s\nProject: %s\nContainer: %s (%s)\n", s.Configuration.Harness, s.Workspace.CorralID, s.Project.Name, s.Project.Container, s.Container.Status)
+	if len(s.Project.Others) > 0 {
+		fmt.Fprintf(out, "Other workspace corrals: %v\n", s.Project.Others)
+	}
+	fmt.Fprintf(out, "Ownership: %s\nImage: selected=%s rendered=%s deployed=%s\n", s.Ownership.Status, s.Image.SelectedReference, valueOrEmpty(s.Image.RenderedReference, "unavailable"), valueOrEmpty(s.Image.DeployedReference, "absent"))
 	fmt.Fprintf(out, "State: %s (%s; %s)\n", s.State.Mode, s.State.Volume, s.State.Removal.Action)
 	fmt.Fprintf(out, "Removal: project=%s compose-networks=%v compose-volumes=%v post-compose-volumes=%v retained-volumes=%v retained-networks=%v refusals=%v\n", s.State.Removal.ComposeProject, s.State.Removal.ComposeNetworks, s.State.Removal.ComposeVolumes, s.State.Removal.PostComposeVolumes, s.State.Removal.RetainedExternalVolumes, s.State.Removal.RetainedExternalNetworks, s.State.Removal.PreflightRefusalReasons)
 	fmt.Fprintf(out, "GUI: requested=%s effective=%s deployed=%s\n", valueOrEmpty(s.GUI.Requested.Mode, "unspecified"), s.GUI.Effective, s.GUI.Deployed)
 	fmt.Fprintf(out, "Compose: services=%v drift=%s\nSession: %s\n", s.Compose.Services, s.Compose.Drift, s.Session.Status)
-	fmt.Fprintf(out, "Codex: current=%s selected=%s upstream=%s\n", valueOrEmpty(s.Update.Current, "unknown"), valueOrEmpty(s.Update.Selected, "unknown"), valueOrEmpty(s.Update.Latest, "unknown"))
+	fmt.Fprintf(out, "Harness version: current=%s selected=%s upstream=%s\n", valueOrEmpty(s.Update.Current, "unknown"), valueOrEmpty(s.Update.Selected, "unknown"), valueOrEmpty(s.Update.Latest, "unknown"))
 	if s.MyCodex.Conflict != nil {
 		fmt.Fprintf(out, "myCodex conflict: %s (%s; %s)\n", s.MyCodex.Conflict.Container, s.MyCodex.Conflict.State, s.MyCodex.Conflict.Reason)
 	}

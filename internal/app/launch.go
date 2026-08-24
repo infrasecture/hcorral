@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -25,6 +26,9 @@ func runOperational(cfg config.Config, workspace identity.Workspace, streams Str
 	ctx := context.Background()
 	docker := containerruntime.NewDocker(runner).WithStreams(streams.Out, streams.Err)
 	containers, dockerErr := docker.ListContainers(ctx)
+	if dockerErr == nil {
+		warnCorralMultiplicity(streams.Err, containers, workspace)
+	}
 	legacy := (*legacyguard.Match)(nil)
 	if dockerErr == nil {
 		legacy = legacyguard.Find(containers, workspace.Path)
@@ -83,7 +87,7 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 			}
 			candidate = recovered
 		}
-		update.Checker{Docker: docker, Out: streams.Err}.Notify(ctx, cfg, candidate)
+		update.Checker{Docker: docker, Out: streams.Err, LauncherVersion: Version}.Notify(ctx, cfg, candidate)
 		return replaceAttach(cfg, workspace.Project, streams, runner)
 	}
 
@@ -126,18 +130,18 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 		if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
 			return fail(streams.Err, 1, "%v", err)
 		}
+		notifyRunningContainer(ctx, cfg, workspace.Project, streams.Err, docker)
 		return replaceAttach(cfg, workspace.Project, streams, runner)
 	}
 
-	selection, assets, generated, project, err := prepareProject(ctx, cfg, workspace, nil, streams, runner)
+	_, _, generated, project, err := prepareProject(ctx, cfg, workspace, nil, streams, runner)
 	if generated.Path != "" {
 		defer generated.Cleanup()
 	}
-	_ = assets
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
-	rendered, err := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+	rendered, err := project.Render(ctx)
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
@@ -163,11 +167,23 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 	if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
+	notifyRunningContainer(ctx, cfg, workspace.Project, streams.Err, docker)
 	return replaceAttach(cfg, workspace.Project, streams, runner)
+}
+
+func notifyRunningContainer(ctx context.Context, cfg config.Config, containerName string, out interface{ Write([]byte) (int, error) }, docker containerruntime.Docker) {
+	container, err := docker.InspectContainer(ctx, containerName)
+	if err != nil || container == nil {
+		return
+	}
+	update.Checker{Docker: docker, Out: out, LauncherVersion: Version}.Notify(ctx, cfg, container)
 }
 
 func runCommand(ctx context.Context, cfg config.Config, workspace identity.Workspace, candidate *containerruntime.Container, containers []containerruntime.Container, streams Streams, runner command.Runner, docker containerruntime.Docker) int {
 	name, args := cfg.Command[0], cfg.Command[1:]
+	if name == "state" {
+		return runStateCommand(ctx, args, workspace, containers, streams, docker)
+	}
 	if name == "exec" && len(args) == 0 {
 		return fail(streams.Err, 2, "exec requires a command")
 	}
@@ -212,7 +228,7 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 		return replaceExec(cfg, workspace.Project, args, streams, runner)
 	case "pull":
 		if len(args) == 0 {
-			if err := docker.PullImage(ctx, cfg.ImageName+":"+cfg.ImageTag, streams.Out, streams.Err); err != nil {
+			if err := docker.PullImage(ctx, cfg.Image, streams.Out, streams.Err); err != nil {
 				return fail(streams.Err, childExitCode(err), "%v", err)
 			}
 			return 0
@@ -235,7 +251,7 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 		args = []string{"hcorral"}
 	}
 
-	selection, _, generated, project, err := prepareProject(ctx, cfg, workspace, candidate, streams, runner)
+	_, _, generated, project, err := prepareProject(ctx, cfg, workspace, candidate, streams, runner)
 	if generated.Path != "" {
 		defer generated.Cleanup()
 	}
@@ -244,7 +260,7 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 	}
 	var rendered compose.Rendered
 	if composeCommandMutates(name) {
-		rendered, err = project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+		rendered, err = project.Render(ctx)
 		if err != nil {
 			return fail(streams.Err, 2, "%v", err)
 		}
@@ -276,6 +292,14 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 		removeVolumes := hasAny(args, "-v", "--volumes")
 		removeState := false
 		removeName := stateVolumeName(cfg, workspace)
+		var stateLock *identity.Lock
+		if removeVolumes && cfg.StateMode == config.StatePrivate {
+			stateLock, err = identity.AcquireVolumeLock(stateVolumeName(cfg, workspace))
+			if err != nil {
+				return fail(streams.Err, 1, "%v", err)
+			}
+			defer stateLock.Close()
+		}
 		if removeVolumes {
 			currentContainers, listErr := docker.ListContainers(ctx)
 			if listErr != nil {
@@ -320,6 +344,70 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 	}
 	if err := project.Run(ctx, append([]string{name}, args...)...); err != nil {
 		return fail(streams.Err, childExitCode(err), "%v", err)
+	}
+	return 0
+}
+
+func runStateCommand(ctx context.Context, args []string, workspace identity.Workspace, containers []containerruntime.Container, streams Streams, docker containerruntime.Docker) int {
+	if len(args) != 3 || args[0] != "rm" || args[1] != "--scope" || (args[2] != "global" && args[2] != "workspace") {
+		return fail(streams.Err, 2, "state accepts only `state rm --scope global|workspace`")
+	}
+	name := "hcorral_state"
+	want := identity.SharedVolumeLabels()
+	if args[2] == "workspace" {
+		name = identity.WorkspaceVolumeName(workspace)
+		want = identity.PrivateVolumeLabels(workspace)
+	}
+	lock, err := identity.AcquireVolumeLock(name)
+	if err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	defer lock.Close()
+	containers, err = docker.ListContainers(ctx)
+	if err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	volume, err := docker.InspectVolume(ctx, name)
+	if err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	if volume == nil {
+		fmt.Fprintf(streams.Err, "hcorral: volume %s is already absent\n", name)
+		return 0
+	}
+	labelKeys := make([]string, 0, len(want))
+	for key := range want {
+		labelKeys = append(labelKeys, key)
+	}
+	sort.Strings(labelKeys)
+	fmt.Fprintf(streams.Err, "hcorral: state removal target: %s", name)
+	for _, key := range labelKeys {
+		fmt.Fprintf(streams.Err, "; %s=%q", key, volume.Labels[key])
+	}
+	fmt.Fprintln(streams.Err)
+	for _, key := range labelKeys {
+		value := want[key]
+		if volume.Labels[key] != value {
+			return fail(streams.Err, 1, "refuse to remove volume %s: ownership label %s does not match", name, key)
+		}
+	}
+	references := []string{}
+	for _, container := range containers {
+		for _, mount := range container.Mounts {
+			if mount.Type == "volume" && mount.Name == name {
+				references = append(references, container.CleanName())
+			}
+		}
+	}
+	sort.Strings(references)
+	if len(references) > 0 {
+		fmt.Fprintf(streams.Err, "hcorral: state removal references: %s\n", strings.Join(references, ", "))
+		return fail(streams.Err, 1, "refuse to remove volume %s: %d container(s) still reference it", name, len(references))
+	}
+	fmt.Fprintln(streams.Err, "hcorral: state removal references: none")
+	fmt.Fprintf(streams.Err, "hcorral: removing unreferenced %s state volume %s\n", args[2], name)
+	if err := docker.RemoveVolume(ctx, name); err != nil {
+		return fail(streams.Err, 1, "%v", err)
 	}
 	return 0
 }
@@ -428,7 +516,7 @@ func attachExisting(ctx context.Context, cfg config.Config, workspace identity.W
 				return fail(streams.Err, 1, "%v", err)
 			}
 		}
-		update.Checker{Docker: docker, Out: streams.Err}.Notify(ctx, cfg, candidate)
+		update.Checker{Docker: docker, Out: streams.Err, LauncherVersion: Version}.Notify(ctx, cfg, candidate)
 	}
 	return replaceAttach(cfg, workspace.Project, streams, runner)
 }
@@ -481,7 +569,7 @@ func replaceAttach(cfg config.Config, container string, streams Streams, runner 
 	if err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
-	argv := []string{"docker", "exec", "-it", container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; exec tmux attach -t "$1"`, "bash", cfg.Session}
+	argv := []string{"docker", "exec", "-it", container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; exec tmux attach -t "$1"`, "bash", cfg.Session}
 	if err := runner.Replace(argv, command.EnvironmentWithoutCompose(os.Environ())); err != nil {
 		return fail(streams.Err, 1, "attach: %v", err)
 	}
@@ -497,7 +585,7 @@ func replaceExec(cfg config.Config, container string, args []string, streams Str
 	if isTerminal(streams.In) && isTerminal(streams.Out) {
 		execMode = "-it"
 	}
-	argv := []string{"docker", "exec", execMode, container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; cd "$1"; shift; exec "$@"`, "bash", cfg.Workdir}
+	argv := []string{"docker", "exec", execMode, container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; cd "$1"; shift; exec "$@"`, "bash", cfg.Workdir}
 	argv = append(argv, args...)
 	if err := runner.Replace(argv, command.EnvironmentWithoutCompose(os.Environ())); err != nil {
 		return fail(streams.Err, 1, "exec: %v", err)
@@ -510,7 +598,7 @@ func sessionReady(ctx context.Context, docker containerruntime.Docker, cfg confi
 	if err != nil {
 		return false
 	}
-	_, err = docker.ExecCapture(ctx, container, "gosu", current.Uid, "env", "HOME="+cfg.ContainerHome, "CODEX_HOME="+cfg.ContainerHome+"/.codex", "byobu-tmux", "has-session", "-t", cfg.Session)
+	_, err = docker.ExecCapture(ctx, container, "gosu", current.Uid, "env", "HOME="+cfg.ContainerHome, "byobu-tmux", "has-session", "-t", cfg.Session)
 	return err == nil
 }
 
@@ -595,7 +683,7 @@ func sanitizedLogLines(content []byte, limit int) []string {
 }
 
 func ensureSelectedImage(ctx context.Context, docker containerruntime.Docker, cfg config.Config, streams Streams) error {
-	reference := cfg.ImageName + ":" + cfg.ImageTag
+	reference := cfg.Image
 	image, err := docker.InspectImage(ctx, reference)
 	if err != nil {
 		return err
@@ -618,14 +706,14 @@ func ensureSelectedImage(ctx context.Context, docker containerruntime.Docker, cf
 }
 
 func desiredDrift(ctx context.Context, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container, runner command.Runner, candidate *containerruntime.Container) (string, string) {
-	selection, _, generated, project, err := prepareProject(ctx, cfg, workspace, candidate, Streams{Out: ioDiscard{}, Err: ioDiscard{}}, runner)
+	_, _, generated, project, err := prepareProject(ctx, cfg, workspace, candidate, Streams{Out: ioDiscard{}, Err: ioDiscard{}}, runner)
 	if generated.Path != "" {
 		defer generated.Cleanup()
 	}
 	if err != nil {
 		return "unknown", err.Error()
 	}
-	rendered, err := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+	rendered, err := project.Render(ctx)
 	if err != nil {
 		return "unknown", err.Error()
 	}
@@ -680,6 +768,9 @@ func verifyProjectContainers(containers []containerruntime.Container, workspace 
 		if owner := container.Config.Labels[identity.LabelWorkspaceID]; owner != "" && owner != workspace.FullID {
 			return fmt.Errorf("container %s carries conflicting hcorral workspace ID %s", container.CleanName(), owner)
 		}
+		if owner := container.Config.Labels[identity.LabelCorralID]; owner != "" && owner != workspace.CorralID {
+			return fmt.Errorf("container %s carries conflicting hcorral corral ID %s", container.CleanName(), owner)
+		}
 		if service == "hcorral" && (primary == nil || container.CleanName() != workspace.Project || container.ID != primary.ID) {
 			return fmt.Errorf("project %s has an ambiguous primary hcorral service container %s", workspace.Project, container.CleanName())
 		}
@@ -723,7 +814,7 @@ func adoptDeployedState(cfg *config.Config, container *containerruntime.Containe
 			continue
 		}
 		switch mount.Name {
-		case workspace.Project:
+		case identity.WorkspaceVolumeName(workspace):
 			cfg.StateMode, cfg.StateVolumeName = config.StatePrivate, ""
 		case "hcorral_state":
 			cfg.StateMode, cfg.StateVolumeName = config.StateShared, ""
@@ -735,6 +826,26 @@ func adoptDeployedState(cfg *config.Config, container *containerruntime.Containe
 		}
 		return
 	}
+}
+
+func warnCorralMultiplicity(stderr interface{ Write([]byte) (int, error) }, containers []containerruntime.Container, workspace identity.Workspace) {
+	projects := map[string]bool{}
+	for _, container := range containers {
+		if container.Config.Labels[identity.LabelCorralID] == workspace.CorralID {
+			if project := container.Config.Labels["com.docker.compose.project"]; project != "" && project != workspace.Project {
+				projects[project] = true
+			}
+		}
+	}
+	if len(projects) == 0 {
+		return
+	}
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(stderr, "hcorral: warning: other projects share corral %s: %s; this command targets only %s\n", workspace.CorralID, strings.Join(names, ", "), workspace.Project)
 }
 func stateOf(container *containerruntime.Container) string {
 	if container == nil {

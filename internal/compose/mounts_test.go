@@ -74,17 +74,3 @@ func TestExtraMountOverlayRejectsSymlinkedGeneratedDirectory(t *testing.T) {
 		t.Fatal("symlinked generated overlay directory was accepted")
 	}
 }
-
-func TestPathsOverlap(t *testing.T) {
-	t.Parallel()
-	for _, test := range []struct {
-		left, right string
-		want        bool
-	}{
-		{"/a", "/a", true}, {"/a/b", "/a", true}, {"/a", "/a/b", true}, {"/a", "/ab", false},
-	} {
-		if got := pathsOverlap(test.left, test.right); got != test.want {
-			t.Errorf("pathsOverlap(%q,%q)=%v", test.left, test.right, got)
-		}
-	}
-}

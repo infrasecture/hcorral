@@ -9,10 +9,14 @@ import (
 const (
 	LabelWorkspaceID       = "ai.infrasecture.hcorral.workspace-id"
 	LabelWorkspaceScheme   = "ai.infrasecture.hcorral.workspace-id-scheme"
+	LabelCorralID          = "ai.infrasecture.hcorral.corral-id"
+	LabelCorralScheme      = "ai.infrasecture.hcorral.corral-id-scheme"
+	LabelHarnessType       = "ai.infrasecture.hcorral.harness.type"
 	LabelGUI               = "ai.infrasecture.hcorral.gui"
 	LabelRuntimeSchema     = "ai.infrasecture.hcorral.runtime-schema"
 	LabelStateKind         = "ai.infrasecture.hcorral.state-kind"
 	WorkspaceSchemeVersion = "v1"
+	CorralSchemeVersion    = "v1"
 	RuntimeSchemaVersion   = "1"
 )
 
@@ -26,6 +30,15 @@ func VerifyContainer(container *containerruntime.Container, workspace Workspace)
 	}
 	if labels[LabelWorkspaceScheme] != WorkspaceSchemeVersion {
 		return fmt.Errorf("container %s has unsupported workspace identity scheme %q", container.CleanName(), labels[LabelWorkspaceScheme])
+	}
+	if labels[LabelCorralID] != workspace.CorralID {
+		return fmt.Errorf("container %s belongs to corral ID %q, selected corral ID is %q", container.CleanName(), labels[LabelCorralID], workspace.CorralID)
+	}
+	if labels[LabelCorralScheme] != CorralSchemeVersion {
+		return fmt.Errorf("container %s has unsupported corral identity scheme %q", container.CleanName(), labels[LabelCorralScheme])
+	}
+	if labels[LabelHarnessType] != workspace.Harness {
+		return fmt.Errorf("container %s belongs to harness %q, selected harness is %q", container.CleanName(), labels[LabelHarnessType], workspace.Harness)
 	}
 	if labels[LabelRuntimeSchema] != RuntimeSchemaVersion {
 		return fmt.Errorf("container %s has unsupported runtime schema %q", container.CleanName(), labels[LabelRuntimeSchema])
@@ -41,8 +54,12 @@ func PrivateVolumeLabels(workspace Workspace) map[string]string {
 		LabelWorkspaceID:     workspace.FullID,
 		LabelWorkspaceScheme: WorkspaceSchemeVersion,
 		LabelRuntimeSchema:   RuntimeSchemaVersion,
-		LabelStateKind:       "private",
+		LabelStateKind:       "workspace-private",
 	}
+}
+
+func WorkspaceVolumeName(workspace Workspace) string {
+	return "hcorral-" + workspace.Slug + "-" + workspace.ShortID
 }
 
 func SharedVolumeLabels() map[string]string {

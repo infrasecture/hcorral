@@ -16,7 +16,7 @@ mkdir -p "${workspace}" "${test_root}/cache"
 
 cleanup() {
   if [[ -n "${project}" ]]; then
-    XDG_CACHE_HOME="${test_root}/cache" HCORRAL_WORKSPACE="${workspace}" HCORRAL_IMAGE_NAME="${image%:*}" HCORRAL_IMAGE_TAG="${image##*:}" HCORRAL_PRIVATE_ENV=true HCORRAL_UPDATE_CHECK=false \
+    XDG_CACHE_HOME="${test_root}/cache" HCORRAL_WORKSPACE="${workspace}" HCORRAL_IMAGE="${image}" HCORRAL_PRIVATE_ENV=true HCORRAL_UPDATE_CHECK=false \
       "${binary}" --gui="${mode}" down -v >/dev/null 2>&1 || true
   fi
   docker image rm "${image}" >/dev/null 2>&1 || true
@@ -28,8 +28,7 @@ docker build --quiet --tag "${image}" --file "${repo_root}/tests/fixtures/minima
 run_hcorral() {
   XDG_CACHE_HOME="${test_root}/cache" \
   HCORRAL_WORKSPACE="${workspace}" \
-  HCORRAL_IMAGE_NAME="${image%:*}" \
-  HCORRAL_IMAGE_TAG="${image##*:}" \
+  HCORRAL_IMAGE="${image}" \
   HCORRAL_PRIVATE_ENV=true \
   HCORRAL_UPDATE_CHECK=false \
     "${binary}" "$@"

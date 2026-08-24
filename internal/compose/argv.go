@@ -23,7 +23,7 @@ func NewInvocation(cfg config.Config, workspace identity.Workspace, paths AssetP
 	stateVolume := cfg.StateVolumeName
 	if stateVolume == "" {
 		if cfg.StateMode == config.StatePrivate {
-			stateVolume = workspace.Project
+			stateVolume = identity.WorkspaceVolumeName(workspace)
 		} else {
 			stateVolume = "hcorral_state"
 		}
@@ -61,9 +61,10 @@ func NewInvocation(cfg config.Config, workspace identity.Workspace, paths AssetP
 		"HCORRAL_LAUNCHED_BY_WRAPPER": "1",
 		"HCORRAL_WORKSPACE":           cfg.Workspace,
 		"HCORRAL_WORKSPACE_ID":        workspace.FullID,
+		"HCORRAL_CORRAL_ID":           workspace.CorralID,
+		"HCORRAL_HARNESS_TYPE":        workspace.Harness,
 		"HCORRAL_CONTAINER_NAME":      workspace.Project,
-		"HCORRAL_IMAGE_NAME":          cfg.ImageName,
-		"HCORRAL_IMAGE_TAG":           cfg.ImageTag,
+		"HCORRAL_IMAGE":               cfg.Image,
 		"HCORRAL_STATE_VOLUME_NAME":   stateVolume,
 		"HCORRAL_HOST_UID":            strconv.Itoa(uid),
 		"HCORRAL_HOST_GID":            strconv.Itoa(gid),

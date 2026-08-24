@@ -2,8 +2,9 @@
 
 Status: accepted
 
-Hcorral uses `ai.infrasecture.hcorral.*` labels and a full SHA-256 over the
-versioned namespace, NUL separator, and physical workspace path. Generated
-names are `hcorral-<underscore_slug>-<7-hex>`; the full hash alone proves
-ownership. Short-hash collisions fail closed and require an explicit project
-name.
+Hcorral uses `ai.infrasecture.hcorral.*` labels. A workspace SHA-256 covers the
+versioned namespace and physical path; a corral SHA-256 covers its own
+namespace, that path, and canonical harness type. Generated names are
+`hcorral-<underscore_slug>-<first7_corral_id>` and workspace-private volumes use
+the first seven workspace-ID characters. Full hashes alone prove ownership.
+An explicit project name intentionally permits multiple same-corral instances.

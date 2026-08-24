@@ -170,6 +170,14 @@ jobs:
           hcorral version
           brew test "$formula"
           brew uninstall hcorral
+          brew install colima docker docker-compose
+          mkdir -p "$HOME/.docker/cli-plugins"
+          ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
+          colima start --cpu 2 --memory 4 --disk 10
+          trap 'colima stop' EXIT
+          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
+          chmod 0755 "$HCORRAL_TEST_BINARY"
+          ./tests/integration/run.sh
       - env:
           VERSION: ${{ inputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -184,37 +192,9 @@ jobs:
           path: dist/qualification/darwin-${{ matrix.arch }}.env
           retention-days: 30
 
-  qualify-docker-desktop:
-    name: release/docker-desktop
-    if: inputs.channel == 'stable'
-    needs: prepare
-    runs-on: [self-hosted, macOS, hcorral-docker-desktop]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ inputs.version }}-${{ github.sha }}
-          path: dist
-      - run: |
-          arch="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
-          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${arch}"
-          chmod 0755 "$HCORRAL_TEST_BINARY"
-          ./tests/integration/run.sh
-      - env:
-          VERSION: ${{ inputs.version }}
-          SOURCE_COMMIT: ${{ github.sha }}
-        run: |
-          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
-          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
-          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate docker-desktop --status passed --output dist/qualification/docker-desktop.env
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: qualification-docker-desktop-${{ github.sha }}
-          path: dist/qualification/docker-desktop.env
-          retention-days: 30
-
   qualify-linux-gui:
     name: release/${{ matrix.gate }}
+    if: inputs.channel == 'stable'
     needs: prepare
     strategy:
       matrix:
@@ -256,8 +236,8 @@ jobs:
 
   approve:
     name: release/approve
-    needs: [qualify-linux, qualify-darwin, qualify-linux-gui, qualify-docker-desktop]
-    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && needs.qualify-linux-gui.result == 'success' && (needs.qualify-docker-desktop.result == 'success' || (inputs.channel == 'preview' && needs.qualify-docker-desktop.result == 'skipped'))
+    needs: [qualify-linux, qualify-darwin, qualify-linux-gui]
+    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && (needs.qualify-linux-gui.result == 'success' || (inputs.channel == 'preview' && needs.qualify-linux-gui.result == 'skipped'))
     runs-on: ubuntu-24.04
     environment: release
     steps:
@@ -274,12 +254,14 @@ jobs:
         run: |
           state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
           artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
-          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate docker-desktop --status waived-preview --output dist/qualification/docker-desktop.env
+          for gate in linux-x11 linux-wayland linux-xwayland; do
+            ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$gate" --status waived-preview --output "dist/qualification/$gate.env"
+          done
       - if: inputs.channel == 'preview'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qualification-docker-desktop-${{ github.sha }}
-          path: dist/qualification/docker-desktop.env
+          name: qualification-linux-gui-waived-${{ github.sha }}
+          path: dist/qualification/linux-*.env
           retention-days: 30
       - run: echo 'Publication approved for ${{ inputs.version }}'
 

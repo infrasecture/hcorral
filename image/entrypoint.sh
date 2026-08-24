@@ -50,6 +50,7 @@ require_env HCORRAL_HOST_GROUP
 require_env HCORRAL_HOST_GROUPS
 require_env HCORRAL_CONTAINER_HOME
 require_env HCORRAL_WORKDIR
+require_env HCORRAL_HARNESS_TYPE
 
 for runtime_path in "${HCORRAL_CONTAINER_HOME}" "${HCORRAL_WORKDIR}"; do
   [[ "${runtime_path}" == /* && "${runtime_path}" != *$'\n'* && "${runtime_path}" != *$'\r'* ]] || die "runtime home and workdir must be absolute single-line paths"
@@ -62,7 +63,10 @@ REQUESTED_GROUP="${HCORRAL_HOST_GROUP}"
 HOST_GROUP_SPECS="${HCORRAL_HOST_GROUPS}"
 RUNTIME_HOME="${HCORRAL_CONTAINER_HOME}"
 RUNTIME_WORKDIR="${HCORRAL_WORKDIR}"
-CODEX_HOME="${RUNTIME_HOME}/.codex"
+HARNESS_TYPE="${HCORRAL_HARNESS_TYPE}"
+if [[ -n "${HCORRAL_IMAGE_HARNESS:-}" && "${HCORRAL_IMAGE_HARNESS}" != "${HARNESS_TYPE}" ]]; then
+  die "selected harness ${HARNESS_TYPE} does not match built-in image harness ${HCORRAL_IMAGE_HARNESS}"
+fi
 
 sanitize_account_name() {
   local value="$1"
@@ -282,24 +286,19 @@ toml_escape() {
 }
 
 initialize_codex_config() {
-  local config_file="${CODEX_HOME}/config.toml"
-  local escaped_workdir
+	local config_file="/etc/codex/config.toml"
+	local escaped_workdir
 
-  mkdir -p "${CODEX_HOME}"
-  chown "${RUNTIME_UID}:${RUNTIME_GID}" "${CODEX_HOME}"
-  if [[ -e "${config_file}" ]]; then
-    return
-  fi
-
-  escaped_workdir="$(toml_escape "${RUNTIME_WORKDIR}")"
-  cat >"${config_file}" <<EOF
+	mkdir -p /etc/codex
+	escaped_workdir="$(toml_escape "${RUNTIME_WORKDIR}")"
+	cat >"${config_file}" <<EOF
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
 [projects."${escaped_workdir}"]
 trust_level = "trusted"
 EOF
-  chown "${RUNTIME_UID}:${RUNTIME_GID}" "${config_file}"
+	chmod 0644 "${config_file}"
 }
 
 initialize_claude_config() {
@@ -312,7 +311,7 @@ initialize_claude_config() {
     return
   fi
 
-  cat >"${settings_file}" <<'EOF'
+	cat >"${settings_file}" <<'EOF'
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
@@ -321,7 +320,24 @@ initialize_claude_config() {
   }
 }
 EOF
-  chown "${RUNTIME_UID}:${RUNTIME_GID}" "${settings_file}"
+	chown "${RUNTIME_UID}:${RUNTIME_GID}" "${settings_file}"
+}
+
+initialize_pi_config() {
+	local pi_dir="${RUNTIME_HOME}/.pi/agent"
+	local settings_file="${pi_dir}/settings.json"
+
+	mkdir -p "${pi_dir}"
+	chown "${RUNTIME_UID}:${RUNTIME_GID}" "${RUNTIME_HOME}/.pi" "${pi_dir}"
+	if [[ -e "${settings_file}" ]]; then
+		return
+	fi
+	cat >"${settings_file}" <<'EOF'
+{
+  "defaultProjectTrust": "always"
+}
+EOF
+	chown "${RUNTIME_UID}:${RUNTIME_GID}" "${settings_file}"
 }
 
 mark_sudo_notice_seen() {
@@ -336,27 +352,17 @@ mark_sudo_notice_seen() {
 }
 
 as_runtime_user() {
-  gosu "${RUNTIME_USER}" \
-    env \
-      HOME="${RUNTIME_HOME}" \
-      USER="${RUNTIME_USER}" \
-      LOGNAME="${RUNTIME_USER}" \
-      SHELL=/bin/bash \
-      CODEX_HOME="${CODEX_HOME}" \
-      HCORRAL_WORKDIR="${RUNTIME_WORKDIR}" \
-      "$@"
+	local -a runtime_env=(env HOME="${RUNTIME_HOME}" USER="${RUNTIME_USER}" LOGNAME="${RUNTIME_USER}" SHELL=/bin/bash NPM_CONFIG_PREFIX="${RUNTIME_HOME}/.local/share/npm" PATH="${RUNTIME_HOME}/.local/bin:${RUNTIME_HOME}/.local/share/npm/bin:${RUNTIME_HOME}/.cargo/bin:${PATH}" HCORRAL_WORKDIR="${RUNTIME_WORKDIR}")
+	if [[ "${HARNESS_TYPE}" == codex ]]; then runtime_env+=(CODEX_HOME="${RUNTIME_HOME}/.codex"); fi
+	if [[ "${HARNESS_TYPE}" == claude ]]; then runtime_env+=(DISABLE_AUTOUPDATER=1); fi
+	gosu "${RUNTIME_USER}" "${runtime_env[@]}" "$@"
 }
 
 exec_as_runtime_user() {
-  exec gosu "${RUNTIME_USER}" \
-    env \
-      HOME="${RUNTIME_HOME}" \
-      USER="${RUNTIME_USER}" \
-      LOGNAME="${RUNTIME_USER}" \
-      SHELL=/bin/bash \
-      CODEX_HOME="${CODEX_HOME}" \
-      HCORRAL_WORKDIR="${RUNTIME_WORKDIR}" \
-      "$@"
+	local -a runtime_env=(env HOME="${RUNTIME_HOME}" USER="${RUNTIME_USER}" LOGNAME="${RUNTIME_USER}" SHELL=/bin/bash NPM_CONFIG_PREFIX="${RUNTIME_HOME}/.local/share/npm" PATH="${RUNTIME_HOME}/.local/bin:${RUNTIME_HOME}/.local/share/npm/bin:${RUNTIME_HOME}/.cargo/bin:${PATH}" HCORRAL_WORKDIR="${RUNTIME_WORKDIR}")
+	if [[ "${HARNESS_TYPE}" == codex ]]; then runtime_env+=(CODEX_HOME="${RUNTIME_HOME}/.codex"); fi
+	if [[ "${HARNESS_TYPE}" == claude ]]; then runtime_env+=(DISABLE_AUTOUPDATER=1); fi
+	exec gosu "${RUNTIME_USER}" "${runtime_env[@]}" "$@"
 }
 
 startup_status "configuring runtime user"
@@ -372,16 +378,13 @@ if [[ ! -e "${RUNTIME_WORKDIR}" ]]; then
   chown -R "${RUNTIME_UID}:${RUNTIME_GID}" "${RUNTIME_WORKDIR}"
 fi
 startup_status "initializing tool configuration"
-initialize_codex_config
-initialize_claude_config
+case "${HARNESS_TYPE}" in
+	codex) initialize_codex_config ;;
+	claude) initialize_claude_config ;;
+	pi) initialize_pi_config ;;
+	*) startup_status "custom harness controls its own configuration" ;;
+esac
 mark_sudo_notice_seen
-
-startup_status "preparing workspace compatibility path"
-if [[ "${RUNTIME_WORKDIR}" != "/workspace" ]]; then
-  if rmdir /workspace 2>/dev/null; then
-    ln -s "${RUNTIME_WORKDIR}" /workspace || true
-  fi
-fi
 
 startup_status "creating tmux session"
 /usr/local/bin/hcorral-session-init

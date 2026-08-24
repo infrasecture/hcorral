@@ -33,7 +33,7 @@
       "id": "IMAGE-USER-001",
       "requirement": "UID, account, groups, sudo/gosu, home initialization, workdir ownership, and safe missing-only defaults",
       "baseline_evidence": "myCodex entrypoint account and home initialization at the recorded baseline",
-      "implementation_change": "Namespaced entrypoint with idempotent account, home, Codex, and Claude initialization",
+      "implementation_change": "Shared entrypoint with harness-specific missing-only Codex, Claude, or Pi initialization",
       "platforms": ["linux/amd64", "linux/arm64"],
       "automated_evidence": ["image/entrypoint.sh", "image/session-init.sh", "tests/image/entrypoint-matrix.sh", "tests/integration/real-docker.sh"],
       "manual_evidence": ["release image canary exercises the native architecture and runtime account matrix"],
@@ -53,14 +53,14 @@
     },
     {
       "id": "COMPOSE-001",
-      "requirement": "Embedded base, ordered overlays, mounts, sidecars, rendered validation, hashes, and direct-use guard",
+      "requirement": "Embedded base, ordered unrestricted overlays, mounts, sidecars, rendered diagnostics, hashes, and direct-use guard",
       "baseline_evidence": "myCodex generated Compose and overlay behavior at the recorded baseline",
-      "implementation_change": "Content-addressed embedded Compose assets plus post-render managed-field validation",
+      "implementation_change": "Content-addressed embedded Compose assets plus trusted unrestricted overlay rendering",
       "platforms": ["linux", "darwin"],
       "automated_evidence": ["internal/compose/assets_test.go", "internal/compose/mounts_test.go", "internal/compose/project_test.go", "tests/integration/runtime-contracts.sh"],
       "manual_evidence": [],
       "status": "implemented",
-      "intentional_delta": "The embedded base cannot be replaced; overlays may extend it without changing managed fields"
+      "intentional_delta": "The embedded base is always first; later overlays may override every rendered field"
     },
     {
       "id": "LIFE-001",
@@ -69,7 +69,7 @@
       "implementation_change": "Ownership-gated state machine with advisory mutation locks and process replacement",
       "platforms": ["linux", "darwin"],
       "automated_evidence": ["internal/app/launch_test.go", "tests/integration/real-docker.sh", "tests/integration/runtime-contracts.sh"],
-      "manual_evidence": ["stable release requires the macOS Docker Desktop headless suite"],
+      "manual_evidence": ["release qualification uses the supported macOS Colima headless workflow"],
       "status": "implemented",
       "intentional_delta": "Bare attach never pulls or reconciles and stopped drift requires explicit up"
     },
@@ -86,9 +86,9 @@
     },
     {
       "id": "UPDATE-001",
-      "requirement": "Bounded non-mutating Codex update facts and notices with SemVer and pin awareness",
+      "requirement": "Bounded non-mutating harness update facts and notices with SemVer and pin awareness",
       "baseline_evidence": "myCodex Codex version notice at the recorded baseline",
-      "implementation_change": "Image-label and executable discovery with bounded npm JSON lookup and typed facts",
+      "implementation_change": "Harness-specific image-label, executable, and bounded upstream lookup with typed facts",
       "platforms": ["linux", "darwin"],
       "automated_evidence": ["internal/update/semver_test.go", "internal/update/check_test.go", "internal/app/info_test.go"],
       "manual_evidence": [],
@@ -119,11 +119,11 @@
     },
     {
       "id": "IMAGE-TOOLS-001",
-      "requirement": "Complete workstation tools, entrypoint, exact Codex, optional agents, completion, and both image architectures",
+      "requirement": "Complete workstation tools, shared entrypoint, and isolated exact Codex, Claude, and Pi images on both architectures",
       "baseline_evidence": "myCodex Dockerfile tool surface at the recorded baseline",
-      "implementation_change": "Pinned base/frontend, checksum-verified Node 22, pinned optional agents, and canonical image labels",
+      "implementation_change": "One multi-stage recipe with checksum-verified standalone Codex, native Claude, exact Pi, and canonical labels",
       "platforms": ["linux/amd64", "linux/arm64"],
-      "automated_evidence": ["image/Dockerfile", "scripts/build-workstation-image.sh", "scripts/tests/image-versioning.sh"],
+      "automated_evidence": ["image/Dockerfile", "scripts/build-harness-image.sh", "scripts/tests/image-versioning.sh"],
       "manual_evidence": ["release image jobs build and canary both native architectures"],
       "status": "implemented",
       "intentional_delta": "Only hcorral machine names and ai.infrasecture.hcorral.* labels are emitted"
@@ -132,23 +132,23 @@
       "id": "IMAGE-PUBLISH-001",
       "requirement": "Immutable architecture tags, matching multi-architecture manifest, monotonic aliases, retries, concurrency, and conflict refusal",
       "baseline_evidence": "myCodex split native image publisher at the recorded baseline",
-      "implementation_change": "Single hcorral publisher with one pre-fan-out resolved identity and deterministic control digest",
+      "implementation_change": "Independent per-harness publishers with reviewed input digests and exact immutable identity checks",
       "platforms": ["linux/amd64", "linux/arm64"],
-      "automated_evidence": ["scripts/tests/image-versioning.sh", ".github/workflows/publish-workstation-image.yaml"],
+      "automated_evidence": ["scripts/tests/image-versioning.sh", ".github/workflows/publish-harness-image.yaml"],
       "manual_evidence": ["protected image-release workflow must qualify both GHCR architectures before manifest finalization"],
       "status": "implemented",
-      "intentional_delta": "Only ghcr.io/infrasecture/hcorral is published"
+      "intentional_delta": "Three independent ghcr.io/infrasecture/hcorral-{codex,claude,pi} streams are published"
     },
     {
       "id": "RELEASE-001",
       "requirement": "Four launcher targets, Linux packages, GitHub release, exact-byte publication, Homebrew, and qualification workflows",
       "baseline_evidence": "Vaka build and release model at commit 409ee53a8072282a2660f3e73ab1f204be17b4a9",
-      "implementation_change": "Pinned Go/nFPM deterministic builder with prepare/publish ledger and Homebrew-tap submodule",
+      "implementation_change": "Pinned Go/nFPM builder with prepare/publish ledger and Homebrew-tap submodule",
       "platforms": ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
       "automated_evidence": ["build.sh", "release.sh", "scripts/tests/release-contract.sh", ".github/workflows/release.yaml"],
-      "manual_evidence": ["protected release workflow qualifies packages, both macOS formulae, Docker Desktop, publication, and canonical install"],
+      "manual_evidence": ["protected release workflow qualifies packages, both macOS formulae, Colima headless operation, publication, and canonical install"],
       "status": "implemented",
-      "intentional_delta": "Launcher and workstation image releases are independent"
+      "intentional_delta": "Launcher and all three harness image releases are independent"
     },
     {
       "id": "LEGACY-001",

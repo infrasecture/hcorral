@@ -28,7 +28,7 @@ hcorral_require_stable_version "${version}" || exit 2
 [[ "${source_commit}" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || { echo 'ERROR: invalid qualification source commit' >&2; exit 2; }
 [[ "${artifacts_sha256}" =~ ^[0-9a-f]{64}$ ]] || { echo 'ERROR: invalid qualification artifact digest' >&2; exit 2; }
 case "${gate}" in
-  linux-amd64|linux-arm64|darwin-amd64|darwin-arm64|linux-x11|linux-wayland|linux-xwayland|docker-desktop) ;;
+  linux-amd64|linux-arm64|darwin-amd64|darwin-arm64|linux-x11|linux-wayland|linux-xwayland) ;;
   *) echo "ERROR: invalid qualification gate: ${gate}" >&2; exit 2 ;;
 esac
 case "${status}" in

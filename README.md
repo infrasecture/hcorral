@@ -1,133 +1,121 @@
 # Harness Corral
 
-Harness Corral (`hcorral`) runs a persistent AI development workstation in a
-Docker container. It is a native Go launcher for Linux and macOS hosts, with
-optional narrowly scoped X11 or Wayland forwarding on Linux.
+`hcorral` runs persistent Codex, Claude, and Pi development environments in
+Docker. Each harness gets an independent container in the same physical
+workspace, while the workspace and an optional persisted home can be shared.
 
-The workstation is intentionally configured for autonomous coding agents:
-Codex uses `approval_policy = "never"` and `sandbox_mode = "danger-full-access"`.
-Every mounted path is available to the agent. Docker provides convenient
-process and filesystem separation, not a hardened security sandbox.
-
-## Requirements
-
-- Docker with Linux-container support;
-- Docker Compose v2;
-- Linux or macOS on amd64 or arm64.
-
-macOS is permanently headless. X11 and Wayland forwarding are Linux-only.
-
-## Quick start
-
-```bash
-cd /home/alice/git/payment-api
-hcorral
+```console
+$ cd ~/src/payment-api
+$ hcorral --harness codex
+$ hcorral --harness claude
+$ hcorral --harness pi
 ```
 
-For that exact path, the generated Compose project and container name is
-`hcorral-payment_api-4324ea2`. The readable slug uses `_`, reserving the two
-hyphens for the fixed `hcorral-<slug>-<7-hex>` structure. Docker ownership is
-verified with the full 64-character workspace hash, never the short suffix.
-
-Select a workspace without changing directory:
-
-```bash
-hcorral --workspace /home/alice/git/payment-api
-HCORRAL_WORKSPACE=/home/alice/git/payment-api hcorral
-```
-
-Use private or explicit state:
-
-```bash
-hcorral --private-env
-hcorral --state-volume team-codex-home
-```
-
-The default shared state volume is `hcorral_state`. Private state uses the same
-name as the generated project/container because Docker keeps container and
-volume names in separate namespaces. Explicit custom volumes are never removed
-by `hcorral down -v`.
-
-## Lifecycle
-
-A bare invocation attaches to an existing running environment without pulling,
-starting, reconciling, or recreating it. A stopped matching environment is
-started without recreation. Configuration changes require explicit `up` or
-`create`; `pull` only fetches an image.
-
-```bash
-HCORRAL_IMAGE_TAG=0.147.0-r2 hcorral pull
-HCORRAL_IMAGE_TAG=0.147.0-r2 hcorral up -d
-HCORRAL_IMAGE_TAG=0.147.0-r2 hcorral
-```
-
-Common commands:
+For `/home/alice/src/payment-api`, typical generated resources are:
 
 ```text
-hcorral
-hcorral attach
-hcorral info [--format=human|json]
-hcorral ps
-hcorral start|stop|restart
-hcorral exec <command...>
-hcorral pull
-hcorral up|create|down [arguments...]
+codex container   hcorral-payment_api-ec98cf8
+claude container  hcorral-payment_api-e242908
+shared home       hcorral_state
+private home      hcorral-payment_api-58b272b
 ```
 
-Additional Compose overlays are ordered after the built-in definition:
+The suffixes are the first seven hexadecimal characters of full SHA-256
+identities. The container hash includes the canonical physical path and harness
+type; the private-volume hash includes only the path. Full hashes in
+`ai.infrasecture.hcorral.*` labels, never the suffix, prove ownership.
 
-```bash
-HCORRAL_COMPOSE_FILES='["compose.audit.yaml"]' \
-hcorral -f compose.local.yaml up -d
+## Selection
+
+The harness defaults to `codex`. Select an image independently when needed:
+
+```console
+hcorral --harness claude
+hcorral --harness claude --image registry.example/ai/claude:approved
+hcorral --harness company_agent --image registry.example/ai/agent@sha256:...
 ```
 
-An argv-safe Compose-compatible wrapper can be selected without shell parsing:
+Harness precedence is CLI, `HCORRAL_HARNESS`, user config, then `codex`. Image
+precedence is CLI, `HCORRAL_IMAGE`, the selected user-config entry, then that
+harness's built-in `:latest` image. See [configuration](docs/configuration.md).
 
-```bash
-HCORRAL_COMPOSE_COMMAND='["/usr/local/bin/policy-compose","compose"]' hcorral ps
+`--project-name experiment-a` is an intentional escape hatch for running a
+second independent instance of the same harness against the same workspace.
+Commands using the override target that exact project; commands without it
+target only the generated project. Hcorral warns when it observes this
+multiplicity.
+
+## State and deletion
+
+The default persisted home is the global external volume `hcorral_state`.
+`--private-env` selects the workspace-private volume, and `--state-volume NAME`
+selects a user-managed custom volume.
+
+`hcorral down` removes only the selected Compose project. `hcorral down -v`
+also removes the selected workspace-private volume when its complete ownership
+labels match and no other running or stopped container references it. The
+selected project's own reference disappears during teardown. It never removes
+`hcorral_state` or a custom volume. Orphan cleanup is explicit:
+
+```console
+hcorral state rm --scope workspace
+hcorral state rm --scope global
 ```
 
-## Linux GUI forwarding
+Both commands refuse a referenced volume or one without exact ownership
+labels.
 
-```bash
+## Images and updates
+
+Built-ins are independent multi-architecture streams:
+
+```text
+ghcr.io/infrasecture/hcorral-codex:<codex-version>-rN
+ghcr.io/infrasecture/hcorral-claude:<claude-version>-rN
+ghcr.io/infrasecture/hcorral-pi:<pi-version>-rN
+```
+
+`hcorral pull` only fetches the selected reference. `hcorral up -d` explicitly
+reconciles the container. Bare launch attaches to an already-running container
+without pulling or recreating it. Update checks are bounded, informational, and
+disabled with `HCORRAL_UPDATE_CHECK=false`.
+
+Manual in-container updates are allowed and persisted-user paths precede image
+tools. Recreating a container restores the selected image layer while retaining
+mounted state and workspace data.
+
+## GUI and Compose overlays
+
+Headless mode works with the selected Docker context, including Colima and
+deliberately configured remote daemons. GUI forwarding is Linux-only and
+requires a local daemon:
+
+```console
 hcorral --gui=x11
 hcorral --gui=wayland
-hcorral --no-gui up -d
+hcorral --no-gui
 ```
 
-X11 exposes only the selected display socket and a copied per-display cookie;
-it never runs `xhost +`. Wayland exposes only the selected compositor socket,
-not the complete runtime directory. GUI mode is container configuration and
-changes only through explicit reconciliation.
+The embedded base Compose file is always first. `-f FILE` overlays and `-v`
+mounts are trusted, unrestricted Docker inputs and may replace any built-in
+safety property, image, label, mount, or service. Hcorral reports the final
+rendered/deployed result; it does not sanitize overlays or sidecars.
 
 ## Existing myCodex environments
 
-Hcorral is a separate project and provides no myCodex compatibility or
-migration layer. If it verifies a myCodex container for the same physical
-workspace, it exits without mutation. Use myCodex to attach, or run
-`myCodex down` from the original workspace before using hcorral. Avoid
-`myCodex down -v` unless deletion of its persisted home is intentional.
+Hcorral is a separate project. If it verifies a running or stopped myCodex
+container for the same workspace, operational commands exit without mutation.
+Use myCodex to attach or run `myCodex down` before starting hcorral. Hcorral
+does not migrate, adopt, relabel, or delete myCodex resources.
 
-## Building
+## Development
 
-The build uses pinned Dockerized tooling; a local Go installation is not
-required.
-
-```bash
-./build.sh
+```console
+./scripts/ci-source.sh
 ./build.sh --release --cli-version v0.1.0 --packages
+./scripts/build-harness-image.sh --harness codex --version 0.149.1 --revision 1
 ```
 
-Build a workstation image without publishing:
-
-```bash
-./scripts/build-workstation-image.sh --version 0.147.0 --revision 1
-```
-
-See [configuration](docs/configuration.md), [runtime model](docs/runtime-model.md),
-[security](docs/security.md), and [maintainer documentation](docs/maintainers.md).
-
-## License
-
-Hcorral is licensed under `AGPL-3.0-or-later` (the GNU Affero General Public
-License v3.0 or later). See [LICENSE](LICENSE).
+Launcher releases and each harness image stream are versioned independently.
+The project is licensed under `AGPL-3.0-or-later`; direct dependency notices are
+in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

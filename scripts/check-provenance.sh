@@ -19,7 +19,7 @@ done
 grep -Fq -- 'discussioncomment-18127443' docs/provenance.md || fail 'Discussion 15 decision URL is missing'
 grep -Fq -- "${mycodex_commit}" tests/contract/feature-parity.yaml || fail 'feature parity baseline differs from provenance'
 
-for path in image/Dockerfile image/entrypoint.sh image/session-init.sh scripts/build-workstation-image.sh scripts/lib/hcorral-image.sh; do
+for path in image/Dockerfile image/entrypoint.sh image/session-init.sh scripts/build-harness-image.sh scripts/lib/hcorral-image.sh; do
   grep -Fq -- "\`$path\`" docs/provenance.md || fail "copied/adapted inventory is missing ${path}"
 done
 

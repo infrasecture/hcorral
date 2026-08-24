@@ -4,14 +4,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/infrasecture/hcorral/internal/harness"
+	"github.com/pelletier/go-toml/v2"
 )
 
-var sessionPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var (
+	sessionPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	harnessPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+)
 
 type StateMode string
 
@@ -30,8 +38,10 @@ type Config struct {
 	CallerDir              string
 	Workspace              string
 	ProjectName            string
-	ImageName              string
-	ImageTag               string
+	Harness                string
+	Image                  string
+	ConfigFile             string
+	Warnings               []string
 	StateMode              StateMode
 	StateVolumeName        string
 	StateSpecified         bool
@@ -52,10 +62,25 @@ type Config struct {
 }
 
 type ParseOptions struct {
-	CallerDir string
-	HomeDir   string
-	Platform  string
-	Getenv    func(string) string
+	CallerDir, HomeDir, Platform string
+	Getenv                       func(string) string
+	Environ                      func() []string
+}
+type fileConfig struct {
+	DefaultHarness string                       `toml:"default_harness"`
+	Harness        map[string]fileHarnessConfig `toml:"harness"`
+}
+type fileHarnessConfig struct {
+	Image string `toml:"image"`
+}
+
+var knownEnvironment = map[string]bool{
+	"HCORRAL_HARNESS": true, "HCORRAL_IMAGE": true, "HCORRAL_WORKSPACE": true,
+	"HCORRAL_PROJECT_NAME": true, "HCORRAL_STATE_VOLUME_NAME": true, "HCORRAL_PRIVATE_ENV": true,
+	"HCORRAL_GUI": true, "HCORRAL_COMPOSE_COMMAND": true, "HCORRAL_COMPOSE_FILES": true,
+	"HCORRAL_CONTAINER_HOME": true, "HCORRAL_WORKDIR": true, "HCORRAL_UPDATE_CHECK": true,
+	"HCORRAL_WAIT_TIMEOUT_SECONDS": true, "HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS": true,
+	"HCORRAL_BYOBU_SESSION": true, "HCORRAL_AUTO_ATTACH": true,
 }
 
 func Parse(args []string, options ParseOptions) (Config, error) {
@@ -68,44 +93,43 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 	if options.Platform == "" {
 		options.Platform = runtime.GOOS
 	}
-
-	cfg := Config{
-		CallerDir:              options.CallerDir,
-		Workspace:              valueOr(options.Getenv("HCORRAL_WORKSPACE"), options.CallerDir),
-		ProjectName:            options.Getenv("HCORRAL_PROJECT_NAME"),
-		ImageName:              valueOr(options.Getenv("HCORRAL_IMAGE_NAME"), "ghcr.io/infrasecture/hcorral"),
-		ImageTag:               valueOr(options.Getenv("HCORRAL_IMAGE_TAG"), "latest"),
-		StateMode:              StateShared,
-		StateVolumeName:        options.Getenv("HCORRAL_STATE_VOLUME_NAME"),
-		ComposeCommand:         []string{"docker", "compose"},
-		ContainerHome:          valueOr(options.Getenv("HCORRAL_CONTAINER_HOME"), options.HomeDir),
-		Workdir:                options.Getenv("HCORRAL_WORKDIR"),
-		UpdateCheck:            true,
-		WaitTimeoutSeconds:     30,
-		ProgressIntervalSecond: 2,
-		Session:                valueOr(options.Getenv("HCORRAL_BYOBU_SESSION"), "hcorral"),
-		Platform:               options.Platform,
-		Sources: map[string]string{
-			"workspace":         source(options.Getenv("HCORRAL_WORKSPACE") != ""),
-			"project_name":      source(options.Getenv("HCORRAL_PROJECT_NAME") != ""),
-			"image_name":        source(options.Getenv("HCORRAL_IMAGE_NAME") != ""),
-			"image_tag":         source(options.Getenv("HCORRAL_IMAGE_TAG") != ""),
-			"state":             "default",
-			"gui":               "default",
-			"compose_command":   source(options.Getenv("HCORRAL_COMPOSE_COMMAND") != ""),
-			"compose_files":     source(options.Getenv("HCORRAL_COMPOSE_FILES") != ""),
-			"extra_volumes":     "default",
-			"container_home":    source(options.Getenv("HCORRAL_CONTAINER_HOME") != ""),
-			"workdir":           source(options.Getenv("HCORRAL_WORKDIR") != ""),
-			"update_check":      source(options.Getenv("HCORRAL_UPDATE_CHECK") != ""),
-			"wait_timeout":      source(options.Getenv("HCORRAL_WAIT_TIMEOUT_SECONDS") != ""),
-			"progress_interval": source(options.Getenv("HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS") != ""),
-			"session":           source(options.Getenv("HCORRAL_BYOBU_SESSION") != ""),
-			"auto_attach":       source(options.Getenv("HCORRAL_AUTO_ATTACH") != ""),
-		},
+	path, err := userConfigPath(options)
+	if err != nil {
+		return Config{}, err
+	}
+	file, err := readUserConfig(path)
+	if err != nil {
+		return Config{}, err
 	}
 
-	var err error
+	selectedHarness, harnessSource := "codex", "default"
+	if file.DefaultHarness != "" {
+		selectedHarness, harnessSource = file.DefaultHarness, "user-config"
+	}
+	if value := options.Getenv("HCORRAL_HARNESS"); value != "" {
+		selectedHarness, harnessSource = value, "environment"
+	}
+	cfg := Config{
+		CallerDir: options.CallerDir, Workspace: valueOr(options.Getenv("HCORRAL_WORKSPACE"), options.CallerDir),
+		ProjectName: options.Getenv("HCORRAL_PROJECT_NAME"), Harness: selectedHarness, ConfigFile: path,
+		StateMode: StateShared, StateVolumeName: options.Getenv("HCORRAL_STATE_VOLUME_NAME"),
+		ComposeCommand: []string{"docker", "compose"}, ContainerHome: valueOr(options.Getenv("HCORRAL_CONTAINER_HOME"), options.HomeDir),
+		Workdir: options.Getenv("HCORRAL_WORKDIR"), UpdateCheck: true, WaitTimeoutSeconds: 30,
+		ProgressIntervalSecond: 2, Session: valueOr(options.Getenv("HCORRAL_BYOBU_SESSION"), "hcorral"), Platform: options.Platform,
+		Sources: map[string]string{
+			"workspace": source(options.Getenv("HCORRAL_WORKSPACE") != ""), "project_name": source(options.Getenv("HCORRAL_PROJECT_NAME") != ""),
+			"harness": harnessSource, "image": "default", "state": "default", "gui": "default",
+			"compose_command": source(options.Getenv("HCORRAL_COMPOSE_COMMAND") != ""), "compose_files": source(options.Getenv("HCORRAL_COMPOSE_FILES") != ""),
+			"extra_volumes": "default", "container_home": source(options.Getenv("HCORRAL_CONTAINER_HOME") != ""), "workdir": source(options.Getenv("HCORRAL_WORKDIR") != ""),
+			"update_check": source(options.Getenv("HCORRAL_UPDATE_CHECK") != ""), "wait_timeout": source(options.Getenv("HCORRAL_WAIT_TIMEOUT_SECONDS") != ""),
+			"progress_interval": source(options.Getenv("HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS") != ""),
+			"session":           source(options.Getenv("HCORRAL_BYOBU_SESSION") != ""), "auto_attach": source(options.Getenv("HCORRAL_AUTO_ATTACH") != ""),
+		},
+	}
+	if options.Environ != nil {
+		cfg.Warnings = unknownEnvironmentWarnings(options.Environ())
+	}
+
 	if raw := options.Getenv("HCORRAL_COMPOSE_COMMAND"); raw != "" {
 		cfg.ComposeCommand, err = parseStringArray("HCORRAL_COMPOSE_COMMAND", raw, false)
 		if err != nil {
@@ -119,8 +143,7 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 		}
 	}
 	if raw := options.Getenv("HCORRAL_PRIVATE_ENV"); raw != "" {
-		cfg.StateSpecified = true
-		cfg.Sources["state"] = "environment"
+		cfg.StateSpecified, cfg.Sources["state"] = true, "environment"
 		private, parseErr := parseBool("HCORRAL_PRIVATE_ENV", raw)
 		if parseErr != nil {
 			return Config{}, parseErr
@@ -130,16 +153,14 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 		}
 	}
 	if cfg.StateVolumeName != "" {
-		cfg.StateSpecified = true
-		cfg.Sources["state"] = "environment"
+		cfg.StateSpecified, cfg.Sources["state"] = true, "environment"
 		if cfg.StateMode == StatePrivate {
 			return Config{}, errors.New("HCORRAL_PRIVATE_ENV conflicts with HCORRAL_STATE_VOLUME_NAME")
 		}
 		cfg.StateMode = StateCustom
 	}
 	if raw := options.Getenv("HCORRAL_GUI"); raw != "" {
-		cfg.GUI = GUIIntent{Specified: true, Mode: raw}
-		cfg.Sources["gui"] = "environment"
+		cfg.GUI, cfg.Sources["gui"] = GUIIntent{Specified: true, Mode: raw}, "environment"
 	}
 	if raw := options.Getenv("HCORRAL_UPDATE_CHECK"); raw != "" {
 		cfg.UpdateCheck, err = parseBool("HCORRAL_UPDATE_CHECK", raw)
@@ -166,38 +187,50 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 		}
 	}
 
-	privateFlag := false
-	stateFlag := false
-	cliGUIFlag := false
+	privateFlag, stateFlag, cliGUIFlag := false, false, false
 	for index := 0; index < len(args); {
 		arg := args[index]
 		switch {
 		case arg == "--":
-			cfg.Command = append([]string(nil), args[index+1:]...)
-			index = len(args)
+			cfg.Command, index = append([]string(nil), args[index+1:]...), len(args)
 		case arg == "-h" || arg == "--help":
-			cfg.Command = []string{"help"}
-			index = len(args)
+			cfg.Command, index = []string{"help"}, len(args)
+		case arg == "--harness":
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
+			}
+			cfg.Harness, cfg.Sources["harness"], index = value, "cli", next
+		case strings.HasPrefix(arg, "--harness="):
+			cfg.Harness, cfg.Sources["harness"], index = strings.TrimPrefix(arg, "--harness="), "cli", index+1
+		case arg == "--image":
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
+			}
+			cfg.Image, cfg.Sources["image"], index = value, "cli", next
+		case strings.HasPrefix(arg, "--image="):
+			cfg.Image, cfg.Sources["image"], index = strings.TrimPrefix(arg, "--image="), "cli", index+1
 		case arg == "--workspace":
-			value, next, valueErr := optionValue(args, index, arg)
-			if valueErr != nil {
-				return Config{}, valueErr
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
 			}
 			cfg.Workspace, cfg.Sources["workspace"], index = value, "cli", next
 		case strings.HasPrefix(arg, "--workspace="):
 			cfg.Workspace, cfg.Sources["workspace"], index = strings.TrimPrefix(arg, "--workspace="), "cli", index+1
 		case arg == "--project-name":
-			value, next, valueErr := optionValue(args, index, arg)
-			if valueErr != nil {
-				return Config{}, valueErr
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
 			}
 			cfg.ProjectName, cfg.Sources["project_name"], index = value, "cli", next
 		case strings.HasPrefix(arg, "--project-name="):
 			cfg.ProjectName, cfg.Sources["project_name"], index = strings.TrimPrefix(arg, "--project-name="), "cli", index+1
 		case arg == "--state-volume":
-			value, next, valueErr := optionValue(args, index, arg)
-			if valueErr != nil {
-				return Config{}, valueErr
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
 			}
 			cfg.StateVolumeName, cfg.Sources["state"], stateFlag, index = value, "cli", true, next
 		case strings.HasPrefix(arg, "--state-volume="):
@@ -209,58 +242,69 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 				return Config{}, errors.New("GUI mode was specified more than once")
 			}
 			cliGUIFlag = true
-			cfg.GUI, index = GUIIntent{Specified: true, Mode: "auto"}, index+1
-			cfg.Sources["gui"] = "cli"
+			cfg.GUI, cfg.Sources["gui"], index = GUIIntent{Specified: true, Mode: "auto"}, "cli", index+1
 		case strings.HasPrefix(arg, "--gui="):
 			if cliGUIFlag {
 				return Config{}, errors.New("GUI mode was specified more than once")
 			}
 			cliGUIFlag = true
-			cfg.GUI, index = GUIIntent{Specified: true, Mode: strings.TrimPrefix(arg, "--gui=")}, index+1
-			cfg.Sources["gui"] = "cli"
+			cfg.GUI, cfg.Sources["gui"], index = GUIIntent{Specified: true, Mode: strings.TrimPrefix(arg, "--gui=")}, "cli", index+1
 		case arg == "--no-gui":
 			if cliGUIFlag {
 				return Config{}, errors.New("GUI mode was specified more than once")
 			}
 			cliGUIFlag = true
-			cfg.GUI, index = GUIIntent{Specified: true, Mode: "none"}, index+1
-			cfg.Sources["gui"] = "cli"
+			cfg.GUI, cfg.Sources["gui"], index = GUIIntent{Specified: true, Mode: "none"}, "cli", index+1
 		case arg == "-v" || arg == "--volume":
-			value, next, valueErr := optionValue(args, index, arg)
-			if valueErr != nil {
-				return Config{}, valueErr
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
 			}
 			cfg.ExtraVolumes, cfg.Sources["extra_volumes"], index = append(cfg.ExtraVolumes, value), "cli", next
 		case strings.HasPrefix(arg, "--volume="):
 			cfg.ExtraVolumes, cfg.Sources["extra_volumes"], index = append(cfg.ExtraVolumes, strings.TrimPrefix(arg, "--volume=")), "cli", index+1
 		case arg == "-f" || arg == "--compose-file":
-			value, next, valueErr := optionValue(args, index, arg)
-			if valueErr != nil {
-				return Config{}, valueErr
+			value, next, e := optionValue(args, index, arg)
+			if e != nil {
+				return Config{}, e
 			}
 			cfg.ComposeFiles, cfg.Sources["compose_files"], index = append(cfg.ComposeFiles, value), appendedSource(cfg.Sources["compose_files"]), next
 		case strings.HasPrefix(arg, "--compose-file="):
 			cfg.ComposeFiles, cfg.Sources["compose_files"], index = append(cfg.ComposeFiles, strings.TrimPrefix(arg, "--compose-file=")), appendedSource(cfg.Sources["compose_files"]), index+1
 		default:
-			cfg.Command = append([]string(nil), args[index:]...)
-			index = len(args)
+			cfg.Command, index = append([]string(nil), args[index:]...), len(args)
 		}
 	}
 
+	cfg.Harness = harness.Normalize(cfg.Harness)
 	if privateFlag {
 		if stateFlag {
 			return Config{}, errors.New("--private-env conflicts with explicit state volume")
 		}
-		cfg.StateVolumeName = ""
-		cfg.StateMode = StatePrivate
-		cfg.StateSpecified = true
+		cfg.StateVolumeName, cfg.StateMode, cfg.StateSpecified = "", StatePrivate, true
 	}
 	if stateFlag {
 		if cfg.StateVolumeName == "" {
 			return Config{}, errors.New("--state-volume must not be empty")
 		}
-		cfg.StateMode = StateCustom
-		cfg.StateSpecified = true
+		cfg.StateMode, cfg.StateSpecified = StateCustom, true
+	}
+	if cfg.Image == "" {
+		if value := options.Getenv("HCORRAL_IMAGE"); value != "" {
+			cfg.Image, cfg.Sources["image"] = value, "environment"
+		}
+	}
+	if cfg.Image == "" {
+		if selected, ok := file.Harness[cfg.Harness]; ok && selected.Image != "" {
+			cfg.Image, cfg.Sources["image"] = selected.Image, "user-config"
+		}
+	}
+	if cfg.Image == "" {
+		if value, ok := harness.DefaultImage(cfg.Harness); ok {
+			cfg.Image = value
+		} else {
+			return Config{}, fmt.Errorf("unknown harness %q requires --image, HCORRAL_IMAGE, or a user-config image", cfg.Harness)
+		}
 	}
 	if err := validate(&cfg); err != nil {
 		return Config{}, err
@@ -277,12 +321,66 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 	return cfg, nil
 }
 
+func userConfigPath(options ParseOptions) (string, error) {
+	if options.HomeDir == "" {
+		return "", errors.New("home directory is empty")
+	}
+	if options.Platform == "darwin" {
+		return filepath.Join(options.HomeDir, "Library", "Application Support", "hcorral", "config.toml"), nil
+	}
+	root := options.Getenv("XDG_CONFIG_HOME")
+	if root == "" {
+		root = filepath.Join(options.HomeDir, ".config")
+	}
+	if !filepath.IsAbs(root) {
+		return "", errors.New("XDG_CONFIG_HOME must be absolute")
+	}
+	return filepath.Join(root, "hcorral", "config.toml"), nil
+}
+func readUserConfig(path string) (fileConfig, error) {
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileConfig{}, nil
+	}
+	if err != nil {
+		return fileConfig{}, fmt.Errorf("read user config %s: %w", path, err)
+	}
+	var result fileConfig
+	decoder := toml.NewDecoder(strings.NewReader(string(content)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return fileConfig{}, fmt.Errorf("parse user config %s: %w", path, err)
+	}
+	return result, nil
+}
+func unknownEnvironmentWarnings(environ []string) []string {
+	seen := map[string]bool{}
+	for _, entry := range environ {
+		key := strings.SplitN(entry, "=", 2)[0]
+		if strings.HasPrefix(key, "HCORRAL_") && !knownEnvironment[key] {
+			seen[key] = true
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, "unknown environment variable "+key+" was ignored")
+	}
+	return result
+}
 func validate(cfg *Config) error {
 	if cfg.Workspace == "" {
 		return errors.New("workspace must not be empty")
 	}
-	if cfg.ImageName == "" || cfg.ImageTag == "" {
-		return errors.New("image name and tag must not be empty")
+	if !harnessPattern.MatchString(cfg.Harness) {
+		return fmt.Errorf("harness type must match [a-z][a-z0-9_]{0,31}: %q", cfg.Harness)
+	}
+	if cfg.Image == "" || strings.ContainsRune(cfg.Image, 0) || strings.ContainsAny(cfg.Image, " \t\r\n") {
+		return errors.New("image must be a non-empty OCI reference without whitespace")
 	}
 	if cfg.ContainerHome == "" || !filepath.IsAbs(cfg.ContainerHome) {
 		return errors.New("container home must be an absolute path")
@@ -305,7 +403,6 @@ func validate(cfg *Config) error {
 	}
 	return nil
 }
-
 func optionValue(args []string, index int, name string) (string, int, error) {
 	if index+1 >= len(args) {
 		return "", index, fmt.Errorf("%s requires a value", name)
@@ -315,7 +412,6 @@ func optionValue(args []string, index int, name string) (string, int, error) {
 	}
 	return args[index+1], index + 2, nil
 }
-
 func parseStringArray(name, value string, allowEmpty bool) ([]string, error) {
 	var result []string
 	if err := json.Unmarshal([]byte(value), &result); err != nil {
@@ -331,7 +427,6 @@ func parseStringArray(name, value string, allowEmpty bool) ([]string, error) {
 	}
 	return result, nil
 }
-
 func parseBool(name, value string) (bool, error) {
 	switch value {
 	case "true":
@@ -342,7 +437,6 @@ func parseBool(name, value string) (bool, error) {
 		return false, fmt.Errorf("%s must be true or false: %q", name, value)
 	}
 }
-
 func parsePositiveInt(name, value string) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
@@ -350,28 +444,24 @@ func parsePositiveInt(name, value string) (int, error) {
 	}
 	return parsed, nil
 }
-
 func resolveFromCaller(caller, value string) string {
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value)
 	}
 	return filepath.Clean(filepath.Join(caller, value))
 }
-
 func valueOr(value, fallback string) string {
 	if value == "" {
 		return fallback
 	}
 	return value
 }
-
 func source(fromEnvironment bool) string {
 	if fromEnvironment {
 		return "environment"
 	}
 	return "default"
 }
-
 func appendedSource(previous string) string {
 	if previous == "environment" || previous == "environment+cli" {
 		return "environment+cli"

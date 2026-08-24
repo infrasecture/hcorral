@@ -37,6 +37,100 @@ jobs:
           path: dist/
           retention-days: 7
 
+  images:
+    name: ci/image-${{ matrix.harness }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - harness: codex
+            arch: amd64
+            runner: ubuntu-24.04
+          - harness: codex
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - harness: claude
+            arch: amd64
+            runner: ubuntu-24.04
+          - harness: claude
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - harness: pi
+            arch: amd64
+            runner: ubuntu-24.04
+          - harness: pi
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - env:
+          HARNESS: ${{ matrix.harness }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          identity="$(./scripts/build-harness-image.sh --harness "$HARNESS" --revision auto --resolve-only)"
+          version="$(sed -n 's/^version=//p' <<<"$identity")"
+          revision="$(sed -n 's/^revision=//p' <<<"$identity")"
+          ./scripts/build-harness-image.sh --harness "$HARNESS" --version "$version" --revision "$revision" --arch "$ARCH"
+          image="ghcr.io/infrasecture/hcorral-${HARNESS}:${version}-r${revision}-${ARCH}"
+          [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$ARCH" ]]
+          ./tests/image/entrypoint-matrix.sh "$image"
+
+  images-gate:
+    name: ci/images
+    if: always()
+    needs: images
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test '${{ needs.images.result }}' = success
+
+  packages:
+    name: ci/packages-${{ matrix.arch }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            rpm_arch: x86_64
+            arch_arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            rpm_arch: aarch64
+            arch_arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist
+      - run: |
+          docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 \
+            sh -c 'dpkg -i /packages/hcorral_0.0.0_linux_${{ matrix.arch }}.deb && hcorral version && dpkg -r hcorral && test ! -e /usr/bin/hcorral'
+          docker run --rm -v "$PWD/dist:/packages:ro" fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 \
+            sh -c 'rpm -i /packages/hcorral-0.0.0-1.${{ matrix.rpm_arch }}.rpm && hcorral version && rpm -e hcorral && test ! -e /usr/bin/hcorral'
+          if [[ '${{ matrix.arch }}' == amd64 ]]; then
+            docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
+              sh -c 'pacman -U --noconfirm /packages/hcorral-0.0.0-1-x86_64.pkg.tar.zst && hcorral version && pacman -R --noconfirm hcorral && test ! -e /usr/bin/hcorral'
+          else
+            root="$(mktemp -d)"
+            trap 'rm -rf -- "$root"' EXIT
+            tar --zstd -xf 'dist/hcorral-0.0.0-1-aarch64.pkg.tar.zst' -C "$root"
+            grep -Fxq 'arch = aarch64' "$root/.PKGINFO"
+            "$root/usr/bin/hcorral" version
+          fi
+
+  packages-gate:
+    name: ci/packages
+    if: always()
+    needs: packages
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test '${{ needs.packages.result }}' = success
+
   linux:
     name: ci/linux-${{ matrix.arch }}
     needs: build
@@ -133,17 +227,3 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - run: test '${{ needs.darwin.result }}' = success
-
-  reproducible:
-    name: ci/reproducible
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          submodules: true
-      - run: |
-          ./build.sh --release --cli-version v0.0.0 --packages
-          cp dist/SHA256SUMS "$RUNNER_TEMP/first"
-          rm -rf dist
-          ./build.sh --release --cli-version v0.0.0 --packages
-          diff -u "$RUNNER_TEMP/first" dist/SHA256SUMS

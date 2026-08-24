@@ -21,6 +21,16 @@ import (
 var x11DisplayPattern = regexp.MustCompile(`^(?:(?:unix|unix/)?):([0-9]+)(?:\.[0-9]+)?$`)
 
 func (r Resolver) resolvePlatform(ctx context.Context, mode string, workspace identity.Workspace, assets compose.AssetPaths) (Selection, error) {
+	if r.Runner != nil {
+		result, err := r.Runner.Capture(ctx, []string{"docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"}, command.EnvironmentWithoutCompose(os.Environ()))
+		if err != nil {
+			return Selection{}, fmt.Errorf("inspect Docker context for GUI forwarding: %w", err)
+		}
+		host := strings.TrimSpace(string(result.Stdout))
+		if !strings.HasPrefix(host, "unix://") {
+			return Selection{}, fmt.Errorf("GUI forwarding requires a local Unix-socket Docker daemon, selected endpoint is %q", host)
+		}
+	}
 	switch mode {
 	case "auto":
 		if selection, err := r.wayland(assets); err == nil {
@@ -94,8 +104,8 @@ func (r Resolver) copyXAuthority(ctx context.Context, workspace identity.Workspa
 	if !filepath.IsAbs(stateHome) {
 		return "", errors.New("XDG_STATE_HOME must be absolute")
 	}
-	directory := filepath.Join(stateHome, "hcorral", "gui", workspace.FullID)
-	if err := secureStateDirectory(stateHome, "hcorral", "gui", workspace.FullID); err != nil {
+	directory := filepath.Join(stateHome, "hcorral", "gui", workspace.Project)
+	if err := secureStateDirectory(stateHome, "hcorral", "gui", workspace.Project); err != nil {
 		return "", fmt.Errorf("create X11 credential directory: %w", err)
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {

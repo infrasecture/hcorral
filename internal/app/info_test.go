@@ -16,7 +16,7 @@ import (
 func TestInfoJSONHasStableSchemaAndRedactsComposePrefix(t *testing.T) {
 	t.Parallel()
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestInfoJSONHasStableSchemaAndRedactsComposePrefix(t *testing.T) {
 func TestInfoWithDockerPerformsNoMutation(t *testing.T) {
 	t.Parallel()
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestInfoWithDockerPerformsNoMutation(t *testing.T) {
 func TestInfoReportsOwnershipCollisionWithoutExecutingInContainer(t *testing.T) {
 	t.Parallel()
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,166 @@
+name: Publish harness image
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: Harness stream to publish
+        required: true
+        default: all
+        type: choice
+        options: [all, codex, claude, pi]
+      version:
+        description: Exact SemVer for one selected harness; ignored for all
+        required: false
+        type: string
+      image_revision:
+        description: Positive integer or auto
+        required: true
+        default: auto
+        type: string
+      advance_aliases:
+        description: Advance the monotonic version and latest aliases
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-image-publish
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: image/resolve
+    runs-on: ubuntu-24.04
+    environment: image-release
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      builds: ${{ steps.freeze.outputs.builds }}
+      releases: ${{ steps.freeze.outputs.releases }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: freeze
+        env:
+          SELECTED_HARNESS: ${{ inputs.harness }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_REVISION: ${{ inputs.image_revision }}
+        run: |
+          if [[ "$SELECTED_HARNESS" == all ]]; then
+            harnesses=(codex claude pi)
+          else
+            harnesses=("$SELECTED_HARNESS")
+          fi
+          builds='[]'
+          releases='[]'
+          for harness in "${harnesses[@]}"; do
+            args=(--harness "$harness" --revision "$REQUESTED_REVISION" --resolve-only)
+            if [[ "$SELECTED_HARNESS" != all && -n "$REQUESTED_VERSION" ]]; then
+              args+=(--version "$REQUESTED_VERSION")
+            fi
+            identity="$(./scripts/build-harness-image.sh "${args[@]}")"
+            version="$(sed -n 's/^version=//p' <<<"$identity")"
+            revision="$(sed -n 's/^revision=//p' <<<"$identity")"
+            [[ -n "$version" && -n "$revision" ]]
+            releases="$(jq -c --arg h "$harness" --arg v "$version" --arg r "$revision" '. + [{harness:$h,version:$v,revision:$r}]' <<<"$releases")"
+            for arch in amd64 arm64; do
+              runner=ubuntu-24.04
+              [[ "$arch" == arm64 ]] && runner=ubuntu-24.04-arm
+              builds="$(jq -c --arg h "$harness" --arg v "$version" --arg r "$revision" --arg a "$arch" --arg runner "$runner" '. + [{harness:$h,version:$v,revision:$r,arch:$a,runner:$runner}]' <<<"$builds")"
+            done
+          done
+          printf 'builds=%s\nreleases=%s\n' "$builds" "$releases" >>"$GITHUB_OUTPUT"
+          {
+            echo '### Frozen harness image releases'
+            jq -r '.[] | "- `hcorral-\(.harness):\(.version)-r\(.revision)`"' <<<"$releases"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: image/${{ matrix.harness }}/${{ matrix.arch }}
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.builds) }}
+    runs-on: ${{ matrix.runner }}
+    environment: image-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: >-
+          ./scripts/build-harness-image.sh
+          --harness '${{ matrix.harness }}'
+          --version '${{ matrix.version }}'
+          --revision '${{ matrix.revision }}'
+          --arch '${{ matrix.arch }}'
+          --push
+
+  manifest:
+    name: image/${{ matrix.harness }}/manifest
+    needs: [resolve, build]
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.releases) }}
+    runs-on: ubuntu-24.04
+    environment: image-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - env:
+          ADVANCE_ALIASES: ${{ inputs.advance_aliases }}
+        run: |
+          args=(--harness '${{ matrix.harness }}' --version '${{ matrix.version }}' --revision '${{ matrix.revision }}' --manifest)
+          [[ "$ADVANCE_ALIASES" == true ]] || args+=(--no-aliases)
+          ./scripts/build-harness-image.sh "${args[@]}"
+  verify:
+    name: image/${{ matrix.harness }}/${{ matrix.arch }}/public
+    needs: [resolve, manifest]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve.outputs.builds) }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - env:
+          IMAGE: ghcr.io/infrasecture/hcorral-${{ matrix.harness }}:${{ matrix.version }}-r${{ matrix.revision }}
+          HARNESS: ${{ matrix.harness }}
+          VERSION: ${{ matrix.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker pull "$IMAGE"
+          [[ "$(docker image inspect --format '{{.Architecture}}' "$IMAGE")" == "$ARCH" ]]
+          [[ "$(docker image inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.harness.type"}}' "$IMAGE")" == "$HARNESS" ]]
+          [[ "$(docker image inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.harness.version"}}' "$IMAGE")" == "$VERSION" ]]
+          docker run --rm --entrypoint "$HARNESS" "$IMAGE" --version | grep -F "$VERSION"

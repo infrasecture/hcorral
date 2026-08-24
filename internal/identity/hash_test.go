@@ -12,3 +12,13 @@ func newWorkspaceHash(path string) string {
 	_, _ = h.Write([]byte(path))
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+func newCorralHash(path, harness string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(corralNamespace))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(path))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(harness))
+	return hex.EncodeToString(h.Sum(nil))
+}
