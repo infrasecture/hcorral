@@ -2,7 +2,8 @@
 
 Status: accepted
 
-The built-in Compose definition is compiled into the binary and cannot be
-replaced in 1.0. Ordered overlays may extend the project, including sidecars,
-but the rendered model must preserve hcorral-owned identity, image, mounts,
-workdir, GUI boundary, and direct-launch guard. Compose remains the orchestrator.
+The built-in Compose definition is compiled into the binary, is always first,
+and cannot be replaced wholesale in 1.0. Ordered overlays, sidecars, and CLI
+mounts are unrestricted trusted Compose input and may override every built-in
+field. Hcorral diagnoses the final rendered result but does not impose overlay
+policy. Exact ownership checks still guard existing resources before mutation.

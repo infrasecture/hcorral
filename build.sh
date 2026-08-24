@@ -71,7 +71,7 @@ ensure_build_cache "${gobuild_cache_volume}" gobuild
 docker run --rm --user root \
   --volume "${gomod_cache_volume}:/go/pkg/mod" \
   --volume "${gobuild_cache_volume}:/tmp/go-build" \
-  "${builder_image}" sh -c 'chown "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
+  "${builder_image}" sh -c 'chown -R "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
 
 for target in ${targets}; do
   os="${target%/*}"; arch="${target#*/}"
@@ -117,7 +117,7 @@ vendor: infrasecture
 homepage: https://github.com/infrasecture/hcorral
 license: AGPL-3.0-or-later
 rpm:
-  buildhost: hcorral-reproducible
+  buildhost: hcorral-build
 contents:
   - src: /src/${binary}
     dst: /usr/bin/hcorral

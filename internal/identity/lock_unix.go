@@ -3,6 +3,8 @@
 package identity
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +22,25 @@ func AcquireLock(project string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
+	return acquireLockPath(path)
+}
+
+// AcquireVolumeLock serializes launcher-managed volume creation, reference
+// checks, and removal without placing a user-controlled Docker volume name in
+// the filesystem. The complete SHA-256 keeps the lock key collision-resistant.
+func AcquireVolumeLock(volume string) (*Lock, error) {
+	if volume == "" {
+		return nil, fmt.Errorf("volume lock name is empty")
+	}
+	digest := sha256.Sum256([]byte(volume))
+	root, err := lockRoot()
+	if err != nil {
+		return nil, err
+	}
+	return acquireLockPath(filepath.Join(root, "volumes", hex.EncodeToString(digest[:])+".lock"))
+}
+
+func acquireLockPath(path string) (*Lock, error) {
 	directory := filepath.Dir(path)
 	base := filepath.Dir(filepath.Dir(directory))
 	if err := secureLockDirectory(base, filepath.Base(filepath.Dir(directory)), filepath.Base(directory)); err != nil {
@@ -90,18 +111,26 @@ func lockPath(project string) (string, error) {
 	if err := ValidateProject(project); err != nil {
 		return "", err
 	}
+	root, err := lockRoot()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, project+".lock"), nil
+}
+
+func lockRoot() (string, error) {
 	if runtime.GOOS == "darwin" {
 		root := os.Getenv("TMPDIR")
 		if root == "" {
 			root = os.TempDir()
 		}
-		return filepath.Join(root, fmt.Sprintf("hcorral-%d", os.Getuid()), "locks", project+".lock"), nil
+		return filepath.Join(root, fmt.Sprintf("hcorral-%d", os.Getuid()), "locks"), nil
 	}
 	if root := os.Getenv("XDG_RUNTIME_DIR"); root != "" {
 		if !filepath.IsAbs(root) {
 			return "", fmt.Errorf("XDG_RUNTIME_DIR must be absolute")
 		}
-		return filepath.Join(root, "hcorral", "locks", project+".lock"), nil
+		return filepath.Join(root, "hcorral", "locks"), nil
 	}
 	root := os.Getenv("XDG_CACHE_HOME")
 	if root == "" {
@@ -114,5 +143,5 @@ func lockPath(project string) (string, error) {
 	if !filepath.IsAbs(root) {
 		return "", fmt.Errorf("XDG_CACHE_HOME must be absolute")
 	}
-	return filepath.Join(root, "hcorral", "locks", project+".lock"), nil
+	return filepath.Join(root, "hcorral", "locks"), nil
 }

@@ -1,25 +1,23 @@
 # Security model
 
-Hcorral is designed for autonomous development agents and is not a hardened
-sandbox. The workspace, state home, and every explicit extra mount are writable
-unless a read-only mode is supplied. Agent processes can read credentials and
-modify data exposed through those mounts.
+Hcorral is a convenience boundary, not a hardened sandbox. A user able to run
+Docker controls the daemon and effectively the host; persisted home content is
+therefore trusted during root bootstrap. Every harness can modify the shared
+workspace, and shared state exposes credentials to every container mounting it.
 
-Before mutation, hcorral verifies the full workspace identity and runtime
-schema labels. Seven-character hashes and readable slugs are display/naming
-inputs only. The launcher refuses ambiguous ownership and does not manage
-myCodex resources.
+The built-in headless definition exposes no Docker socket, D-Bus, audio, GPU,
+host network, or broad runtime directory. Linux GUI mode forwards only the
+selected X11 socket and copied cookie, or one owned Wayland socket. macOS GUI
+is unsupported. Headless remote contexts and Colima are supported, with bind
+paths interpreted by the daemon.
 
-Linux GUI access weakens isolation. X11 receives one socket and copied cookie;
-Wayland receives one user-owned compositor socket. Hcorral does not forward
-D-Bus, audio, GPU devices, host networking, or the whole runtime directory.
-GUI forwarding is unsupported on macOS.
+Explicit Compose overlays, sidecars, custom images, and extra mounts are
+unrestricted trusted Docker inputs. They can replace the image or entrypoint,
+add privileges and host sockets, discard ownership labels, or otherwise remove
+every built-in safety property. Hcorral deliberately does not validate them.
 
-Compose overlays may add sidecars and resources but cannot replace hcorral's
-image, identity labels, container name, workspace/home/state mounts, workdir,
-GUI boundary, or direct-launch guard. They also cannot make the managed service
-privileged, select host network/PID/IPC/user namespaces, add devices or
-capabilities, disable the image entrypoint, select a runtime user, make the
-root filesystem read-only, or weaken security options. Existing non-external
-Compose networks and volumes require exact Compose ownership labels before any
-mutation; external overlay resources remain explicitly user-managed.
+Lifecycle operations verify full `ai.infrasecture.hcorral.*` identities before
+reusing or deleting managed resources. After tearing down the selected project,
+`down -v` deletes its exactly owned workspace-private volume only when no other
+running or stopped container references it. Global and custom state are
+retained. The read-only myCodex guard never operates legacy resources.

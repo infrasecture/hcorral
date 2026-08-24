@@ -35,9 +35,12 @@ func Run(args []string, streams Streams) int {
 		return fail(streams.Err, 2, "resolve user home: %v", err)
 	}
 
-	cfg, err := config.Parse(args, config.ParseOptions{CallerDir: caller, HomeDir: home, Platform: runtime.GOOS, Getenv: os.Getenv})
+	cfg, err := config.Parse(args, config.ParseOptions{CallerDir: caller, HomeDir: home, Platform: runtime.GOOS, Getenv: os.Getenv, Environ: os.Environ})
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
+	}
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(streams.Err, "hcorral: warning: %s\n", warning)
 	}
 	if len(cfg.Command) == 1 && cfg.Command[0] == "help" {
 		fmt.Fprint(streams.Out, Usage)
@@ -48,7 +51,7 @@ func Run(args []string, streams Streams) int {
 		return 0
 	}
 
-	workspace, err := identity.Resolve(cfg.CallerDir, cfg.Workspace, cfg.ProjectName)
+	workspace, err := identity.Resolve(cfg.CallerDir, cfg.Workspace, cfg.Harness, cfg.ProjectName)
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
@@ -119,12 +122,15 @@ const Usage = `Usage:
   hcorral [options]                  Start if needed, then attach
   hcorral [options] attach           Attach to the workstation session
   hcorral [options] info [--format=human|json]
+  hcorral [options] state rm --scope global|workspace
   hcorral [options] ps|start|stop|restart|pull|up|create|down [args...]
   hcorral [options] exec <cmd...>
   hcorral [options] <compose-command> [args...]
   hcorral version
 
 Options:
+  --harness <type>                   Select codex, claude, pi, or a custom type
+  --image <full-oci-reference>       Select the full image reference
   --workspace <path>                 Select a workspace without changing directory
   --project-name <name>              Override the generated Compose project name
   --state-volume <name>              Use an explicitly managed state volume

@@ -7,9 +7,9 @@ classifications below aligned with the Dockerfile and image builder.
 
 ## Launcher
 
-The Go launcher has no third-party Go modules: it uses the Go standard library
-only. Release archives and Linux packages therefore contain the hcorral binary,
-the AGPL license, README, and this inventory without vendored Go dependencies.
+The launcher directly uses `github.com/pelletier/go-toml/v2` (MIT) to parse its
+user configuration file. Release archives and Linux packages contain the
+statically linked hcorral binary, AGPL license, README, and this inventory.
 
 ## Workstation image
 
@@ -18,13 +18,11 @@ the AGPL license, README, and this inventory without vendored Go dependencies.
 | Ubuntu devcontainers base | Ubuntu 24.04, digest-pinned | Per-package licenses | <https://hub.docker.com/_/microsoft-devcontainers> |
 | Node.js | 22.23.2 | MIT plus bundled-component notices | <https://github.com/nodejs/node/blob/v22.23.2/LICENSE> |
 | OpenAI Codex CLI | selected per image release | Apache-2.0 | <https://github.com/openai/codex/blob/main/LICENSE> |
-| Claude Code | 2.1.241 | Anthropic commercial or consumer terms; proprietary | <https://code.claude.com/docs/en/legal-and-compliance> |
-| Gemini CLI | 0.56.0 | Apache-2.0 | <https://github.com/google-gemini/gemini-cli/blob/main/LICENSE> |
-| OpenCode | 1.18.21 | MIT | <https://github.com/anomalyco/opencode/blob/dev/LICENSE> |
-| GitHub CLI | Ubuntu repository-selected, base-build time | MIT | <https://github.com/cli/cli/blob/trunk/LICENSE> |
+| Claude Code | selected per image release | Anthropic commercial or consumer terms; proprietary | <https://code.claude.com/docs/en/legal-and-compliance> |
+| Pi coding agent | selected per image release | MIT | <https://github.com/earendil-works/pi/blob/main/LICENSE> |
 | Ubuntu packages listed in `image/Dockerfile` | Ubuntu 24.04 repository-selected, base-build time | Per-package licenses | Installed notices under `/usr/share/doc/<package>/copyright` |
 
-Claude Code is installed unmodified from Anthropic's published npm package.
+Claude Code is installed unmodified with Anthropic's supported native installer.
 Anthropic states that preinstalling Claude Code in a product requires the
 applicable Anthropic terms, preserving every built-in authentication method,
 and requiring each end user to authenticate and pay under their own agreement.

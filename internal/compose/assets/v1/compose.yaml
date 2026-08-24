@@ -1,6 +1,6 @@
 services:
   hcorral:
-    image: ${HCORRAL_IMAGE_NAME:?hcorral launcher must select an image}:${HCORRAL_IMAGE_TAG:?hcorral launcher must select an image tag}
+    image: ${HCORRAL_IMAGE:?hcorral launcher must select an image}
     container_name: ${HCORRAL_CONTAINER_NAME:?hcorral launcher must select a container name}
     restart: unless-stopped
     init: true
@@ -10,6 +10,9 @@ services:
     labels:
       ai.infrasecture.hcorral.workspace-id: ${HCORRAL_WORKSPACE_ID:?Run this project through hcorral; direct Compose use is unsafe.}
       ai.infrasecture.hcorral.workspace-id-scheme: v1
+      ai.infrasecture.hcorral.corral-id: ${HCORRAL_CORRAL_ID:?Run this project through hcorral; direct Compose use is unsafe.}
+      ai.infrasecture.hcorral.corral-id-scheme: v1
+      ai.infrasecture.hcorral.harness.type: ${HCORRAL_HARNESS_TYPE:?hcorral launcher must select a harness type}
       ai.infrasecture.hcorral.gui: ${HCORRAL_GUI_MODE:-none}
       ai.infrasecture.hcorral.runtime-schema: "1"
     environment:
@@ -21,7 +24,7 @@ services:
       HCORRAL_HOST_GROUPS: ${HCORRAL_HOST_GROUPS:?hcorral launcher must provide supplementary groups}
       HCORRAL_CONTAINER_HOME: ${HCORRAL_CONTAINER_HOME:?hcorral launcher must provide the container home}
       HCORRAL_WORKDIR: ${HCORRAL_WORKDIR:?hcorral launcher must provide the workdir}
-      CODEX_HOME: ${HCORRAL_CONTAINER_HOME:?hcorral launcher must provide the container home}/.codex
+      HCORRAL_HARNESS_TYPE: ${HCORRAL_HARNESS_TYPE:?hcorral launcher must select a harness type}
       HCORRAL_BYOBU_SESSION: ${HCORRAL_BYOBU_SESSION:-hcorral}
       HCORRAL_AUTO_ATTACH: ${HCORRAL_AUTO_ATTACH:-false}
       HCORRAL_ATTACH_HINT: ${HCORRAL_ATTACH_HINT:-hcorral}

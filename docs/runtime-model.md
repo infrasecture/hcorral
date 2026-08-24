@@ -1,23 +1,31 @@
 # Runtime model
 
-The Go launcher resolves a physical workspace, computes its full versioned
-SHA-256 identity, checks for a same-workspace myCodex environment, verifies any
-existing hcorral resources, and then delegates orchestration to Docker Compose.
+The physical workspace path is resolved like `pwd -P`. Hcorral computes:
 
-The built-in Compose definition is compiled into the binary and materialized as
-an immutable content-addressed cache file. Linux GUI and user overlay files are
-applied afterward. The fully rendered `hcorral` service is validated before a
-mutation.
+```text
+workspace-id = SHA256("ai.infrasecture.hcorral.workspace.v1" NUL path)
+corral-id    = SHA256("ai.infrasecture.hcorral.corral.v1" NUL path NUL harness)
+```
 
-Bare `hcorral` is attach-first:
+Generated project/container names are
+`hcorral-<basename_slug>-<first7_corral_id>`. Workspace-private state is
+`hcorral-<basename_slug>-<first7_workspace_id>`. The readable suffix is not
+ownership evidence; full IDs and scheme versions are labels.
 
-1. attach to a matching running container without reconciliation;
-2. recover a missing tmux session in place;
-3. start a matching stopped container only when desired configuration matches;
-4. create a missing environment only after read-only network, volume, and state
-   ownership preflights, then pull a missing image and create state as needed.
+The project name is the operational selector for container, lock, session, GUI
+credentials, and Compose lifecycle. An explicit `--project-name` can create
+multiple instances with one corral ID. Hcorral lists/warns about multiplicity
+but targets only the generated or explicitly selected project.
 
-Image pulls and Compose reconciliation are explicit. Locks serialize local
-mutations, while Docker labels remain the ownership authority. Every mutating
-Compose passthrough is rendered and validated first; existing non-external
-Compose networks and volumes must carry the exact project/resource labels.
+The embedded base Compose definition is materialized from the launcher and is
+always first. GUI, user overlays, and generated `-v` overlays follow in order.
+The latter are trusted and unrestricted. Existing resources are mutated only
+after exact full ownership/Compose labels are verified.
+
+The default global state volume is shared by all harnesses. The private state
+volume is shared by all harnesses in one workspace but not other workspaces.
+Custom volumes are user managed. Concurrent first initialization of one fresh
+shared home can race; start one corral to readiness first when that matters.
+
+Bare launch attaches without reconciliation when the selected container is
+running. Pull, recreate, and drift reconciliation are always explicit.

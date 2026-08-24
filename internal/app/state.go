@@ -16,12 +16,21 @@ func stateVolumeName(cfg config.Config, workspace identity.Workspace) string {
 		return cfg.StateVolumeName
 	}
 	if cfg.StateMode == config.StatePrivate {
-		return workspace.Project
+		return identity.WorkspaceVolumeName(workspace)
 	}
 	return "hcorral_state"
 }
 
 func ensureState(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace) error {
+	var lock *identity.Lock
+	var err error
+	if cfg.StateMode != config.StateCustom {
+		lock, err = identity.AcquireVolumeLock(stateVolumeName(cfg, workspace))
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
+	}
 	if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
 		return err
 	}
@@ -38,12 +47,18 @@ func ensureState(ctx context.Context, docker containerruntime.Docker, cfg config
 		return nil
 	case config.StatePrivate:
 		if volume == nil {
-			return docker.CreateVolume(ctx, name, identity.PrivateVolumeLabels(workspace))
+			if err := docker.CreateVolume(ctx, name, identity.PrivateVolumeLabels(workspace)); err != nil {
+				return err
+			}
+			return validateStateOwnership(ctx, docker, cfg, workspace)
 		}
 		return nil
 	case config.StateShared:
 		if volume == nil {
-			return docker.CreateVolume(ctx, name, identity.SharedVolumeLabels())
+			if err := docker.CreateVolume(ctx, name, identity.SharedVolumeLabels()); err != nil {
+				return err
+			}
+			return validateStateOwnership(ctx, docker, cfg, workspace)
 		}
 		return nil
 	default:
@@ -66,7 +81,7 @@ func validateStateOwnership(ctx context.Context, docker containerruntime.Docker,
 			return fmt.Errorf("custom volume %s carries conflicting hcorral workspace ID %s", name, owner)
 		}
 	case config.StatePrivate:
-		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
+		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "workspace-private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
 			return fmt.Errorf("private state volume %s does not have exact ownership labels for workspace %s", name, workspace.FullID)
 		}
 	case config.StateShared:
@@ -80,7 +95,7 @@ func validateStateOwnership(ctx context.Context, docker containerruntime.Docker,
 }
 
 func planManagedStateRemoval(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container) (bool, string, error) {
-	if cfg.StateMode == config.StateCustom {
+	if cfg.StateMode != config.StatePrivate {
 		return false, stateVolumeName(cfg, workspace), nil
 	}
 	name := stateVolumeName(cfg, workspace)
@@ -89,19 +104,18 @@ func planManagedStateRemoval(ctx context.Context, docker containerruntime.Docker
 		return false, name, err
 	}
 	if cfg.StateMode == config.StatePrivate {
-		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
+		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "workspace-private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
 			return false, name, fmt.Errorf("refuse to remove private volume %s with mismatched labels", name)
 		}
-	} else if volume.Labels[identity.LabelStateKind] != "shared" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
-		return false, name, fmt.Errorf("refuse to remove shared volume %s with mismatched labels", name)
 	}
 	for _, container := range containers {
 		for _, mount := range container.Mounts {
 			if mount.Type == "volume" && mount.Name == name && container.Config.Labels["com.docker.compose.project"] != workspace.Project {
-				if cfg.StateMode == config.StateShared {
-					return false, name, nil
-				}
-				return false, name, fmt.Errorf("private state volume %s remains referenced by foreign container %s", name, container.CleanName())
+				// The selected project can still be torn down safely. Retain the
+				// workspace volume while any other running or stopped container
+				// references it; a later `down -v` or explicit state removal can
+				// delete it after the final reference is gone.
+				return false, name, nil
 			}
 		}
 	}

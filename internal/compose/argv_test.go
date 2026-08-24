@@ -16,8 +16,8 @@ func TestInvocationArgsPreservesElements(t *testing.T) {
 
 func TestMergeEnvironmentRemovesComposeAndOverridesManaged(t *testing.T) {
 	t.Parallel()
-	got := mergeEnvironment([]string{"PATH=/bin", "COMPOSE_FILE=bad", "HCORRAL_IMAGE_TAG=bad"}, map[string]string{"HCORRAL_IMAGE_TAG": "latest"})
-	want := []string{"PATH=/bin", "HCORRAL_IMAGE_TAG=latest"}
+	got := mergeEnvironment([]string{"PATH=/bin", "COMPOSE_FILE=bad", "HCORRAL_IMAGE=bad"}, map[string]string{"HCORRAL_IMAGE": "example/image:latest"})
+	want := []string{"PATH=/bin", "HCORRAL_IMAGE=example/image:latest"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("env = %#v, want %#v", got, want)
 	}

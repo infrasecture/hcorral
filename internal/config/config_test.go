@@ -1,7 +1,10 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -11,16 +14,53 @@ func TestParseDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Workspace != "/work/current" || cfg.ImageName != "ghcr.io/infrasecture/hcorral" || cfg.ImageTag != "latest" {
+	if cfg.Workspace != "/work/current" || cfg.Harness != "codex" || cfg.Image != "ghcr.io/infrasecture/hcorral-codex:latest" {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 	if cfg.StateMode != StateShared || cfg.GUI.Specified || !reflect.DeepEqual(cfg.ComposeCommand, []string{"docker", "compose"}) {
 		t.Fatalf("unexpected typed defaults: %#v", cfg)
 	}
-	for _, key := range []string{"workspace", "project_name", "image_name", "image_tag", "state", "gui", "compose_command", "compose_files", "extra_volumes", "container_home", "workdir", "update_check", "wait_timeout", "progress_interval", "session", "auto_attach"} {
+	for _, key := range []string{"workspace", "project_name", "harness", "image", "state", "gui", "compose_command", "compose_files", "extra_volumes", "container_home", "workdir", "update_check", "wait_timeout", "progress_interval", "session", "auto_attach"} {
 		if cfg.Sources[key] != "default" {
 			t.Errorf("source %s = %q, want default", key, cfg.Sources[key])
 		}
+	}
+}
+
+func TestHarnessAndImagePrecedenceWithUserConfig(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "hcorral", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("default_harness = \"claude\"\n[harness.claude]\nimage = \"example/claude:approved\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"HCORRAL_UNUSED_FUTURE": "1"}
+	options := ParseOptions{CallerDir: "/work", HomeDir: home, Platform: "linux", Getenv: func(key string) string { return env[key] }, Environ: func() []string { return []string{"HCORRAL_UNUSED_FUTURE=1"} }}
+	cfg, err := Parse(nil, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Harness != "claude" || cfg.Image != "example/claude:approved" || cfg.Sources["harness"] != "user-config" || cfg.Sources["image"] != "user-config" {
+		t.Fatalf("user config not selected: %#v", cfg)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "HCORRAL_UNUSED_FUTURE") {
+		t.Fatalf("unknown warning: %#v", cfg.Warnings)
+	}
+	cfg, err = Parse([]string{"--harness", "pi", "--image", "example/pi@sha256:abc"}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Harness != "pi" || cfg.Image != "example/pi@sha256:abc" || cfg.Sources["harness"] != "cli" || cfg.Sources["image"] != "cli" {
+		t.Fatalf("CLI precedence failed: %#v", cfg)
+	}
+}
+
+func TestUnknownHarnessRequiresExplicitImage(t *testing.T) {
+	_, err := Parse([]string{"--harness", "company_agent"}, options(nil))
+	if err == nil || !strings.Contains(err.Error(), "requires --image") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -1,62 +1,38 @@
-# Maintainer guide
+# Maintainer workflow
 
-## Required checks
+Run the source, package, shell, contract, race, and vulnerability gates with:
 
-```bash
+```console
 ./scripts/ci-source.sh
 ./build.sh --release --cli-version v0.1.0 --packages
-HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')" \
-  ./tests/integration/run.sh
 ```
 
-All Go work runs in the pinned builder image. Image, launcher, package, and
-Homebrew publication is performed by GitHub workflows. Third-party actions are
-pinned to full commits and publication credentials exist only in protected
-environments.
+`CI` uses hosted Linux amd64/arm64 and macOS Intel/Apple Silicon runners. The
+release workflow prepares one artifact set, qualifies deb/rpm/Arch packages,
+both Darwin archives and Homebrew formulae, and headless Colima, then publishes
+the exact prepared bytes. Preview releases may explicitly waive unavailable
+Linux X11/Wayland/XWayland evidence; stable releases require the corresponding
+self-hosted runners. Docker Desktop is not a target.
 
-`scripts/check-provenance.sh` fixes the myCodex, Vaka, and implementation-start
-Homebrew-tap baselines and the copied/adapted-file inventory. The direct
-software inventory and fixed optional-agent versions are checked separately by
-`scripts/check-third-party.sh`.
+The protected `release` environment needs repository-scoped
+`HCORRAL_REPOSITORY_TOKEN` and tap-scoped `HCORRAL_TAP_TOKEN`. The protected
+`image-release` environment publishes through `GITHUB_TOKEN` with
+`packages:write`. Actions are pinned to full commits.
 
-CI runs the real-Docker contract with both the runner's current Compose v2 and
-the checksum-pinned lowest-supported v2.24.6 standalone binary. Raising that
-floor is a reviewed compatibility decision, not an incidental runner upgrade.
+Publish one or all image streams with `Publish harness image`, or locally:
 
-## Launcher release
-
-```bash
-./release.sh --version v0.1.0 --channel preview --prepare-only
-./release.sh --version v0.1.0 --channel preview --publish-prepared
+```console
+./scripts/build-harness-image.sh --harness codex --revision auto --push
+./scripts/build-harness-image.sh --harness claude --revision auto --push
+./scripts/build-harness-image.sh --harness pi --revision auto --push
 ```
 
-Preparation is non-publishing and records exact artifact hashes under ignored
-`dist/release-state/`. Publication never rebuilds. Public releases normally use
-`.github/workflows/release.yaml`, including Linux package, macOS/Homebrew, and
-Docker Desktop qualification.
-The protected `release` environment must contain two fine-grained secrets:
-`HCORRAL_REPOSITORY_TOKEN` has contents-write access only to
-`infrasecture/hcorral` and uses the repository ruleset's explicit owner bypass;
-`HCORRAL_TAP_TOKEN` has contents-write access only to
-`infrasecture/homebrew-tap`. The default workflow token remains read-only.
-The official Arch Linux container is amd64-only, so its qualification installs
-through `pacman` on amd64. The native arm64 job instead extracts the Arch package
-into an isolated root, verifies its metadata, paths, and modes, and executes the
-exact packaged binary. This keeps the arm64 gate useful without trusting an
-unofficial base image.
+Each stream resolves its upstream version, recipe revision, source commit, and
+input digest independently. Immutable architecture and manifest tags are never
+replaced on conflicting identity; matching retries are idempotent. Moving
+version and `latest` aliases advance monotonically.
 
-## Workstation image release
-
-```bash
-./scripts/build-workstation-image.sh --version 0.147.0 --revision auto
-```
-
-Architecture tags are immutable. A complete matching amd64/arm64 set is
-required before the immutable manifest and monotonic aliases are created.
-`.github/workflows/publish-workstation-image.yaml` is the normal publisher.
-
-## Dependency updates
-
-Pinned builder, package, base-image, and workflow action revisions change only
-in reviewed commits with source, reproducibility, package, and runtime gates.
-Do not skip vulnerability checks for a public release.
+Create a launcher preview through `Release launcher` with `v0.1.0` and
+`preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,
+and `infrasecture/homebrew-tap/Formula/hcorral.rb`, then verifies public
+checksums and a fresh Homebrew installation.

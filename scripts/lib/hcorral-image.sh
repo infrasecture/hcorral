@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
 
 # shellcheck disable=SC2034 # Constants are consumed by scripts that source this file.
-HCORRAL_DEFAULT_IMAGE_NAME="ghcr.io/infrasecture/hcorral"
-HCORRAL_DEFAULT_CODEX_NPM_PACKAGE="@openai/codex"
 HCORRAL_IMAGE_INPUTS_FILE=".hcorral-image-inputs"
 HCORRAL_BUILD_INPUT_LABEL="ai.infrasecture.hcorral.build.input-digest"
 HCORRAL_SOURCE_REVISION_LABEL="org.opencontainers.image.revision"
 
-hcorral_validate_codex_version() {
+hcorral_validate_harness_version() {
   local version="$1"
   local without_build prerelease identifier
   local -a identifiers
 
   if [[ "${version}" =~ -r[0-9]+$ ]]; then
-    echo "Codex version includes the reserved image revision suffix: ${version}" >&2
+    echo "Harness version includes the reserved image revision suffix: ${version}" >&2
     echo "Pass it separately, for example: --version ${version%-r*} --revision ${version##*-r}" >&2
     return 1
   fi
 
   if [[ ! "${version}" =~ ^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(-([0-9A-Za-z-]+([.][0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+([.][0-9A-Za-z-]+)*))?$ ]]; then
-	  echo "Codex version is not canonical SemVer: ${version}" >&2
+	  echo "Harness version is not canonical SemVer: ${version}" >&2
 	  return 1
 	fi
 
@@ -29,19 +27,10 @@ hcorral_validate_codex_version() {
     IFS='.' read -r -a identifiers <<<"${prerelease}"
     for identifier in "${identifiers[@]}"; do
       if [[ "${identifier}" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "${identifier}" == 0* ]]; then
-	      echo "Codex version has a non-canonical numeric prerelease identifier: ${version}" >&2
+	      echo "Harness version has a non-canonical numeric prerelease identifier: ${version}" >&2
 	      return 1
 	    fi
 	  done
-	fi
-}
-
-hcorral_validate_npm_package() {
-	local package="$1"
-
-	if [[ ! "${package}" =~ ^(@[a-z0-9._-]+/)?[a-z0-9._-]+$ ]]; then
-		echo "Codex npm package name is invalid: ${package}" >&2
-		return 1
 	fi
 }
 
@@ -128,7 +117,6 @@ hcorral_image_input_paths() {
 hcorral_build_input_digest() {
 	local project_root="$1"
 	local path index_entry mode object_id digest paths_output records=""
-	local codex_package install_claude install_gemini install_opencode
 	local -a paths
 
   if ! command -v git >/dev/null 2>&1; then
@@ -143,27 +131,21 @@ hcorral_build_input_digest() {
   paths_output="$(hcorral_image_input_paths "${project_root}")" || return
   mapfile -t paths <<<"${paths_output}"
 	for path in "${paths[@]}"; do
-    index_entry="$(git -C "${project_root}" ls-files -s -- "${path}")"
-    if [[ -z "${index_entry}" || "${index_entry}" == *$'\n'* ]]; then
-      echo "Image input must be a single tracked path: ${path}" >&2
-      return 1
-    fi
-    mode="${index_entry%% *}"
+		index_entry="$(git -C "${project_root}" ls-files -s -- "${path}")"
+		if [[ "${index_entry}" == *$'\n'* ]]; then
+			echo "Image input must resolve to one path: ${path}" >&2
+			return 1
+		fi
+		if [[ -n "${index_entry}" ]]; then
+			mode="${index_entry%% *}"
+		elif [[ -x "${project_root}/${path}" ]]; then
+			mode=100755
+		else
+			mode=100644
+		fi
     object_id="$(git -C "${project_root}" hash-object --no-filters -- "${path}")" || return
 		records+="${path}"$'\t'"${mode}"$'\t'"${object_id}"$'\n'
 	done
-	codex_package="${HCORRAL_CODEX_NPM_PACKAGE:-${HCORRAL_DEFAULT_CODEX_NPM_PACKAGE}}"
-	install_claude="${HCORRAL_INSTALL_CLAUDE_CODE:-true}"
-	install_gemini="${HCORRAL_INSTALL_GEMINI_CLI:-true}"
-	install_opencode="${HCORRAL_INSTALL_OPENCODE:-true}"
-	hcorral_validate_npm_package "${codex_package}" >/dev/null || return
-	hcorral_validate_boolean HCORRAL_INSTALL_CLAUDE_CODE "${install_claude}" >/dev/null || return
-	hcorral_validate_boolean HCORRAL_INSTALL_GEMINI_CLI "${install_gemini}" >/dev/null || return
-	hcorral_validate_boolean HCORRAL_INSTALL_OPENCODE "${install_opencode}" >/dev/null || return
-	records+="control"$'\t'"codex-package"$'\t'"${codex_package}"$'\n'
-	records+="control"$'\t'"install-claude-code"$'\t'"${install_claude}"$'\n'
-	records+="control"$'\t'"install-gemini-cli"$'\t'"${install_gemini}"$'\n'
-	records+="control"$'\t'"install-opencode"$'\t'"${install_opencode}"$'\n'
 	digest="$(printf 'hcorral-image-inputs-v1\n%s' "${records}" | hcorral_sha256_stream)" || return
 
   printf 'sha256:%s\n' "${digest}"
@@ -197,12 +179,12 @@ hcorral_assert_clean_image_inputs() {
 }
 
 hcorral_image_release_tag() {
-  local codex_version="$1"
+  local harness_version="$1"
   local image_revision="$2"
 
-  hcorral_validate_codex_version "${codex_version}" || return
+  hcorral_validate_harness_version "${harness_version}" || return
   hcorral_validate_image_revision "${image_revision}" || return
-  printf '%s-r%s\n' "${codex_version}" "${image_revision}"
+  printf '%s-r%s\n' "${harness_version}" "${image_revision}"
 }
 
 hcorral_compare_numeric_identifiers() {
@@ -346,44 +328,4 @@ hcorral_registry_ref_exists() {
     printf '%s\n' "${output}" >&2
   fi
   return 2
-}
-
-hcorral_resolve_latest_codex_version() {
-  local package="${HCORRAL_CODEX_NPM_PACKAGE:-${HCORRAL_DEFAULT_CODEX_NPM_PACKAGE}}"
-  local package_path="${package}"
-  local version
-
-  if [[ "${package_path}" == @*/* ]]; then
-    package_path="${package_path/\//%2F}"
-  fi
-
-  if command -v curl >/dev/null 2>&1; then
-    version="$(
-      curl --fail --silent --show-error --location --connect-timeout 5 --max-time 15 \
-        "https://registry.npmjs.org/${package_path}/latest" \
-        | sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' \
-        | head -n 1 \
-        | tr -d '[:space:]'
-    )" || version=""
-  fi
-
-  if [[ -z "${version:-}" ]] && command -v npm >/dev/null 2>&1; then
-    if command -v timeout >/dev/null 2>&1; then
-      version="$(timeout 15 npm view "${package}" version --silent | tr -d '[:space:]')" || version=""
-    elif command -v gtimeout >/dev/null 2>&1; then
-      version="$(gtimeout 15 npm view "${package}" version --silent | tr -d '[:space:]')" || version=""
-    else
-      echo 'Cannot perform a bounded npm lookup: curl, timeout, or gtimeout is required' >&2
-      return 1
-    fi
-  fi
-
-  if [[ -z "${version:-}" ]]; then
-    echo "Failed to resolve Codex version from npm registry: ${package}" >&2
-    return 1
-  fi
-
-  hcorral_validate_codex_version "${version}" || return
-
-  printf '%s\n' "${version}"
 }

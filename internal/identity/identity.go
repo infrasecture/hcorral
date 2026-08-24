@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const workspaceNamespace = "ai.infrasecture.hcorral.workspace.v1"
+const (
+	workspaceNamespace = "ai.infrasecture.hcorral.workspace.v1"
+	corralNamespace    = "ai.infrasecture.hcorral.corral.v1"
+)
 
 var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
@@ -19,16 +22,24 @@ var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 // Project is either the generated Compose project name or an explicitly
 // validated override. FullID, never ShortID or Slug, proves ownership.
 type Workspace struct {
-	Path      string `json:"path"`
-	Base      string `json:"basename"`
-	Slug      string `json:"slug"`
-	FullID    string `json:"full_id"`
-	ShortID   string `json:"short_id"`
-	Project   string `json:"project"`
-	Generated bool   `json:"generated_project"`
+	Path          string `json:"path"`
+	Base          string `json:"basename"`
+	Slug          string `json:"slug"`
+	FullID        string `json:"workspace_id"`
+	ShortID       string `json:"workspace_short_id"`
+	CorralID      string `json:"corral_id"`
+	CorralShortID string `json:"corral_short_id"`
+	Harness       string `json:"harness"`
+	Project       string `json:"project"`
+	Generated     bool   `json:"generated_project"`
 }
 
-func Resolve(callerDir, selectedPath, projectOverride string) (Workspace, error) {
+// Resolve derives the workspace and corral identities for one explicit
+// canonical harness selection and optional Compose project override.
+func Resolve(callerDir, selectedPath, harness, projectOverride string) (Workspace, error) {
+	if harness == "" {
+		return Workspace{}, errors.New("canonical harness type is empty")
+	}
 	path, err := resolvePhysicalPath(callerDir, selectedPath)
 	if err != nil {
 		return Workspace{}, err
@@ -41,8 +52,15 @@ func Resolve(callerDir, selectedPath, projectOverride string) (Workspace, error)
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write([]byte(path))
 	fullID := hex.EncodeToString(hash.Sum(nil))
+	corralHash := sha256.New()
+	_, _ = corralHash.Write([]byte(corralNamespace))
+	_, _ = corralHash.Write([]byte{0})
+	_, _ = corralHash.Write([]byte(path))
+	_, _ = corralHash.Write([]byte{0})
+	_, _ = corralHash.Write([]byte(harness))
+	corralID := hex.EncodeToString(corralHash.Sum(nil))
 
-	project := "hcorral-" + slug + "-" + fullID[:7]
+	project := "hcorral-" + slug + "-" + corralID[:7]
 	generated := true
 	if projectOverride != "" {
 		project = projectOverride
@@ -53,13 +71,16 @@ func Resolve(callerDir, selectedPath, projectOverride string) (Workspace, error)
 	}
 
 	return Workspace{
-		Path:      path,
-		Base:      base,
-		Slug:      slug,
-		FullID:    fullID,
-		ShortID:   fullID[:7],
-		Project:   project,
-		Generated: generated,
+		Path:          path,
+		Base:          base,
+		Slug:          slug,
+		FullID:        fullID,
+		ShortID:       fullID[:7],
+		CorralID:      corralID,
+		CorralShortID: corralID[:7],
+		Harness:       harness,
+		Project:       project,
+		Generated:     generated,
 	}, nil
 }
 
@@ -132,3 +153,4 @@ func ValidateProject(project string) error {
 }
 
 func WorkspaceNamespace() string { return workspaceNamespace }
+func CorralNamespace() string    { return corralNamespace }

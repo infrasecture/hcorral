@@ -29,33 +29,40 @@ func TestSlug(t *testing.T) {
 func TestResolveGoldenVectors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		path    string
-		slug    string
-		fullID  string
-		project string
+		path        string
+		slug        string
+		workspaceID string
+		corralID    string
+		project     string
 	}{
 		{
-			path:    "/home/alice/git/payment-api",
-			slug:    "payment_api",
-			fullID:  "4324ea28e1f1b16d05a1a0cd94666b6a800e11dc9fbd0c193ca1e5fcd012309e",
-			project: "hcorral-payment_api-4324ea2",
+			path:        "/home/alice/git/payment-api",
+			slug:        "payment_api",
+			workspaceID: "4324ea28e1f1b16d05a1a0cd94666b6a800e11dc9fbd0c193ca1e5fcd012309e",
+			corralID:    "43d4c0416682227314946421f56ea06c77f7d9ca7e570a5d3e7f2e388326c47b",
+			project:     "hcorral-payment_api-43d4c04",
 		},
 		{
-			path:    "/home/alice/Work/Client Portal",
-			slug:    "client_portal",
-			fullID:  "2ac50aae6196ec2a039ab1d828c218f0bfb40486965e03682b73252274154c98",
-			project: "hcorral-client_portal-2ac50aa",
+			path:        "/home/alice/Work/Client Portal",
+			slug:        "client_portal",
+			workspaceID: "2ac50aae6196ec2a039ab1d828c218f0bfb40486965e03682b73252274154c98",
+			corralID:    "666cedef4a8067b91eaba1ddc903b367a1f6c2fb51b71c4d179191a1788a2539",
+			project:     "hcorral-client_portal-666cede",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
 			// Resolve requires the path to exist. HashPath mirrors Resolve's
 			// stable calculation so the specification vectors stay host-neutral.
-			fullID := hashPath(test.path)
-			if fullID != test.fullID {
-				t.Fatalf("full ID = %s, want %s", fullID, test.fullID)
+			workspaceID := hashPath(test.path)
+			if workspaceID != test.workspaceID {
+				t.Fatalf("workspace ID = %s, want %s", workspaceID, test.workspaceID)
 			}
-			if got := "hcorral-" + test.slug + "-" + fullID[:7]; got != test.project {
+			corralID := newCorralHash(test.path, "codex")
+			if corralID != test.corralID {
+				t.Fatalf("corral ID = %s, want %s", corralID, test.corralID)
+			}
+			if got := "hcorral-" + test.slug + "-" + corralID[:7]; got != test.project {
 				t.Fatalf("project = %s, want %s", got, test.project)
 			}
 			if got := strings.Count(test.project, "-"); got != 2 {
@@ -77,7 +84,7 @@ func TestResolvePhysicalSymlinkAndOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Resolve(root, "link", "hcorral-payments")
+	got, err := Resolve(root, "link", "codex", "hcorral-payments")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +98,43 @@ func TestValidateProject(t *testing.T) {
 	for _, invalid := range []string{"", "Upper", "-leading", "has.dot", string(make([]byte, 64))} {
 		if err := ValidateProject(invalid); err == nil {
 			t.Errorf("ValidateProject(%q) unexpectedly succeeded", invalid)
+		}
+	}
+}
+
+func TestHarnessChangesCorralButNotWorkspaceIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	codex, err := Resolve(root, root, "codex", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, err := Resolve(root, root, "claude", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codex.FullID != claude.FullID || codex.ShortID != claude.ShortID {
+		t.Fatalf("workspace identity changed with harness: %#v %#v", codex, claude)
+	}
+	if codex.CorralID == claude.CorralID || codex.Project == claude.Project {
+		t.Fatalf("harnesses did not get independent corrals: %#v %#v", codex, claude)
+	}
+	if WorkspaceVolumeName(codex) != WorkspaceVolumeName(claude) {
+		t.Fatal("same workspace did not share its private-state name")
+	}
+}
+
+func TestCorralGoldenVectorsForBuiltInHarnesses(t *testing.T) {
+	t.Parallel()
+	path := "/home/alice/git/payment-api"
+	want := map[string]string{
+		"codex":  "43d4c0416682227314946421f56ea06c77f7d9ca7e570a5d3e7f2e388326c47b",
+		"claude": "df2852801540d3695b396032c8ef85e5584b52d4deb21f248fc861d9d2e82bca",
+		"pi":     "439a70c5254b5490e79f2ca14dcee549bb1e9861aa2a60580cfe8f9d70f37f5f",
+	}
+	for harness, expected := range want {
+		if got := newCorralHash(path, harness); got != expected {
+			t.Errorf("%s corral ID = %s, want %s", harness, got, expected)
 		}
 	}
 }

@@ -5,6 +5,7 @@ package identity
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -54,6 +55,27 @@ func TestAcquireLockSerializesAndProtectsFile(t *testing.T) {
 		t.Fatal(err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("second lock did not acquire after release")
+	}
+}
+
+func TestAcquireVolumeLockUsesHashedVolumeNamespace(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	lock, err := AcquireVolumeLock("team volume with unsafe/path characters")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	want := regexp.MustCompile(`/hcorral/locks/volumes/[0-9a-f]{64}\.lock$`)
+	if !want.MatchString(lock.Path) {
+		t.Fatalf("volume lock path = %q", lock.Path)
+	}
+	info, err := os.Stat(lock.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("volume lock mode = %o", info.Mode().Perm())
 	}
 }
 

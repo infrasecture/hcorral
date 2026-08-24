@@ -186,20 +186,19 @@ verify_qualifications() {
   verify_qualification linux-arm64 passed
   verify_qualification darwin-amd64 passed
   verify_qualification darwin-arm64 passed
-	verify_qualification linux-x11 passed
-	verify_qualification linux-wayland passed
-	verify_qualification linux-xwayland passed
-  if [[ "${channel}" == stable ]]; then
-    verify_qualification docker-desktop passed
-  else
-    local docker_status
-    docker_status="$(hcorral_state_value dist/qualification/docker-desktop.env STATUS 2>/dev/null || true)"
-    case "${docker_status}" in
-      passed) verify_qualification docker-desktop passed ;;
-      waived-preview) verify_qualification docker-desktop waived-preview ;;
-      *) echo 'ERROR: preview Docker Desktop gate must be passed or explicitly waived' >&2; exit 1 ;;
-    esac
-  fi
+	local gui_gate gui_status
+	for gui_gate in linux-x11 linux-wayland linux-xwayland; do
+		if [[ "${channel}" == stable ]]; then
+			verify_qualification "${gui_gate}" passed
+		else
+			gui_status="$(hcorral_state_value "dist/qualification/${gui_gate}.env" STATUS 2>/dev/null || true)"
+			case "${gui_status}" in
+				passed) verify_qualification "${gui_gate}" passed ;;
+				waived-preview) verify_qualification "${gui_gate}" waived-preview ;;
+				*) echo "ERROR: preview ${gui_gate} gate must be passed or explicitly waived" >&2; exit 1 ;;
+			esac
+		fi
+	done
 }
 
 verify_actions_transport() {

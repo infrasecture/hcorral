@@ -44,15 +44,16 @@ for _ in {1..30}; do
 done
 [[ "${registry_ready}" == true ]] || { echo 'local test registry did not become ready' >&2; exit 1; }
 image="127.0.0.1:${registry_port}/hcorral/integration:$(date +%s)-$$"
-export HCORRAL_IMAGE_NAME="${image%:*}"
-export HCORRAL_IMAGE_TAG="${image##*:}"
+export HCORRAL_IMAGE="${image}"
 docker image tag "${fixture_image}" "${image}"
 docker image push "${image}" >/dev/null
 docker image rm "${image}" >/dev/null
 
 info="$(${binary} info --format=json)"
 project="$(printf '%s' "${info}" | sed -n '/^[[:space:]]*"project": {/,/^[[:space:]]*}/ s/^[[:space:]]*"name": "\([^"]*\)",*$/\1/p' | head -1)"
+private_volume="$(printf '%s' "${info}" | sed -n '/^[[:space:]]*"state": {/,/^[[:space:]]*}/ s/^[[:space:]]*"volume": "\([^"]*\)",*$/\1/p' | head -1)"
 [[ "${project}" =~ ^hcorral-client_portal-[0-9a-f]{7}$ ]] || { echo "unexpected project: ${project}" >&2; exit 1; }
+[[ "${private_volume}" =~ ^hcorral-client_portal-[0-9a-f]{7}$ ]] || { echo "unexpected private volume: ${private_volume}" >&2; exit 1; }
 grep -Fq '"schema": 1' <<<"${info}"
 grep -Fq '"ownership"' <<<"${info}"
 grep -Fq '"state"' <<<"${info}"
@@ -108,7 +109,6 @@ docker exec "${project}" tmux has-session -t hcorral
 [[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
 [[ "$(docker inspect --format '{{.State.StartedAt}}' "${project}")" == "${started_at}" ]]
 
-private_volume="${project}"
 "${binary}" down -v
 project=""
 if docker volume inspect "${private_volume}" >/dev/null 2>&1; then

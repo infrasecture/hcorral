@@ -11,7 +11,7 @@ grep -Fq -- '--packages' <<<"${build_help}" || fail 'build help lacks packages'
 if grep -Eq 'docker (push|buildx imagetools create)' build.sh; then fail 'build.sh contains publication'; fi
 grep -Fq 'ai.infrasecture.hcorral.build-cache' build.sh || fail 'build cache ownership label is missing'
 grep -Fq 'lacks exact hcorral ownership labels' build.sh || fail 'build cache collision refusal is missing'
-grep -Fq 'buildhost: hcorral-reproducible' build.sh || fail 'deterministic RPM build host is missing'
+grep -Fq 'buildhost: hcorral-build' build.sh || fail 'fixed RPM build host is missing'
 grep -Fq '/src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md' build.sh || fail 'raw archives omit the dependency-license inventory'
 if grep -Fq 'find dist -maxdepth 1' build.sh release.sh; then fail 'release artifacts are discovered from stale dist contents'; fi
 # shellcheck disable=SC2016 # Match the literal release-script expansion.
@@ -34,6 +34,8 @@ grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .gi
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
 grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
+grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
+if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
 grep -Fq "grep -Fxq 'arch = aarch64'" .github/workflows/release.yaml || fail 'arm64 Arch package metadata qualification is missing'
 grep -Fq 'pacman -U --noconfirm' .github/workflows/release.yaml || fail 'amd64 Arch package installation qualification is missing'

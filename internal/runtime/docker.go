@@ -57,8 +57,9 @@ type Network struct {
 }
 
 type Image struct {
-	ID     string `json:"Id"`
-	Config struct {
+	ID          string   `json:"Id"`
+	RepoDigests []string `json:"RepoDigests"`
+	Config      struct {
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 }

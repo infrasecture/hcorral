@@ -27,17 +27,12 @@ func ExtraMountOverlay(cfg config.Config) (GeneratedFile, error) {
 	}
 	volumes := make([]string, 0, len(cfg.ExtraVolumes))
 	topLevelVolumes := map[string]any{}
-	managed := []string{cfg.Workspace, cfg.ContainerHome, cfg.Workdir, "/workspace", "/tmp/.hcorral-xauthority", "/tmp/.hcorral-wayland", "/tmp/.X11-unix", "/etc/hcorral", "/usr/local/bin/entrypoint.sh", "/usr/local/bin/hcorral-session-init", "/run/hcorral-startup-status"}
 	for _, specification := range cfg.ExtraVolumes {
 		normalized, target, err := normalizeMount(cfg.CallerDir, specification)
 		if err != nil {
 			return GeneratedFile{}, err
 		}
-		for _, reserved := range managed {
-			if pathsOverlap(target, reserved) {
-				return GeneratedFile{}, fmt.Errorf("extra mount target %q overlaps managed path %q", target, reserved)
-			}
-		}
+		_ = target
 		parts := strings.Split(normalized, ":")
 		if filepath.IsAbs(parts[0]) {
 			volumes = append(volumes, normalized)
@@ -124,14 +119,6 @@ func normalizeMount(caller, specification string) (string, string, error) {
 		normalized += ":" + parts[2]
 	}
 	return normalized, target, nil
-}
-
-func pathsOverlap(left, right string) bool {
-	left, right = filepath.Clean(left), filepath.Clean(right)
-	if left == right {
-		return true
-	}
-	return strings.HasPrefix(left, right+string(filepath.Separator)) || strings.HasPrefix(right, left+string(filepath.Separator))
 }
 
 func generatedDirectory() (string, error) {

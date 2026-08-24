@@ -20,9 +20,9 @@ myCodex commits are grafted or replayed.
 | `image/Dockerfile` | `Dockerfile` | hcorral paths, labels, arguments, helper, schema |
 | `image/entrypoint.sh` | `entrypoint.sh` | hcorral environment and extracted session helper |
 | `image/session-init.sh` | session setup in `entrypoint.sh` | idempotent entrypoint and launcher recovery helper |
-| `scripts/build-workstation-image.sh` | `bin/build-codex-image.sh` | hcorral image/tag/control namespace |
+| `scripts/build-harness-image.sh` | `bin/build-codex-image.sh` | independent harness descriptors, image/tag/control namespace |
 | `scripts/lib/hcorral-image.sh` | `bin/lib/mycodex-image.sh` | hcorral labels, inputs, and registry identity |
 
 Launcher behavior, fixtures, and tests are reimplemented in Go. Vaka source is
-used only as evidence for pinned builders, reproducible artifacts, Linux
+used only as evidence for pinned builders, reviewable artifacts, Linux
 packaging, prepare/publish separation, and Homebrew release mechanics.

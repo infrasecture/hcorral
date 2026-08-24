@@ -21,7 +21,7 @@ runtime_uid="${HCORRAL_HOST_UID}"
 runtime_home="${HCORRAL_CONTAINER_HOME}"
 runtime_workdir="${HCORRAL_WORKDIR}"
 session="${HCORRAL_BYOBU_SESSION:-hcorral}"
-codex_home="${runtime_home}/.codex"
+harness_type="${HCORRAL_HARNESS_TYPE:-}"
 
 [[ "${runtime_uid}" =~ ^[0-9]+$ ]] || die "HCORRAL_HOST_UID must be numeric"
 [[ "${session}" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || die "HCORRAL_BYOBU_SESSION must match [A-Za-z0-9_.-]{1,64}"
@@ -30,15 +30,10 @@ runtime_user="$(getent passwd "${runtime_uid}" | cut -d: -f1 || true)"
 [[ -d "${runtime_workdir}" ]] || die "workdir does not exist: ${runtime_workdir}"
 
 as_runtime_user() {
-  gosu "${runtime_user}" \
-    env \
-      HOME="${runtime_home}" \
-      USER="${runtime_user}" \
-      LOGNAME="${runtime_user}" \
-      SHELL=/bin/bash \
-      CODEX_HOME="${codex_home}" \
-      HCORRAL_WORKDIR="${runtime_workdir}" \
-      "$@"
+	local -a runtime_env=(env HOME="${runtime_home}" USER="${runtime_user}" LOGNAME="${runtime_user}" SHELL=/bin/bash NPM_CONFIG_PREFIX="${runtime_home}/.local/share/npm" PATH="${runtime_home}/.local/bin:${runtime_home}/.local/share/npm/bin:${runtime_home}/.cargo/bin:${PATH}" HCORRAL_WORKDIR="${runtime_workdir}")
+	if [[ "${harness_type}" == codex ]]; then runtime_env+=(CODEX_HOME="${runtime_home}/.codex"); fi
+	if [[ "${harness_type}" == claude ]]; then runtime_env+=(DISABLE_AUTOUPDATER=1); fi
+	gosu "${runtime_user}" "${runtime_env[@]}" "$@"
 }
 
 # shellcheck disable=SC2016 # Expanded inside the runtime user's shell.

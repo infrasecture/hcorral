@@ -4,15 +4,32 @@ package gui
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/compose"
 	"github.com/infrasecture/hcorral/internal/config"
 	"github.com/infrasecture/hcorral/internal/identity"
 )
+
+type contextRunner struct{ endpoint string }
+
+func (r contextRunner) Capture(_ context.Context, argv, _ []string) (command.Result, error) {
+	if len(argv) == 5 && argv[0] == "docker" && argv[1] == "context" {
+		return command.Result{Stdout: []byte(r.endpoint + "\n")}, nil
+	}
+	return command.Result{}, errors.New("unexpected capture")
+}
+func (contextRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
+	return errors.New("unexpected Run")
+}
+func (contextRunner) Replace([]string, []string) error { return errors.New("unexpected Replace") }
 
 func TestWaylandRequiresOneOwnedSocket(t *testing.T) {
 	directory := t.TempDir()
@@ -55,3 +72,14 @@ func TestSecureStateDirectoryRejectsSymlinkComponent(t *testing.T) {
 		t.Fatal("symlinked state component was accepted")
 	}
 }
+
+func TestGUIRejectsRemoteDockerContextBeforeSocketInspection(t *testing.T) {
+	t.Parallel()
+	resolver := Resolver{Runner: contextRunner{endpoint: "ssh://docker.example"}, Environ: func(string) string { return "" }, UID: os.Getuid()}
+	_, err := resolver.Resolve(context.Background(), config.GUIIntent{Specified: true, Mode: "x11"}, identity.Workspace{}, compose.AssetPaths{})
+	if err == nil || !strings.Contains(err.Error(), "local Unix-socket Docker daemon") {
+		t.Fatalf("remote context error = %v", err)
+	}
+}
+
+var _ command.Runner = contextRunner{}

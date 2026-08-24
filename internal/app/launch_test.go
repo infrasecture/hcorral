@@ -98,7 +98,7 @@ func (f *fakeRunner) Replace(argv, _ []string) error {
 
 func TestLegacyConflictHasZeroMutation(t *testing.T) {
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,13 +122,13 @@ func TestRunningContainerAttachesWithoutMutation(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cache)
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project, Mounts: []containerruntime.Mount{{Type: "bind", Source: workspace.Path, Destination: workspace.Path}, {Type: "volume", Name: workspace.Project, Destination: mustHome()}}}
 	container.Config.Image = "ghcr.io/infrasecture/hcorral:latest"
-	container.Config.Labels = map[string]string{identity.LabelWorkspaceID: workspace.FullID, identity.LabelWorkspaceScheme: "v1", identity.LabelRuntimeSchema: "1", identity.LabelGUI: "none", "com.docker.compose.project": workspace.Project, "com.docker.compose.service": "hcorral", "com.docker.compose.config-hash": "hash"}
+	container.Config.Labels = ownedLabels(workspace, "none")
 	container.State.Status = "running"
 	container.State.Running = true
 	runner := &fakeRunner{containers: []containerruntime.Container{container}, workspace: workspace}
@@ -150,13 +150,13 @@ func TestMissingSessionRecoveryReinspectsUnderLock(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cache)
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project, Mounts: []containerruntime.Mount{{Type: "bind", Source: workspace.Path, Destination: workspace.Path}, {Type: "volume", Name: "hcorral_state", Destination: mustHome()}}}
 	container.Config.Image = "ghcr.io/infrasecture/hcorral:latest"
-	container.Config.Labels = map[string]string{identity.LabelWorkspaceID: workspace.FullID, identity.LabelWorkspaceScheme: "v1", identity.LabelRuntimeSchema: "1", identity.LabelGUI: "none", "com.docker.compose.project": workspace.Project, "com.docker.compose.service": "hcorral", "com.docker.compose.config-hash": "hash"}
+	container.Config.Labels = ownedLabels(workspace, "none")
 	container.State.Status, container.State.Running = "running", true
 	runner := &fakeRunner{containers: []containerruntime.Container{container}, workspace: workspace, sessionMissing: true}
 	var out, stderr bytes.Buffer
@@ -185,12 +185,12 @@ func TestDirectStartRefusesMismatchedManagedState(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cache)
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project, Mounts: []containerruntime.Mount{{Type: "bind", Source: workspace.Path, Destination: workspace.Path}, {Type: "volume", Name: "hcorral_state", Destination: mustHome()}}}
-	container.Config.Labels = map[string]string{identity.LabelWorkspaceID: workspace.FullID, identity.LabelWorkspaceScheme: "v1", identity.LabelRuntimeSchema: "1", identity.LabelGUI: "none", "com.docker.compose.project": workspace.Project, "com.docker.compose.service": "hcorral", "com.docker.compose.config-hash": "hash"}
+	container.Config.Labels = ownedLabels(workspace, "none")
 	container.State.Status = "exited"
 	foreign := containerruntime.Volume{Name: "hcorral_state", Labels: map[string]string{identity.LabelStateKind: "foreign"}}
 	runner := &fakeRunner{containers: []containerruntime.Container{container}, volumes: map[string]containerruntime.Volume{"hcorral_state": foreign}, workspace: workspace}
@@ -208,12 +208,12 @@ func TestDirectStartRefusesMismatchedManagedState(t *testing.T) {
 func TestDarwinNeverOperatesOnGUIContainer(t *testing.T) {
 	t.Parallel()
 	workspacePath := t.TempDir()
-	workspace, err := identity.Resolve(workspacePath, workspacePath, "")
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project}
-	container.Config.Labels = map[string]string{identity.LabelWorkspaceID: workspace.FullID, identity.LabelWorkspaceScheme: identity.WorkspaceSchemeVersion, identity.LabelRuntimeSchema: identity.RuntimeSchemaVersion, identity.LabelGUI: "x11", "com.docker.compose.project": workspace.Project, "com.docker.compose.service": "hcorral", "com.docker.compose.config-hash": "hash"}
+	container.Config.Labels = ownedLabels(workspace, "x11")
 	container.State.Status, container.State.Running = "exited", false
 	runner := &fakeRunner{containers: []containerruntime.Container{container}, workspace: workspace}
 	cfg := testConfig(workspace)
@@ -256,6 +256,21 @@ func TestComposeMutationClassificationFailsSafe(t *testing.T) {
 		if composeCommandMutates(command) {
 			t.Errorf("%q was classified as mutating", command)
 		}
+	}
+}
+
+func TestMultiplicityWarningIncludesOtherSameCorralProject(t *testing.T) {
+	t.Parallel()
+	workspace := identity.Workspace{Project: "payment_codex_review", CorralID: strings.Repeat("a", 64)}
+	other := containerruntime.Container{Name: "/payment_codex_implementation"}
+	other.Config.Labels = map[string]string{
+		identity.LabelCorralID:       workspace.CorralID,
+		"com.docker.compose.project": "payment_codex_implementation",
+	}
+	var stderr bytes.Buffer
+	warnCorralMultiplicity(&stderr, []containerruntime.Container{other}, workspace)
+	if !strings.Contains(stderr.String(), "payment_codex_implementation") || !strings.Contains(stderr.String(), "targets only payment_codex_review") {
+		t.Fatalf("warning = %q", stderr.String())
 	}
 }
 
@@ -308,7 +323,7 @@ func TestExecTargetsRuntimeUIDAndPreservesArguments(t *testing.T) {
 	if len(runner.replaced) == 0 {
 		t.Fatal("no replacement argv recorded")
 	}
-	if !containsSequence(runner.replaced, []string{"gosu", current.Uid, "env", "HOME=/home/runtime", "CODEX_HOME=/home/runtime/.codex"}) {
+	if !containsSequence(runner.replaced, []string{"gosu", current.Uid, "env", "HOME=/home/runtime"}) {
 		t.Fatalf("runtime UID/environment missing from argv: %#v", runner.replaced)
 	}
 	wantTail := append([]string{"bash", "/work/path with spaces"}, args...)
@@ -321,7 +336,16 @@ func TestExecTargetsRuntimeUIDAndPreservesArguments(t *testing.T) {
 }
 
 func testConfig(workspace identity.Workspace) config.Config {
-	return config.Config{CallerDir: workspace.Path, Workspace: workspace.Path, ImageName: "ghcr.io/infrasecture/hcorral", ImageTag: "latest", StateMode: config.StateShared, ComposeCommand: []string{"docker", "compose"}, ContainerHome: mustHome(), Workdir: workspace.Path, WaitTimeoutSeconds: 1, ProgressIntervalSecond: 1, Session: "hcorral", UpdateCheck: false, Platform: "linux"}
+	return config.Config{CallerDir: workspace.Path, Workspace: workspace.Path, Harness: "codex", Image: "ghcr.io/infrasecture/hcorral-codex:latest", StateMode: config.StateShared, ComposeCommand: []string{"docker", "compose"}, ContainerHome: mustHome(), Workdir: workspace.Path, WaitTimeoutSeconds: 1, ProgressIntervalSecond: 1, Session: "hcorral", UpdateCheck: false, Platform: "linux"}
+}
+func ownedLabels(workspace identity.Workspace, gui string) map[string]string {
+	return map[string]string{
+		identity.LabelWorkspaceID: workspace.FullID, identity.LabelWorkspaceScheme: identity.WorkspaceSchemeVersion,
+		identity.LabelCorralID: workspace.CorralID, identity.LabelCorralScheme: identity.CorralSchemeVersion,
+		identity.LabelHarnessType: workspace.Harness, identity.LabelRuntimeSchema: identity.RuntimeSchemaVersion,
+		identity.LabelGUI: gui, "com.docker.compose.project": workspace.Project,
+		"com.docker.compose.service": "hcorral", "com.docker.compose.config-hash": "hash",
+	}
 }
 func mustHome() string {
 	home, err := os.UserHomeDir()
