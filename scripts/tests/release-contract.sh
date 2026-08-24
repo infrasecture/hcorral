@@ -47,6 +47,7 @@ grep -Fq 'fail-fast: false' .github/workflows/release.yaml || fail 'Darwin archi
 grep -Fq 'export TEST_TMPDIR="$HOME/hcorral-ci-tmp"' .github/workflows/release.yaml || fail 'Colima qualification workspace is not daemon-visible'
 # shellcheck disable=SC2016 # Match the literal nested-default expression.
 grep -Fq 'TEST_TMPDIR:-${TMPDIR:-/tmp}' tests/integration/real-docker.sh || fail 'real Docker fixture root cannot be selected for remote daemons'
+grep -Fq 'gtimeout 3 script -q /dev/null' tests/integration/real-docker.sh || fail 'macOS PTY attach recovery is not qualified portably'
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
 if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml; then fail 'Homebrew qualification audits a disabled formula path'; fi

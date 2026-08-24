@@ -101,9 +101,13 @@ container_id="$(docker inspect --format '{{.Id}}' "${project}")"
 [[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
 started_at="$(docker inspect --format '{{.State.StartedAt}}' "${project}")"
 
-docker exec "${project}" tmux kill-server
+docker exec "${project}" tmux kill-server >/dev/null 2>&1 || true
 set +e
-timeout 3 script -qec "${binary}" /dev/null >/dev/null 2>&1
+if [[ "$(uname -s)" == Darwin ]]; then
+  gtimeout 3 script -q /dev/null "${binary}" >/dev/null 2>&1
+else
+  timeout 3 script -qec "${binary}" /dev/null >/dev/null 2>&1
+fi
 attach_status=$?
 set -e
 [[ ${attach_status} -eq 0 || ${attach_status} -eq 124 ]]
