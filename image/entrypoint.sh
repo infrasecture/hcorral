@@ -4,6 +4,11 @@ set -euo pipefail
 SESSION="${HCORRAL_BYOBU_SESSION:-hcorral}"
 STARTUP_STATUS_FILE="/run/hcorral-startup-status"
 
+[[ "${SESSION}" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || {
+  printf 'hcorral: HCORRAL_BYOBU_SESSION must match [A-Za-z0-9_.-]{1,64}\n' >&2
+  exit 2
+}
+
 cd /
 
 startup_status() {
@@ -25,6 +30,9 @@ require_env() {
   fi
 }
 
+require_env HCORRAL_LAUNCHED_BY_WRAPPER
+[[ "${HCORRAL_LAUNCHED_BY_WRAPPER}" == 1 ]] || die "HCORRAL_LAUNCHED_BY_WRAPPER must be 1; use the hcorral launcher"
+
 require_numeric_env() {
   local name="$1"
   local value="${!name:-}"
@@ -42,6 +50,10 @@ require_env HCORRAL_HOST_GROUP
 require_env HCORRAL_HOST_GROUPS
 require_env HCORRAL_CONTAINER_HOME
 require_env HCORRAL_WORKDIR
+
+for runtime_path in "${HCORRAL_CONTAINER_HOME}" "${HCORRAL_WORKDIR}"; do
+  [[ "${runtime_path}" == /* && "${runtime_path}" != *$'\n'* && "${runtime_path}" != *$'\r'* ]] || die "runtime home and workdir must be absolute single-line paths"
+done
 
 RUNTIME_UID="${HCORRAL_HOST_UID}"
 RUNTIME_GID="${HCORRAL_HOST_GID}"
@@ -80,6 +92,10 @@ group_name_for_gid() {
   requested_name="$(sanitize_account_name "${requested_name}" "hcorral-${gid}")"
   group_name="$(getent group "${gid}" | field 1 || true)"
   if [[ -n "${group_name}" ]]; then
+    if [[ "${gid}" == 0 ]]; then
+      printf '%s\n' "${group_name}"
+      return
+    fi
     if [[ "${group_name}" != "${requested_name}" ]] && ! getent group "${requested_name}" >/dev/null 2>&1; then
       groupmod --new-name "${requested_name}" "${group_name}" >/dev/null
       group_name="${requested_name}"
@@ -244,6 +260,9 @@ bootstrap_empty_home_volume() {
 
   chown "${uid}:${gid}" "${home}"
   chown_workdir_parent_path "${home}" "${workdir}" "${uid}" "${gid}"
+  if [[ "${workdir}" == "${home}/"* && -d "${workdir}" ]]; then
+    chown "${uid}:${gid}" "${workdir}"
+  fi
   mkdir -p "${state_dir}"
   chown "${uid}:${gid}" "${state_dir}"
 
@@ -348,7 +367,10 @@ ensure_passwordless_sudo "${RUNTIME_USER}"
 
 startup_status "preparing workspace and home"
 bootstrap_empty_home_volume "${RUNTIME_HOME}" "${RUNTIME_UID}" "${RUNTIME_GID}" "${RUNTIME_WORKDIR}"
-mkdir -p "${RUNTIME_WORKDIR}"
+if [[ ! -e "${RUNTIME_WORKDIR}" ]]; then
+  mkdir -p "${RUNTIME_WORKDIR}"
+  chown -R "${RUNTIME_UID}:${RUNTIME_GID}" "${RUNTIME_WORKDIR}"
+fi
 startup_status "initializing tool configuration"
 initialize_codex_config
 initialize_claude_config

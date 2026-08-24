@@ -1,0 +1,7 @@
+self-hosted-runner:
+  labels:
+    - macos-15-intel
+    - hcorral-docker-desktop
+    - hcorral-x11
+    - hcorral-wayland
+    - hcorral-xwayland

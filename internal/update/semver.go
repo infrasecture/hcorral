@@ -14,7 +14,16 @@ type Version struct {
 
 func Parse(value string) (Version, error) {
 	raw := strings.TrimPrefix(strings.TrimSpace(value), "v")
-	withoutBuild := strings.SplitN(raw, "+", 2)[0]
+	buildParts := strings.Split(raw, "+")
+	if len(buildParts) > 2 {
+		return Version{}, fmt.Errorf("version %q has more than one build separator", value)
+	}
+	withoutBuild := buildParts[0]
+	if len(buildParts) == 2 {
+		if err := validateIdentifiers(value, buildParts[1], false); err != nil {
+			return Version{}, err
+		}
+	}
 	parts := strings.SplitN(withoutBuild, "-", 2)
 	core := strings.Split(parts[0], ".")
 	if len(core) != 3 {
@@ -33,17 +42,36 @@ func Parse(value string) (Version, error) {
 	}
 	version := Version{Major: numbers[0], Minor: numbers[1], Patch: numbers[2], Raw: raw}
 	if len(parts) == 2 {
-		if parts[1] == "" {
-			return Version{}, fmt.Errorf("version %q has empty prerelease", value)
+		if err := validateIdentifiers(value, parts[1], true); err != nil {
+			return Version{}, err
 		}
 		version.Pre = strings.Split(parts[1], ".")
-		for _, identifier := range version.Pre {
-			if identifier == "" {
-				return Version{}, fmt.Errorf("version %q has empty prerelease identifier", value)
-			}
-		}
 	}
 	return version, nil
+}
+
+func validateIdentifiers(version, value string, prerelease bool) error {
+	if value == "" {
+		return fmt.Errorf("version %q has an empty identifier set", version)
+	}
+	for _, identifier := range strings.Split(value, ".") {
+		if identifier == "" {
+			return fmt.Errorf("version %q has an empty identifier", version)
+		}
+		numeric := true
+		for _, character := range identifier {
+			if !((character >= '0' && character <= '9') || (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '-') {
+				return fmt.Errorf("version %q has an invalid identifier", version)
+			}
+			if character < '0' || character > '9' {
+				numeric = false
+			}
+		}
+		if prerelease && numeric && len(identifier) > 1 && identifier[0] == '0' {
+			return fmt.Errorf("version %q has a non-canonical numeric prerelease identifier", version)
+		}
+	}
+	return nil
 }
 
 func Compare(left, right Version) int {

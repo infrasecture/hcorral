@@ -30,6 +30,9 @@ func VerifyContainer(container *containerruntime.Container, workspace Workspace)
 	if labels[LabelRuntimeSchema] != RuntimeSchemaVersion {
 		return fmt.Errorf("container %s has unsupported runtime schema %q", container.CleanName(), labels[LabelRuntimeSchema])
 	}
+	if labels["com.docker.compose.project"] != workspace.Project || labels["com.docker.compose.service"] != "hcorral" {
+		return fmt.Errorf("container %s lacks exact Compose ownership labels for project %s service hcorral", container.CleanName(), workspace.Project)
+	}
 	return nil
 }
 

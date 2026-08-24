@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,7 +26,8 @@ func ExtraMountOverlay(cfg config.Config) (GeneratedFile, error) {
 		return GeneratedFile{}, nil
 	}
 	volumes := make([]string, 0, len(cfg.ExtraVolumes))
-	managed := []string{cfg.Workspace, cfg.ContainerHome, cfg.Workdir, "/workspace", "/tmp/.hcorral-xauthority", "/tmp/.hcorral-wayland"}
+	topLevelVolumes := map[string]any{}
+	managed := []string{cfg.Workspace, cfg.ContainerHome, cfg.Workdir, "/workspace", "/tmp/.hcorral-xauthority", "/tmp/.hcorral-wayland", "/tmp/.X11-unix", "/etc/hcorral", "/usr/local/bin/entrypoint.sh", "/usr/local/bin/hcorral-session-init", "/run/hcorral-startup-status"}
 	for _, specification := range cfg.ExtraVolumes {
 		normalized, target, err := normalizeMount(cfg.CallerDir, specification)
 		if err != nil {
@@ -36,9 +38,20 @@ func ExtraMountOverlay(cfg config.Config) (GeneratedFile, error) {
 				return GeneratedFile{}, fmt.Errorf("extra mount target %q overlaps managed path %q", target, reserved)
 			}
 		}
-		volumes = append(volumes, normalized)
+		parts := strings.Split(normalized, ":")
+		if filepath.IsAbs(parts[0]) {
+			volumes = append(volumes, normalized)
+		} else {
+			logical := extraVolumeLogicalName(parts[0])
+			parts[0] = logical
+			volumes = append(volumes, strings.Join(parts, ":"))
+			topLevelVolumes[logical] = map[string]any{"external": true, "name": strings.Split(normalized, ":")[0]}
+		}
 	}
 	document := map[string]any{"services": map[string]any{"hcorral": map[string]any{"volumes": volumes}}}
+	if len(topLevelVolumes) > 0 {
+		document["volumes"] = topLevelVolumes
+	}
 	content, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return GeneratedFile{}, err
@@ -69,6 +82,11 @@ func ExtraMountOverlay(cfg config.Config) (GeneratedFile, error) {
 	return GeneratedFile{Path: path}, nil
 }
 
+func extraVolumeLogicalName(name string) string {
+	digest := sha256.Sum256([]byte(name))
+	return "hcorral_extra_" + fmt.Sprintf("%x", digest[:6])
+}
+
 func normalizeMount(caller, specification string) (string, string, error) {
 	if specification == "" || strings.ContainsAny(specification, "\x00\r\n") {
 		return "", "", errors.New("volume spec must be non-empty and single-line")
@@ -94,6 +112,8 @@ func normalizeMount(caller, specification string) (string, string, error) {
 		}
 		source = filepath.Join(home, source[2:])
 	} else if source == "." || source == ".." || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
+		source = filepath.Clean(filepath.Join(caller, source))
+	} else if !filepath.IsAbs(source) && strings.ContainsRune(source, '/') {
 		source = filepath.Clean(filepath.Join(caller, source))
 	}
 	normalized := source + ":" + target
@@ -127,10 +147,7 @@ func generatedDirectory() (string, error) {
 		return "", errors.New("XDG_CACHE_HOME must be absolute")
 	}
 	directory := filepath.Join(root, "hcorral", "generated")
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
+	if err := secureMkdirAll(directory); err != nil {
 		return "", err
 	}
 	return directory, nil

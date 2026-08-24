@@ -95,11 +95,8 @@ func (r Resolver) copyXAuthority(ctx context.Context, workspace identity.Workspa
 		return "", errors.New("XDG_STATE_HOME must be absolute")
 	}
 	directory := filepath.Join(stateHome, "hcorral", "gui", workspace.FullID)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	if err := secureStateDirectory(stateHome, "hcorral", "gui", workspace.FullID); err != nil {
 		return "", fmt.Errorf("create X11 credential directory: %w", err)
-	}
-	if info, err := os.Lstat(directory); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("X11 credential directory is not physical: %s", directory)
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return "", err
@@ -146,6 +143,34 @@ func (r Resolver) copyXAuthority(ctx context.Context, workspace identity.Workspa
 		return "", err
 	}
 	return target, nil
+}
+
+func secureStateDirectory(root string, components ...string) error {
+	info, err := os.Lstat(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return err
+		}
+		info, err = os.Lstat(root)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("state root is not a physical directory: %s", root)
+	}
+	current := root
+	for _, component := range components {
+		current = filepath.Join(current, component)
+		if err := os.Mkdir(current, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		info, err := os.Lstat(current)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("state path is not a physical directory: %s", current)
+		}
+	}
+	return nil
 }
 
 func requireSocket(path string) error {

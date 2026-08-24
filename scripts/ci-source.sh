@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"
-builder="${HCORRAL_GOLANG_IMAGE:-golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587}"
+builder="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c60731c8ba49088448b91f63e2aed97ca9d1a9791622a05946}"
 
 run_go() { docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${builder}" "$@"; }
 
@@ -16,15 +16,18 @@ run_go go test ./...
 docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${builder}" sh -c 'apk add --no-cache gcc musl-dev >/dev/null && CGO_ENABLED=1 go test -race ./...'
 run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=2s
 
-shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/integration/*.sh tests/fixtures/minimal-image/*.sh
-bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/integration/*.sh tests/fixtures/minimal-image/*.sh
+shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+scripts/check-third-party.sh
+scripts/check-provenance.sh
 scripts/tests/release-contract.sh
 scripts/tests/image-versioning.sh
+run_go go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -config-file .github/actionlint.yaml .github/workflows/*.yaml
 
 grep -Fq 'GNU AFFERO GENERAL PUBLIC LICENSE' LICENSE
 grep -Fq 'AGPL-3.0-or-later' README.md
 [[ -s THIRD_PARTY_LICENSES.md && -s docs/provenance.md ]]
-if rg -n 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' --glob '!docs/provenance.md' --glob '!internal/legacyguard/**' --glob '!scripts/ci-source.sh' .; then
+if git grep -nE 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' -- ':!docs/provenance.md' ':!internal/legacyguard/**' ':!scripts/ci-source.sh'; then
   echo 'ERROR: stale or noncanonical hcorral namespace found' >&2
   exit 1
 fi

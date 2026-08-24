@@ -2,13 +2,14 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/user"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/compose"
@@ -20,27 +21,6 @@ import (
 	"github.com/infrasecture/hcorral/internal/update"
 )
 
-type snapshot struct {
-	Schema           int                `json:"schema"`
-	LauncherVersion  string             `json:"launcher_version"`
-	LauncherCommit   string             `json:"launcher_commit"`
-	Workspace        identity.Workspace `json:"workspace"`
-	Project          string             `json:"project"`
-	Service          string             `json:"service"`
-	Container        string             `json:"container"`
-	Image            string             `json:"image"`
-	StateMode        config.StateMode   `json:"state_mode"`
-	StateVolume      string             `json:"state_volume"`
-	GUIRequested     config.GUIIntent   `json:"gui_requested"`
-	GUIDeployed      string             `json:"gui_deployed,omitempty"`
-	ContainerState   string             `json:"container_state,omitempty"`
-	ContainerID      string             `json:"container_id,omitempty"`
-	ContainerStarted string             `json:"container_started,omitempty"`
-	LegacyConflict   *legacyguard.Match `json:"mycodex_conflict,omitempty"`
-	ComposeCommand   map[string]any     `json:"compose_command"`
-	DockerError      string             `json:"docker_error,omitempty"`
-}
-
 func runOperational(cfg config.Config, workspace identity.Workspace, streams Streams, runner command.Runner) int {
 	ctx := context.Background()
 	docker := containerruntime.NewDocker(runner).WithStreams(streams.Out, streams.Err)
@@ -50,27 +30,32 @@ func runOperational(cfg config.Config, workspace identity.Workspace, streams Str
 		legacy = legacyguard.Find(containers, workspace.Path)
 	}
 	candidate := findContainer(containers, workspace.Project)
+	var ownershipErr error
 	if candidate != nil {
-		if err := identity.VerifyContainer(candidate, workspace); err != nil {
-			return fail(streams.Err, 1, "%v", err)
-		}
-		if !cfg.StateSpecified {
+		ownershipErr = identity.VerifyContainer(candidate, workspace)
+		if ownershipErr == nil && !cfg.StateSpecified {
 			adoptDeployedState(&cfg, candidate, workspace)
 		}
+	}
+	if ownershipErr == nil {
+		ownershipErr = verifyProjectContainers(containers, workspace, candidate)
 	}
 
 	name := commandName(cfg.Command)
 	if name == "info" {
-		return printSnapshot(streams, cfg, workspace, candidate, legacy, dockerErr)
+		return printSnapshot(ctx, streams, cfg, workspace, candidate, containers, legacy, dockerErr, ownershipErr, runner, docker)
+	}
+	if ownershipErr != nil {
+		return fail(streams.Err, 1, "%v", ownershipErr)
 	}
 	if dockerErr != nil {
 		return fail(streams.Err, 1, "%v", dockerErr)
 	}
 	if legacy != nil {
-		fmt.Fprintf(streams.Err, "hcorral: this workspace already has a myCodex environment in container %s (%s).\n", legacy.Container, legacy.State)
-		fmt.Fprintln(streams.Err, "hcorral: use the original myCodex launcher to attach, or run `myCodex down` from the original workspace before starting hcorral.")
-		fmt.Fprintln(streams.Err, "hcorral: do not use `down -v` unless you intend to delete its persisted home.")
-		return 3
+		return refuseLegacy(streams.Err, legacy)
+	}
+	if candidate != nil && cfg.Platform == "darwin" && deployedGUI(candidate) != "none" {
+		return fail(streams.Err, 2, "container uses unsupported GUI mode %s on macOS; hcorral will not start, attach, or reconcile it", deployedGUI(candidate))
 	}
 
 	if len(cfg.Command) == 0 {
@@ -89,12 +74,14 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 		}
 		reportDrift(ctx, cfg, workspace, candidate, containers, streams, runner)
 		if !sessionReady(ctx, docker, cfg, workspace.Project) {
-			if err := recoverSession(ctx, docker, workspace.Project); err != nil {
-				return fail(streams.Err, 1, "recover workstation session: %v", err)
+			recovered, legacy, recoveryErr := recoverAttachSessionLocked(ctx, cfg, workspace, streams, runner, docker)
+			if legacy != nil {
+				return refuseLegacy(streams.Err, legacy)
 			}
-			if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
-				return fail(streams.Err, 1, "%v", err)
+			if recoveryErr != nil {
+				return fail(streams.Err, 1, "%v", recoveryErr)
 			}
+			candidate = recovered
 		}
 		update.Checker{Docker: docker, Out: streams.Err}.Notify(ctx, cfg, candidate)
 		return replaceAttach(cfg, workspace.Project, streams, runner)
@@ -105,24 +92,40 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 		return fail(streams.Err, 1, "%v", err)
 	}
 	defer lock.Close()
-	candidate, err = docker.InspectContainer(ctx, workspace.Project)
+	containers, err = docker.ListContainers(ctx)
 	if err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
+	candidate = findContainer(containers, workspace.Project)
 	if err := identity.VerifyContainer(candidate, workspace); err != nil {
 		return fail(streams.Err, 1, "%v", err)
+	}
+	if err := verifyProjectContainers(containers, workspace, candidate); err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	if legacy := legacyguard.Find(containers, workspace.Path); legacy != nil {
+		return refuseLegacy(streams.Err, legacy)
+	}
+	if candidate != nil && !cfg.StateSpecified {
+		adoptDeployedState(&cfg, candidate, workspace)
+	}
+	if candidate != nil && cfg.Platform == "darwin" && deployedGUI(candidate) != "none" {
+		return fail(streams.Err, 2, "container uses unsupported GUI mode %s on macOS; hcorral will not start, attach, or reconcile it", deployedGUI(candidate))
 	}
 	if candidate != nil {
 		if drift, detail := desiredDrift(ctx, cfg, workspace, containers, runner, candidate); drift != "none" {
 			return fail(streams.Err, 1, "stopped environment has %s drift (%s); run `hcorral up -d` explicitly", drift, detail)
 		}
+		if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
+			return fail(streams.Err, 1, "%v", err)
+		}
 		if err := docker.StartContainer(ctx, workspace.Project); err != nil {
 			return fail(streams.Err, 1, "%v", err)
 		}
+		_ = lock.Close()
 		if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
 			return fail(streams.Err, 1, "%v", err)
 		}
-		_ = lock.Close()
 		return replaceAttach(cfg, workspace.Project, streams, runner)
 	}
 
@@ -134,22 +137,32 @@ func runDefault(ctx context.Context, cfg config.Config, workspace identity.Works
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
+	rendered, err := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+	if err != nil {
+		return fail(streams.Err, 2, "%v", err)
+	}
+	if err := validateComposeNetworkOwnership(ctx, docker, rendered, workspace); err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	if err := validateComposeVolumeOwnership(ctx, docker, rendered, workspace); err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
+	if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
+		return fail(streams.Err, 1, "%v", err)
+	}
 	if err := ensureSelectedImage(ctx, docker, cfg, streams); err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
 	if err := ensureState(ctx, docker, cfg, workspace); err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
-	if _, err := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace)); err != nil {
-		return fail(streams.Err, 2, "%v", err)
-	}
 	if err := project.Run(ctx, "up", "-d", "--no-build", "--pull", "never", "hcorral"); err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
+	_ = lock.Close()
 	if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
-	_ = lock.Close()
 	return replaceAttach(cfg, workspace.Project, streams, runner)
 }
 
@@ -158,21 +171,33 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 	if name == "exec" && len(args) == 0 {
 		return fail(streams.Err, 2, "exec requires a command")
 	}
-	mutating := map[string]bool{"up": true, "create": true, "down": true, "start": true, "stop": true, "restart": true}
 	var lock *identity.Lock
-	if mutating[name] {
+	if composeCommandMutates(name) {
 		var err error
 		lock, err = identity.AcquireLock(workspace.Project)
 		if err != nil {
 			return fail(streams.Err, 1, "%v", err)
 		}
 		defer lock.Close()
-		candidate, err = docker.InspectContainer(ctx, workspace.Project)
+		containers, err = docker.ListContainers(ctx)
 		if err != nil {
 			return fail(streams.Err, 1, "%v", err)
 		}
+		candidate = findContainer(containers, workspace.Project)
 		if err := identity.VerifyContainer(candidate, workspace); err != nil {
 			return fail(streams.Err, 1, "%v", err)
+		}
+		if err := verifyProjectContainers(containers, workspace, candidate); err != nil {
+			return fail(streams.Err, 1, "%v", err)
+		}
+		if legacy := legacyguard.Find(containers, workspace.Path); legacy != nil {
+			return refuseLegacy(streams.Err, legacy)
+		}
+		if candidate != nil && !cfg.StateSpecified {
+			adoptDeployedState(&cfg, candidate, workspace)
+		}
+		if candidate != nil && cfg.Platform == "darwin" && deployedGUI(candidate) != "none" {
+			return fail(streams.Err, 2, "container uses unsupported GUI mode %s on macOS; hcorral will not start, attach, or reconcile it", deployedGUI(candidate))
 		}
 	}
 
@@ -188,7 +213,7 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 	case "pull":
 		if len(args) == 0 {
 			if err := docker.PullImage(ctx, cfg.ImageName+":"+cfg.ImageTag, streams.Out, streams.Err); err != nil {
-				return fail(streams.Err, 1, "%v", err)
+				return fail(streams.Err, childExitCode(err), "%v", err)
 			}
 			return 0
 		}
@@ -197,6 +222,9 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 			return fail(streams.Err, 1, "hcorral environment does not exist")
 		}
 		if len(args) == 0 {
+			if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
+				return fail(streams.Err, 1, "%v", err)
+			}
 			if err := docker.StartContainer(ctx, workspace.Project); err != nil {
 				return fail(streams.Err, 1, "%v", err)
 			}
@@ -214,9 +242,25 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
+	var rendered compose.Rendered
+	if composeCommandMutates(name) {
+		rendered, err = project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace))
+		if err != nil {
+			return fail(streams.Err, 2, "%v", err)
+		}
+		if err := validateComposeNetworkOwnership(ctx, docker, rendered, workspace); err != nil {
+			return fail(streams.Err, 1, "%v", err)
+		}
+		if err := validateComposeVolumeOwnership(ctx, docker, rendered, workspace); err != nil {
+			return fail(streams.Err, 1, "%v", err)
+		}
+	}
 	if name == "up" || name == "create" {
 		if candidate != nil && deployedGUI(candidate) != "none" && !cfg.GUI.Specified {
 			return fail(streams.Err, 2, "container uses GUI mode %s; repeat --gui=%s to preserve it or use --no-gui", deployedGUI(candidate), deployedGUI(candidate))
+		}
+		if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
+			return fail(streams.Err, 1, "%v", err)
 		}
 		if !hasBuildOrPull(args) {
 			if err := ensureSelectedImage(ctx, docker, cfg, streams); err != nil {
@@ -225,9 +269,6 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 		}
 		if err := ensureState(ctx, docker, cfg, workspace); err != nil {
 			return fail(streams.Err, 1, "%v", err)
-		}
-		if _, err := project.RenderAndValidate(ctx, cfg, workspace, selection.Mode, stateVolumeName(cfg, workspace)); err != nil {
-			return fail(streams.Err, 2, "%v", err)
 		}
 		args = safeReconcileArgs(args)
 	}
@@ -246,15 +287,29 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 			}
 		}
 		fmt.Fprintf(streams.Err, "hcorral: removal plan: Compose project %s", workspace.Project)
-		if removeVolumes && removeState {
-			fmt.Fprintf(streams.Err, "; then Docker volume %s\n", removeName)
-		} else if removeVolumes {
-			fmt.Fprintf(streams.Err, "; retain external volume %s\n", removeName)
-		} else {
-			fmt.Fprintln(streams.Err)
+		composeVolumes, composeNetworks, retainedExternalVolumes, retainedExternalNetworks := renderedRemovalTargets(rendered, removeName)
+		for _, name := range composeNetworks {
+			fmt.Fprintf(streams.Err, "; Compose network %s", name)
 		}
+		if removeVolumes {
+			for _, name := range composeVolumes {
+				fmt.Fprintf(streams.Err, "; Compose volume %s", name)
+			}
+		}
+		if removeVolumes && removeState {
+			fmt.Fprintf(streams.Err, "; then Docker volume %s", removeName)
+		} else if removeVolumes {
+			fmt.Fprintf(streams.Err, "; retain external volume %s", removeName)
+		}
+		for _, name := range retainedExternalVolumes {
+			fmt.Fprintf(streams.Err, "; retain external volume %s", name)
+		}
+		for _, name := range retainedExternalNetworks {
+			fmt.Fprintf(streams.Err, "; retain external network %s", name)
+		}
+		fmt.Fprintln(streams.Err)
 		if err := project.Run(ctx, append([]string{"down"}, args...)...); err != nil {
-			return fail(streams.Err, 1, "%v", err)
+			return fail(streams.Err, childExitCode(err), "%v", err)
 		}
 		if removeVolumes && removeState {
 			if err := docker.RemoveVolume(ctx, removeName); err != nil {
@@ -264,7 +319,7 @@ func runCommand(ctx context.Context, cfg config.Config, workspace identity.Works
 		return 0
 	}
 	if err := project.Run(ctx, append([]string{name}, args...)...); err != nil {
-		return fail(streams.Err, 1, "%v", err)
+		return fail(streams.Err, childExitCode(err), "%v", err)
 	}
 	return 0
 }
@@ -336,6 +391,9 @@ func guardAttachGUI(ctx context.Context, cfg config.Config, workspace identity.W
 	if candidate == nil || !candidate.State.Running {
 		return errors.New("hcorral container is not running")
 	}
+	if cfg.Platform == "darwin" && deployedGUI(candidate) != "none" {
+		return fmt.Errorf("container uses unsupported GUI mode %s on macOS", deployedGUI(candidate))
+	}
 	if !cfg.GUI.Specified {
 		return nil
 	}
@@ -355,12 +413,18 @@ func guardAttachGUI(ctx context.Context, cfg config.Config, workspace identity.W
 
 func attachExisting(ctx context.Context, cfg config.Config, workspace identity.Workspace, candidate *containerruntime.Container, streams Streams, runner command.Runner, recover bool) int {
 	if err := guardAttachGUI(ctx, cfg, workspace, candidate, runner); err != nil {
-		return fail(streams.Err, 1, "%v", err)
+		return fail(streams.Err, 2, "%v", err)
 	}
 	if recover {
 		docker := containerruntime.NewDocker(runner).WithStreams(streams.Out, streams.Err)
 		if !sessionReady(ctx, docker, cfg, workspace.Project) {
-			if err := recoverSession(ctx, docker, workspace.Project); err != nil {
+			var legacy *legacyguard.Match
+			var err error
+			candidate, legacy, err = recoverAttachSessionLocked(ctx, cfg, workspace, streams, runner, docker)
+			if legacy != nil {
+				return refuseLegacy(streams.Err, legacy)
+			}
+			if err != nil {
 				return fail(streams.Err, 1, "%v", err)
 			}
 		}
@@ -369,12 +433,55 @@ func attachExisting(ctx context.Context, cfg config.Config, workspace identity.W
 	return replaceAttach(cfg, workspace.Project, streams, runner)
 }
 
+// recoverAttachSessionLocked serializes the in-place session mutation with all
+// other hcorral lifecycle changes. It re-inspects every ownership boundary
+// after taking the lock and returns before the caller replaces itself for the
+// long-running interactive attach.
+func recoverAttachSessionLocked(ctx context.Context, cfg config.Config, workspace identity.Workspace, streams Streams, runner command.Runner, docker containerruntime.Docker) (*containerruntime.Container, *legacyguard.Match, error) {
+	lock, err := identity.AcquireLock(workspace.Project)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer lock.Close()
+
+	containers, err := docker.ListContainers(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	candidate := findContainer(containers, workspace.Project)
+	if err := identity.VerifyContainer(candidate, workspace); err != nil {
+		return nil, nil, err
+	}
+	if err := verifyProjectContainers(containers, workspace, candidate); err != nil {
+		return nil, nil, err
+	}
+	if legacy := legacyguard.Find(containers, workspace.Path); legacy != nil {
+		return nil, legacy, nil
+	}
+	if candidate == nil || !candidate.State.Running {
+		return nil, nil, errors.New("hcorral container is not running")
+	}
+	if err := guardAttachGUI(ctx, cfg, workspace, candidate, runner); err != nil {
+		return nil, nil, err
+	}
+	if sessionReady(ctx, docker, cfg, workspace.Project) {
+		return candidate, nil, nil
+	}
+	if err := recoverSession(ctx, docker, workspace.Project); err != nil {
+		return nil, nil, fmt.Errorf("recover workstation session: %w", err)
+	}
+	if err := waitReady(ctx, docker, cfg, workspace.Project, streams); err != nil {
+		return nil, nil, err
+	}
+	return candidate, nil, nil
+}
+
 func replaceAttach(cfg config.Config, container string, streams Streams, runner command.Runner) int {
 	current, err := user.Current()
 	if err != nil {
 		return fail(streams.Err, 1, "%v", err)
 	}
-	argv := []string{"docker", "exec", "-it", container, "gosu", current.Username, "env", "HOME=" + cfg.ContainerHome, "USER=" + current.Username, "LOGNAME=" + current.Username, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "tmux", "attach", "-t", cfg.Session}
+	argv := []string{"docker", "exec", "-it", container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; exec tmux attach -t "$1"`, "bash", cfg.Session}
 	if err := runner.Replace(argv, command.EnvironmentWithoutCompose(os.Environ())); err != nil {
 		return fail(streams.Err, 1, "attach: %v", err)
 	}
@@ -390,7 +497,7 @@ func replaceExec(cfg config.Config, container string, args []string, streams Str
 	if isTerminal(streams.In) && isTerminal(streams.Out) {
 		execMode = "-it"
 	}
-	argv := []string{"docker", "exec", execMode, container, "gosu", current.Username, "env", "HOME=" + cfg.ContainerHome, "USER=" + current.Username, "LOGNAME=" + current.Username, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "HCORRAL_WORKDIR=" + cfg.Workdir, "bash", "--login", "-c", `cd "${HCORRAL_WORKDIR}"; exec "$@"`, "bash"}
+	argv := []string{"docker", "exec", execMode, container, "gosu", current.Uid, "env", "HOME=" + cfg.ContainerHome, "CODEX_HOME=" + cfg.ContainerHome + "/.codex", "bash", "--login", "-c", `runtime_user="$(id -un)"; export USER="${runtime_user}" LOGNAME="${runtime_user}"; cd "$1"; shift; exec "$@"`, "bash", cfg.Workdir}
 	argv = append(argv, args...)
 	if err := runner.Replace(argv, command.EnvironmentWithoutCompose(os.Environ())); err != nil {
 		return fail(streams.Err, 1, "exec: %v", err)
@@ -403,7 +510,7 @@ func sessionReady(ctx context.Context, docker containerruntime.Docker, cfg confi
 	if err != nil {
 		return false
 	}
-	_, err = docker.ExecCapture(ctx, container, "gosu", current.Username, "env", "CODEX_HOME="+cfg.ContainerHome+"/.codex", "byobu-tmux", "has-session", "-t", cfg.Session)
+	_, err = docker.ExecCapture(ctx, container, "gosu", current.Uid, "env", "HOME="+cfg.ContainerHome, "CODEX_HOME="+cfg.ContainerHome+"/.codex", "byobu-tmux", "has-session", "-t", cfg.Session)
 	return err == nil
 }
 
@@ -424,7 +531,8 @@ func waitReady(ctx context.Context, docker containerruntime.Docker, cfg config.C
 			return nil
 		}
 		if inspected != nil && (inspected.State.Status == "exited" || inspected.State.Status == "dead") {
-			return fmt.Errorf("container became %s during startup", inspected.State.Status)
+			reportStartupLogs(ctx, docker, container, streams)
+			return fmt.Errorf("startup readiness phase failed: container became %s", inspected.State.Status)
 		}
 		if time.Now().After(next) {
 			fmt.Fprintf(streams.Err, "hcorral: waiting for workstation session (%s)\n", stateOf(inspected))
@@ -432,7 +540,58 @@ func waitReady(ctx context.Context, docker containerruntime.Docker, cfg config.C
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	return fmt.Errorf("startup timed out after %ds", cfg.WaitTimeoutSeconds)
+	reportStartupLogs(ctx, docker, container, streams)
+	return fmt.Errorf("startup readiness phase timed out after %ds", cfg.WaitTimeoutSeconds)
+}
+
+var (
+	ansiLogEscape     = regexp.MustCompile("\\x1b\\[[0-?]*[ -/]*[@-~]")
+	sensitiveLogValue = regexp.MustCompile(`(?i)\b(token|password|secret|authorization|api[_-]?key)=([^[:space:]]+)`)
+)
+
+func reportStartupLogs(ctx context.Context, docker containerruntime.Docker, container string, streams Streams) {
+	result, err := docker.ContainerLogs(ctx, container, 80)
+	if err != nil {
+		fmt.Fprintln(streams.Err, "hcorral: startup logs unavailable")
+		return
+	}
+	lines := sanitizedLogLines(append(append([]byte(nil), result.Stdout...), result.Stderr...), 80)
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Fprintln(streams.Err, "hcorral: last container log lines (sanitized; maximum 80):")
+	for _, line := range lines {
+		fmt.Fprintf(streams.Err, "hcorral: log: %s\n", line)
+	}
+}
+
+func sanitizedLogLines(content []byte, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	raw := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	if len(raw) > 0 && raw[len(raw)-1] == "" {
+		raw = raw[:len(raw)-1]
+	}
+	if len(raw) > limit {
+		raw = raw[len(raw)-limit:]
+	}
+	result := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = ansiLogEscape.ReplaceAllString(line, "")
+		var cleaned strings.Builder
+		for _, r := range line {
+			if r == '\t' || (unicode.IsPrint(r) && r != '\x1b') {
+				cleaned.WriteRune(r)
+			}
+		}
+		value := sensitiveLogValue.ReplaceAllString(cleaned.String(), "$1=<redacted>")
+		if len(value) > 1024 {
+			value = value[:1024] + "…"
+		}
+		result = append(result, value)
+	}
+	return result
 }
 
 func ensureSelectedImage(ctx context.Context, docker containerruntime.Docker, cfg config.Config, streams Streams) error {
@@ -497,46 +656,6 @@ func reportDrift(ctx context.Context, cfg config.Config, workspace identity.Work
 	}
 }
 
-func printSnapshot(streams Streams, cfg config.Config, workspace identity.Workspace, candidate *containerruntime.Container, legacy *legacyguard.Match, dockerErr error) int {
-	format := "human"
-	if len(cfg.Command) > 1 {
-		switch cfg.Command[1] {
-		case "--format=json":
-			format = "json"
-		case "--format=human":
-		default:
-			return fail(streams.Err, 2, "info accepts only --format=human or --format=json")
-		}
-	}
-	prefix := map[string]any{"executable": "docker", "argument_count": len(cfg.ComposeCommand) - 1}
-	if len(cfg.ComposeCommand) > 0 && cfg.ComposeCommand[0] == "docker" && len(cfg.ComposeCommand) == 2 && cfg.ComposeCommand[1] == "compose" {
-		prefix = map[string]any{"display": "docker compose"}
-	}
-	s := snapshot{Schema: 1, LauncherVersion: Version, LauncherCommit: Commit, Workspace: workspace, Project: workspace.Project, Service: "hcorral", Container: workspace.Project, Image: cfg.ImageName + ":" + cfg.ImageTag, StateMode: cfg.StateMode, StateVolume: stateVolumeName(cfg, workspace), GUIRequested: cfg.GUI, LegacyConflict: legacy, ComposeCommand: prefix}
-	if candidate != nil {
-		s.GUIDeployed, s.ContainerState, s.ContainerID, s.ContainerStarted = deployedGUI(candidate), candidate.State.Status, candidate.ID, candidate.State.Started
-	}
-	if dockerErr != nil {
-		s.DockerError = dockerErr.Error()
-	}
-	if format == "json" {
-		encoder := json.NewEncoder(streams.Out)
-		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(s); err != nil {
-			return fail(streams.Err, 1, "%v", err)
-		}
-		return 0
-	}
-	fmt.Fprintf(streams.Out, "Harness Corral %s\nWorkspace: %s\nWorkspace ID: %s\nProject: %s\nContainer: %s\nImage: %s\nState: %s (%s)\nGUI deployed: %s\nContainer state: %s\n", Version, workspace.Path, workspace.FullID, workspace.Project, workspace.Project, s.Image, s.StateMode, s.StateVolume, valueOrEmpty(s.GUIDeployed, "none"), valueOrEmpty(s.ContainerState, "absent"))
-	if legacy != nil {
-		fmt.Fprintf(streams.Out, "myCodex conflict: %s (%s)\n", legacy.Container, legacy.State)
-	}
-	if dockerErr != nil {
-		fmt.Fprintf(streams.Out, "Docker: unavailable (%v)\n", dockerErr)
-	}
-	return 0
-}
-
 func findContainer(containers []containerruntime.Container, name string) *containerruntime.Container {
 	for index := range containers {
 		if containers[index].CleanName() == name {
@@ -545,6 +664,39 @@ func findContainer(containers []containerruntime.Container, name string) *contai
 	}
 	return nil
 }
+
+func verifyProjectContainers(containers []containerruntime.Container, workspace identity.Workspace, primary *containerruntime.Container) error {
+	members := 0
+	for index := range containers {
+		container := &containers[index]
+		if container.Config.Labels["com.docker.compose.project"] != workspace.Project {
+			continue
+		}
+		members++
+		service := container.Config.Labels["com.docker.compose.service"]
+		if service == "" || container.Config.Labels["com.docker.compose.config-hash"] == "" {
+			return fmt.Errorf("container %s has incomplete Compose ownership evidence for project %s", container.CleanName(), workspace.Project)
+		}
+		if owner := container.Config.Labels[identity.LabelWorkspaceID]; owner != "" && owner != workspace.FullID {
+			return fmt.Errorf("container %s carries conflicting hcorral workspace ID %s", container.CleanName(), owner)
+		}
+		if service == "hcorral" && (primary == nil || container.CleanName() != workspace.Project || container.ID != primary.ID) {
+			return fmt.Errorf("project %s has an ambiguous primary hcorral service container %s", workspace.Project, container.CleanName())
+		}
+	}
+	if members > 0 && primary == nil {
+		return fmt.Errorf("project %s has Compose container residue but no verified primary hcorral container", workspace.Project)
+	}
+	return nil
+}
+
+func refuseLegacy(stderr interface{ Write([]byte) (int, error) }, legacy *legacyguard.Match) int {
+	fmt.Fprintf(stderr, "hcorral: this workspace already has a myCodex environment in container %s (%s).\n", legacy.Container, legacy.State)
+	fmt.Fprintln(stderr, "hcorral: use the original myCodex launcher to attach, or run `myCodex down` from the original workspace before starting hcorral.")
+	fmt.Fprintln(stderr, "hcorral: do not use `down -v` unless you intend to delete its persisted home.")
+	return 3
+}
+
 func deployedGUI(container *containerruntime.Container) string {
 	if container == nil {
 		return "none"
@@ -577,6 +729,9 @@ func adoptDeployedState(cfg *config.Config, container *containerruntime.Containe
 			cfg.StateMode, cfg.StateVolumeName = config.StateShared, ""
 		default:
 			cfg.StateMode, cfg.StateVolumeName = config.StateCustom, mount.Name
+		}
+		if cfg.Sources != nil {
+			cfg.Sources["state"] = "deployed"
 		}
 		return
 	}
@@ -614,6 +769,15 @@ func safeReconcileArgs(args []string) []string {
 		result = append([]string{"--pull", "never"}, result...)
 	}
 	return result
+}
+
+func composeCommandMutates(name string) bool {
+	switch name {
+	case "info", "ps", "config", "images", "logs", "top", "events", "version", "help", "attach", "exec":
+		return false
+	default:
+		return true
+	}
 }
 func lockClose(lock *identity.Lock) error {
 	if lock == nil {

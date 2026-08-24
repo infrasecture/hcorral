@@ -49,6 +49,13 @@ type Volume struct {
 	Labels     map[string]string `json:"Labels"`
 }
 
+type Network struct {
+	ID     string            `json:"Id"`
+	Name   string            `json:"Name"`
+	Driver string            `json:"Driver"`
+	Labels map[string]string `json:"Labels"`
+}
+
 type Image struct {
 	ID     string `json:"Id"`
 	Config struct {
@@ -132,6 +139,24 @@ func (d Docker) InspectVolume(ctx context.Context, name string) (*Volume, error)
 	return &volumes[0], nil
 }
 
+func (d Docker) InspectNetwork(ctx context.Context, name string) (*Network, error) {
+	result, err := d.capture(ctx, []string{"docker", "network", "inspect", name})
+	if err != nil {
+		if isNotFound(result.Stderr) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var networks []Network
+	if err := json.Unmarshal(result.Stdout, &networks); err != nil {
+		return nil, fmt.Errorf("decode Docker network inspection: %w", err)
+	}
+	if len(networks) != 1 {
+		return nil, fmt.Errorf("Docker returned %d networks for %q", len(networks), name)
+	}
+	return &networks[0], nil
+}
+
 func (d Docker) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
 	argv := []string{"docker", "volume", "create"}
 	for _, key := range sortedKeys(labels) {
@@ -180,6 +205,13 @@ func (d Docker) ExecCapture(ctx context.Context, name string, args ...string) (c
 	return d.capture(ctx, argv)
 }
 
+func (d Docker) ContainerLogs(ctx context.Context, name string, tail int) (command.Result, error) {
+	if tail <= 0 {
+		tail = 80
+	}
+	return d.capture(ctx, []string{"docker", "logs", "--tail", fmt.Sprintf("%d", tail), name})
+}
+
 func (d Docker) capture(ctx context.Context, argv []string) (command.Result, error) {
 	result, err := d.Runner.Capture(ctx, argv, d.Env)
 	if err != nil {
@@ -197,7 +229,12 @@ func (d Docker) run(ctx context.Context, argv []string) error {
 
 func isNotFound(stderr []byte) bool {
 	text := strings.ToLower(string(stderr))
-	return strings.Contains(text, "no such object") || strings.Contains(text, "no such container") || strings.Contains(text, "no such volume") || strings.Contains(text, "no such image")
+	return strings.Contains(text, "no such object") ||
+		strings.Contains(text, "no such container") ||
+		strings.Contains(text, "no such volume") ||
+		strings.Contains(text, "no such network") ||
+		strings.Contains(text, "no such image") ||
+		(strings.Contains(text, "network ") && strings.Contains(text, " not found"))
 }
 
 func sortedKeys(values map[string]string) []string {

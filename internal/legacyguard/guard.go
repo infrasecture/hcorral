@@ -17,7 +17,10 @@ func Find(containers []containerruntime.Container, workspace string) *Match {
 		if !hasWorkspaceBind(container, workspace) {
 			continue
 		}
-		if reason := legacyMarker(container); reason != "" {
+		if reason, ambiguous := legacyEvidence(container); reason != "" {
+			if ambiguous {
+				reason = "ambiguous myCodex evidence: " + reason
+			}
 			return &Match{Container: container.CleanName(), State: container.State.Status, Reason: reason}
 		}
 	}
@@ -33,16 +36,36 @@ func hasWorkspaceBind(container containerruntime.Container, workspace string) bo
 	return false
 }
 
-func legacyMarker(container containerruntime.Container) string {
+func legacyEvidence(container containerruntime.Container) (reason string, ambiguous bool) {
 	labels := container.Config.Labels
-	if _, ok := labels["io.infrasecture.mycodex.gui"]; ok {
-		return "myCodex GUI label and same-path workspace bind"
+	for key := range labels {
+		if strings.HasPrefix(key, "io.infrasecture.mycodex.") {
+			return "myCodex label and same-path workspace bind", false
+		}
 	}
-	if labels["com.docker.compose.service"] == "codex" && strings.HasSuffix(container.CleanName(), "-codex") {
-		return "myCodex Compose service/name and same-path workspace bind"
+
+	serviceMarker := labels["com.docker.compose.service"] == "codex"
+	nameMarker := strings.HasSuffix(container.CleanName(), "-codex")
+	imageMarker := strings.HasPrefix(container.Config.Image, "ghcr.io/infrasecture/harness-workstation:")
+	if serviceMarker && nameMarker {
+		return "myCodex Compose service/name and same-path workspace bind", false
 	}
-	if strings.HasPrefix(container.Config.Image, "ghcr.io/infrasecture/harness-workstation:") && strings.HasSuffix(container.CleanName(), "-codex") {
-		return "myCodex image/name and same-path workspace bind"
+	if imageMarker && nameMarker {
+		return "myCodex image/name and same-path workspace bind", false
 	}
-	return ""
+
+	markers := make([]string, 0, 3)
+	if serviceMarker {
+		markers = append(markers, "Compose service codex")
+	}
+	if nameMarker {
+		markers = append(markers, "container name ending in -codex")
+	}
+	if imageMarker {
+		markers = append(markers, "legacy workstation image")
+	}
+	if len(markers) > 0 {
+		return strings.Join(markers, ", ") + " with same-path workspace bind", true
+	}
+	return "", false
 }

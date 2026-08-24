@@ -91,6 +91,11 @@ fi
 if hcorral_validate_image_revision 01 >/dev/null 2>&1; then
   fail "revision with a leading zero was accepted"
 fi
+for invalid_version in 01.2.3 1.02.3 1.2.03 1.2.3-01 1.2.3-alpha..1 1.2.3+build..1; do
+  if hcorral_validate_codex_version "${invalid_version}" >/dev/null 2>&1; then
+    fail "invalid SemVer was accepted: ${invalid_version}"
+  fi
+done
 reserved_version_output="$(hcorral_validate_codex_version 0.146.0-r2 2>&1 || true)"
 assert_eq \
   $'Codex version includes the reserved image revision suffix: 0.146.0-r2\nPass it separately, for example: --version 0.146.0 --revision 2' \
@@ -116,6 +121,17 @@ git -C "${identity_repo}" \
 baseline_input_digest="$(hcorral_build_input_digest "${identity_repo}")"
 hcorral_validate_build_input_digest "${baseline_input_digest}"
 hcorral_assert_clean_image_inputs "${identity_repo}"
+disabled_claude_digest="$(HCORRAL_INSTALL_CLAUDE_CODE=false hcorral_build_input_digest "${identity_repo}")"
+if [[ "${disabled_claude_digest}" == "${baseline_input_digest}" ]]; then
+  fail "image-input digest ignored an optional-agent switch"
+fi
+alternate_package_digest="$(HCORRAL_CODEX_NPM_PACKAGE=@example/codex hcorral_build_input_digest "${identity_repo}")"
+if [[ "${alternate_package_digest}" == "${baseline_input_digest}" ]]; then
+  fail "image-input digest ignored the Codex npm package"
+fi
+if hcorral_validate_boolean HCORRAL_INSTALL_CLAUDE_CODE yes >/dev/null 2>&1; then
+  fail "invalid optional-agent boolean was accepted"
+fi
 printf '\n# simulated image change\n' >>"${identity_repo}/image/entrypoint.sh"
 changed_test_digest="$(hcorral_build_input_digest "${identity_repo}")"
 if [[ "${changed_test_digest}" == "${baseline_input_digest}" ]]; then
@@ -252,7 +268,7 @@ docker() {
         record_ref "${FAKE_LOCAL_REFS}" "${arg}"
       elif [[ "${previous}" == "--build-arg" ]]; then
         case "${arg}" in
-          CODEX_VERSION=*) version="${arg#CODEX_VERSION=}" ;;
+          HCORRAL_CODEX_VERSION=*) version="${arg#HCORRAL_CODEX_VERSION=}" ;;
           HCORRAL_IMAGE_REVISION=*) revision="${arg#HCORRAL_IMAGE_REVISION=}" ;;
           HCORRAL_BUILD_INPUT_DIGEST=*) input_digest="${arg#HCORRAL_BUILD_INPUT_DIGEST=}" ;;
           HCORRAL_SOURCE_REVISION=*) source_revision="${arg#HCORRAL_SOURCE_REVISION=}" ;;
@@ -287,6 +303,14 @@ docker() {
     copy_identity "${FAKE_LOCAL_IDENTITIES}" "$3" "${FAKE_REMOTE_IDENTITIES}" "$3"
     return
   fi
+
+  if [[ "$1" == "run" ]]; then
+    return
+  fi
+
+	if [[ "$1" == "volume" && ( "$2" == "create" || "$2" == "rm" ) ]]; then
+		return
+	fi
 
   if [[ "$1 $2 $3" == "buildx imagetools create" ]]; then
     local previous=""
@@ -378,6 +402,16 @@ reset_fake_state() {
 }
 
 reset_fake_state
+resolve_output="${tmp_dir}/resolve.out"
+run_build x86_64 amd64 "${resolve_output}" --version 0.145.0 --revision 3 --resolve-only
+assert_contains "${resolve_output}" "version=0.145.0"
+assert_contains "${resolve_output}" "revision=3"
+assert_contains "${resolve_output}" "build_input_digest=${TEST_BUILD_INPUT_DIGEST}"
+assert_contains "${resolve_output}" "source_revision=${TEST_SOURCE_REVISION}"
+assert_not_contains "${FAKE_DOCKER_LOG}" "buildx build"
+assert_not_contains "${FAKE_DOCKER_LOG}" "image push"
+
+reset_fake_state
 amd64_output="${tmp_dir}/amd64.out"
 run_build x86_64 amd64 "${amd64_output}" --version 0.146.0 --revision 2 --push
 assert_ref_exists "example.test/workstation:0.146.0-r2-amd64"
@@ -385,6 +419,16 @@ assert_ref_missing "example.test/workstation:0.146.0-r2"
 assert_ref_missing "example.test/workstation:0.146.0"
 assert_contains "${amd64_output}" "pending architecture tags: arm64"
 assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_IMAGE_REVISION=2"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_CODEX_NPM_PACKAGE=@openai/codex"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_CODEX_VERSION=0.146.0"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_INSTALL_CLAUDE_CODE=true"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_INSTALL_GEMINI_CLI=true"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_INSTALL_OPENCODE=true"
+assert_contains "${FAKE_DOCKER_LOG}" "--entrypoint bash example.test/workstation:0.146.0-r2-amd64 -lc"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_CLAUDE_CODE_VERSION=2.1.241"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_GEMINI_CLI_VERSION=0.56.0"
+assert_contains "${FAKE_DOCKER_LOG}" "--build-arg HCORRAL_OPENCODE_VERSION=1.18.21"
+assert_contains "${FAKE_DOCKER_LOG}" "--env HCORRAL_LAUNCHED_BY_WRAPPER=1"
 
 : >"${FAKE_DOCKER_LOG}"
 arm64_output="${tmp_dir}/arm64.out"

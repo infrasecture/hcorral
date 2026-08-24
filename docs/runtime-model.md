@@ -14,8 +14,10 @@ Bare `hcorral` is attach-first:
 1. attach to a matching running container without reconciliation;
 2. recover a missing tmux session in place;
 3. start a matching stopped container only when desired configuration matches;
-4. create a missing environment after pulling the selected image and creating
-   the selected state volume.
+4. create a missing environment only after read-only network, volume, and state
+   ownership preflights, then pull a missing image and create state as needed.
 
 Image pulls and Compose reconciliation are explicit. Locks serialize local
-mutations, while Docker labels remain the ownership authority.
+mutations, while Docker labels remain the ownership authority. Every mutating
+Compose passthrough is rendered and validated first; existing non-external
+Compose networks and volumes must carry the exact project/resource labels.

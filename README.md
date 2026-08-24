@@ -129,5 +129,5 @@ See [configuration](docs/configuration.md), [runtime model](docs/runtime-model.m
 
 ## License
 
-Hcorral is licensed under the GNU Affero General Public License v3.0 or later.
-See [LICENSE](LICENSE).
+Hcorral is licensed under `AGPL-3.0-or-later` (the GNU Affero General Public
+License v3.0 or later). See [LICENSE](LICENSE).

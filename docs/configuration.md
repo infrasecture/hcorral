@@ -16,11 +16,11 @@ against the original caller directory.
 | `HCORRAL_COMPOSE_COMMAND` | — | `["docker","compose"]` | JSON argv array |
 | `HCORRAL_COMPOSE_FILES` | `-f` | `[]` | JSON array followed by CLI overlays |
 | `HCORRAL_CONTAINER_HOME` | — | physical host home | Same-path persisted home |
-| `HCORRAL_WORKDIR` | — | physical workspace | Container working directory |
+| `HCORRAL_WORKDIR` | — | physical workspace | Existing directory under the physical workspace, or path under the mounted container home |
 | `HCORRAL_UPDATE_CHECK` | — | `true` | Bounded informational check |
 | `HCORRAL_WAIT_TIMEOUT_SECONDS` | — | `30` | Startup timeout |
 | `HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS` | — | `2` | Progress interval |
-| `HCORRAL_BYOBU_SESSION` | — | `hcorral` | tmux session name |
+| `HCORRAL_BYOBU_SESSION` | — | `hcorral` | 1–64 characters from `[A-Za-z0-9_.-]` |
 | `HCORRAL_AUTO_ATTACH` | — | `false` | Entrypoint terminal behavior |
 
 Boolean values are exactly `true` or `false`. State modes are mutually

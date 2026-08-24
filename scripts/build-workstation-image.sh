@@ -17,6 +17,7 @@ Usage:
   build-workstation-image.sh [--version <semver>] [--revision <number|auto>] [--refresh-tags|--force]
   build-workstation-image.sh [--version <semver>] [--revision <number|auto>] --release [--push]
   build-workstation-image.sh [--version <semver>] [--revision <number|auto>] --manifest
+  build-workstation-image.sh [--version <semver>] [--revision <number|auto>] --resolve-only
 
 Options:
   --version <semver>      Codex npm version to install
@@ -29,6 +30,8 @@ Options:
   --push                  Push this build's arch tags; finalize when complete
   --manifest              Finalize a complete arch set and re-evaluate its
                           moving aliases under monotonic promotion rules
+  --resolve-only          Print one non-publishing release identity for workflow
+                          fan-out; requires committed, clean image inputs
 
 Environment:
   HCORRAL_IMAGE_ARCHS     Arches to build this run (default: native arch)
@@ -39,6 +42,12 @@ Environment:
   HCORRAL_IMAGE_REVISION  Default image revision (default: auto)
   HCORRAL_PUBLISH_LATEST  Whether eligible --push/--manifest promotions include
                           :latest (true/false; monotonic protection always applies)
+  HCORRAL_CODEX_NPM_PACKAGE
+                          Codex npm package (default: @openai/codex)
+  HCORRAL_INSTALL_CLAUDE_CODE
+  HCORRAL_INSTALL_GEMINI_CLI
+  HCORRAL_INSTALL_OPENCODE
+                          Optional agent switches (true/false; default: true)
 
 Tag model:
   ghcr.io/infrasecture/hcorral:<version>-r<revision>-amd64
@@ -61,6 +70,7 @@ REFRESH_TAGS=false
 RELEASE_MODE=false
 DO_PUSH=false
 DO_MANIFEST_ONLY=false
+DO_RESOLVE_ONLY=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -98,6 +108,10 @@ while [[ $# -gt 0 ]]; do
       DO_MANIFEST_ONLY=true
       shift
       ;;
+    --resolve-only)
+      DO_RESOLVE_ONLY=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -110,18 +124,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${DO_PUSH}" == "true" && "${DO_MANIFEST_ONLY}" == "true" ]]; then
-  echo "ERROR: --push and --manifest are mutually exclusive" >&2
-  exit 2
+selected_modes=0
+[[ "${DO_PUSH}" == "true" ]] && selected_modes=$((selected_modes + 1))
+[[ "${DO_MANIFEST_ONLY}" == "true" ]] && selected_modes=$((selected_modes + 1))
+[[ "${DO_RESOLVE_ONLY}" == "true" ]] && selected_modes=$((selected_modes + 1))
+if [[ "${selected_modes}" -gt 1 ]]; then
+  echo "ERROR: --push, --manifest, and --resolve-only are mutually exclusive" >&2
+	exit 2
 fi
 
-case "${HCORRAL_PUBLISH_LATEST}" in
-  true|false) ;;
-  *)
-    echo "ERROR: HCORRAL_PUBLISH_LATEST must be true or false (got ${HCORRAL_PUBLISH_LATEST})" >&2
-    exit 2
-    ;;
-esac
+CODEX_NPM_PACKAGE="${HCORRAL_CODEX_NPM_PACKAGE:-${HCORRAL_DEFAULT_CODEX_NPM_PACKAGE}}"
+HCORRAL_INSTALL_CLAUDE_CODE="${HCORRAL_INSTALL_CLAUDE_CODE:-true}"
+HCORRAL_INSTALL_GEMINI_CLI="${HCORRAL_INSTALL_GEMINI_CLI:-true}"
+HCORRAL_INSTALL_OPENCODE="${HCORRAL_INSTALL_OPENCODE:-true}"
+CLAUDE_CODE_VERSION=2.1.241
+GEMINI_CLI_VERSION=0.56.0
+OPENCODE_VERSION=1.18.21
+hcorral_validate_boolean HCORRAL_PUBLISH_LATEST "${HCORRAL_PUBLISH_LATEST}" || exit 2
+hcorral_validate_npm_package "${CODEX_NPM_PACKAGE}" || exit 2
+hcorral_validate_boolean HCORRAL_INSTALL_CLAUDE_CODE "${HCORRAL_INSTALL_CLAUDE_CODE}" || exit 2
+hcorral_validate_boolean HCORRAL_INSTALL_GEMINI_CLI "${HCORRAL_INSTALL_GEMINI_CLI}" || exit 2
+hcorral_validate_boolean HCORRAL_INSTALL_OPENCODE "${HCORRAL_INSTALL_OPENCODE}" || exit 2
 
 if [[ -z "${VERSION}" ]]; then
   VERSION="$(hcorral_resolve_latest_codex_version)"
@@ -131,7 +154,7 @@ if [[ "${IMAGE_REVISION}" != "auto" ]]; then
   hcorral_validate_image_revision "${IMAGE_REVISION}" || exit 2
 fi
 
-if [[ "${DO_PUSH}" == "true" || "${DO_MANIFEST_ONLY}" == "true" ]]; then
+if [[ "${DO_PUSH}" == "true" || "${DO_MANIFEST_ONLY}" == "true" || "${DO_RESOLVE_ONLY}" == "true" ]]; then
   hcorral_assert_clean_image_inputs "${PROJECT_ROOT}" || exit 2
 fi
 
@@ -425,6 +448,42 @@ local_ref_matches_build_inputs() {
   return "${status}"
 }
 
+smoke_test_local_image() {
+  local ref="$1"
+  local command
+
+  # shellcheck disable=SC2016 # Expanded by bash inside the test container.
+  command='set -euo pipefail
+node --version
+npm --version
+command -v codex
+codex --version | grep -F -- "$HCORRAL_EXPECTED_CODEX_VERSION"'
+  if [[ "${HCORRAL_INSTALL_CLAUDE_CODE}" == true ]]; then
+    command+=$'\ncommand -v claude\nclaude --version | grep -F -- "$HCORRAL_EXPECTED_CLAUDE_VERSION"'
+  else
+    command+=$'\n! command -v claude'
+  fi
+  if [[ "${HCORRAL_INSTALL_GEMINI_CLI}" == true ]]; then
+    command+=$'\ncommand -v gemini\ngemini --version | grep -F -- "$HCORRAL_EXPECTED_GEMINI_VERSION"'
+  else
+    command+=$'\n! command -v gemini'
+  fi
+  if [[ "${HCORRAL_INSTALL_OPENCODE}" == true ]]; then
+    command+=$'\ncommand -v opencode\nopencode --version | grep -F -- "$HCORRAL_EXPECTED_OPENCODE_VERSION"'
+  else
+    command+=$'\n! command -v opencode'
+  fi
+
+  echo "==> Smoke-testing ${ref}"
+  docker run --rm \
+	--env "HCORRAL_EXPECTED_CODEX_VERSION=${VERSION}" \
+	--env "HCORRAL_EXPECTED_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}" \
+	--env "HCORRAL_EXPECTED_GEMINI_VERSION=${GEMINI_CLI_VERSION}" \
+	--env "HCORRAL_EXPECTED_OPENCODE_VERSION=${OPENCODE_VERSION}" \
+	--entrypoint bash "${ref}" -lc "${command}"
+	"${PROJECT_ROOT}/tests/image/entrypoint-matrix.sh" "${ref}"
+}
+
 CANDIDATE_REVISION_STATE=""
 
 classify_candidate_revision() {
@@ -647,6 +706,14 @@ echo "    Build inputs: ${BUILD_INPUT_DIGEST}"
 echo "    Source revision: ${SOURCE_REVISION}"
 echo ""
 
+if [[ "${DO_RESOLVE_ONLY}" == "true" ]]; then
+  printf 'version=%s\n' "${VERSION}"
+  printf 'revision=%s\n' "${IMAGE_REVISION}"
+  printf 'build_input_digest=%s\n' "${BUILD_INPUT_DIGEST}"
+  printf 'source_revision=%s\n' "${SOURCE_REVISION}"
+  exit 0
+fi
+
 if [[ "${DO_MANIFEST_ONLY}" == "true" ]]; then
   echo "==> Finalizing ${IMAGE_NAME}:${RELEASE_TAG} (scanning ${HCORRAL_IMAGE_RELEASE_ARCHS})"
   finalize_release_manifest true true
@@ -713,13 +780,25 @@ for ARCH in ${HCORRAL_IMAGE_ARCHS}; do
       --platform "linux/${ARCH}" \
       --load \
       --file "${PROJECT_ROOT}/image/Dockerfile" \
-      --build-arg "CODEX_VERSION=${VERSION}" \
+      --build-arg "HCORRAL_CODEX_NPM_PACKAGE=${CODEX_NPM_PACKAGE}" \
+      --build-arg "HCORRAL_CODEX_VERSION=${VERSION}" \
+	  --build-arg "HCORRAL_INSTALL_CLAUDE_CODE=${HCORRAL_INSTALL_CLAUDE_CODE}" \
+	  --build-arg "HCORRAL_INSTALL_GEMINI_CLI=${HCORRAL_INSTALL_GEMINI_CLI}" \
+	  --build-arg "HCORRAL_INSTALL_OPENCODE=${HCORRAL_INSTALL_OPENCODE}" \
+	  --build-arg "HCORRAL_CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
+	  --build-arg "HCORRAL_GEMINI_CLI_VERSION=${GEMINI_CLI_VERSION}" \
+	  --build-arg "HCORRAL_OPENCODE_VERSION=${OPENCODE_VERSION}" \
       --build-arg "HCORRAL_IMAGE_REVISION=${IMAGE_REVISION}" \
       --build-arg "HCORRAL_SOURCE_REVISION=${SOURCE_REVISION}" \
       --build-arg "HCORRAL_BUILD_INPUT_DIGEST=${BUILD_INPUT_DIGEST}" \
       --tag "${tag}" \
       "${PROJECT_ROOT}"
   fi
+  if ! local_ref_matches_build_inputs "${tag}" "${IMAGE_REVISION}"; then
+    echo "ERROR: built image ${tag} does not carry the resolved release identity" >&2
+    exit 1
+  fi
+  smoke_test_local_image "${tag}"
   BUILT_ARCHS+=("${ARCH}")
 
   if [[ "${ARCH}" == "${NATIVE_ARCH}" ]]; then

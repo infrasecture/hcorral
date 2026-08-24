@@ -1,9 +1,12 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"github.com/infrasecture/hcorral/internal/command"
@@ -49,11 +52,47 @@ func Run(args []string, streams Streams) int {
 	if err != nil {
 		return fail(streams.Err, 2, "%v", err)
 	}
-	if cfg.Workdir == cfg.Workspace {
-		cfg.Workdir = workspace.Path
+	cfg.Workdir, err = normalizeWorkdir(cfg.Workdir, cfg.Workspace, cfg.ContainerHome, workspace.Path)
+	if err != nil {
+		return fail(streams.Err, 2, "%v", err)
 	}
 	cfg.Workspace = workspace.Path
 	return runOperational(cfg, workspace, streams, command.ExecRunner{})
+}
+
+func normalizeWorkdir(workdir, logicalWorkspace, containerHome, physicalWorkspace string) (string, error) {
+	workdir = filepath.Clean(workdir)
+	logicalWorkspace = filepath.Clean(logicalWorkspace)
+	containerHome = filepath.Clean(containerHome)
+	physicalWorkspace = filepath.Clean(physicalWorkspace)
+
+	if relative, inside := relativeWithin(logicalWorkspace, workdir); inside {
+		candidate := filepath.Join(physicalWorkspace, relative)
+		physical, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			return "", fmt.Errorf("resolve workdir %q: %w", workdir, err)
+		}
+		if _, inside := relativeWithin(physicalWorkspace, physical); !inside {
+			return "", fmt.Errorf("workdir %q escapes the physical workspace through a symlink", workdir)
+		}
+		info, err := os.Stat(physical)
+		if err != nil || !info.IsDir() {
+			return "", fmt.Errorf("workspace workdir %q is not an existing directory", workdir)
+		}
+		return physical, nil
+	}
+	if _, inside := relativeWithin(containerHome, workdir); inside {
+		return workdir, nil
+	}
+	return "", fmt.Errorf("workdir %q must be within the mounted workspace %q or container home %q", workdir, physicalWorkspace, containerHome)
+}
+
+func relativeWithin(root, path string) (string, bool) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || filepath.IsAbs(relative) || len(relative) > 3 && relative[:3] == ".."+string(filepath.Separator) {
+		return "", false
+	}
+	return relative, true
 }
 
 func commandName(command []string) string {
@@ -66,6 +105,14 @@ func commandName(command []string) string {
 func fail(writer io.Writer, code int, format string, args ...any) int {
 	fmt.Fprintf(writer, "hcorral: "+format+"\n", args...)
 	return code
+}
+
+func childExitCode(err error) int {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() >= 0 {
+		return exitError.ExitCode()
+	}
+	return 1
 }
 
 const Usage = `Usage:

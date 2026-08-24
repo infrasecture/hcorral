@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
 
+	"github.com/infrasecture/hcorral/internal/compose"
 	"github.com/infrasecture/hcorral/internal/config"
 	"github.com/infrasecture/hcorral/internal/identity"
 	containerruntime "github.com/infrasecture/hcorral/internal/runtime"
@@ -20,6 +22,9 @@ func stateVolumeName(cfg config.Config, workspace identity.Workspace) string {
 }
 
 func ensureState(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace) error {
+	if err := validateStateOwnership(ctx, docker, cfg, workspace); err != nil {
+		return err
+	}
 	name := stateVolumeName(cfg, workspace)
 	volume, err := docker.InspectVolume(ctx, name)
 	if err != nil {
@@ -30,29 +35,48 @@ func ensureState(ctx context.Context, docker containerruntime.Docker, cfg config
 		if volume == nil {
 			return docker.CreateVolume(ctx, name, nil)
 		}
-		if owner := volume.Labels[identity.LabelWorkspaceID]; owner != "" && owner != workspace.FullID {
-			return fmt.Errorf("custom volume %s carries conflicting hcorral workspace ID %s", name, owner)
-		}
 		return nil
 	case config.StatePrivate:
 		if volume == nil {
 			return docker.CreateVolume(ctx, name, identity.PrivateVolumeLabels(workspace))
-		}
-		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
-			return fmt.Errorf("private state volume %s does not have exact ownership labels for workspace %s", name, workspace.FullID)
 		}
 		return nil
 	case config.StateShared:
 		if volume == nil {
 			return docker.CreateVolume(ctx, name, identity.SharedVolumeLabels())
 		}
-		if volume.Labels[identity.LabelStateKind] != "shared" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
-			return fmt.Errorf("shared state volume %s does not have exact hcorral shared-state labels", name)
-		}
 		return nil
 	default:
 		return fmt.Errorf("unsupported state mode %q", cfg.StateMode)
 	}
+}
+
+// validateStateOwnership is a read-only preflight. Callers run it before an
+// image pull or any other mutation, then ensureState repeats it to close the
+// inspection-to-creation race before creating or reusing the selected volume.
+func validateStateOwnership(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace) error {
+	name := stateVolumeName(cfg, workspace)
+	volume, err := docker.InspectVolume(ctx, name)
+	if err != nil || volume == nil {
+		return err
+	}
+	switch cfg.StateMode {
+	case config.StateCustom:
+		if owner := volume.Labels[identity.LabelWorkspaceID]; owner != "" && owner != workspace.FullID {
+			return fmt.Errorf("custom volume %s carries conflicting hcorral workspace ID %s", name, owner)
+		}
+	case config.StatePrivate:
+		if volume.Labels[identity.LabelWorkspaceID] != workspace.FullID || volume.Labels[identity.LabelStateKind] != "private" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
+			return fmt.Errorf("private state volume %s does not have exact ownership labels for workspace %s", name, workspace.FullID)
+		}
+	case config.StateShared:
+		if volume.Labels[identity.LabelStateKind] != "shared" || volume.Labels[identity.LabelRuntimeSchema] != identity.RuntimeSchemaVersion {
+			return fmt.Errorf("shared state volume %s does not have exact hcorral shared-state labels", name)
+		}
+	default:
+		return fmt.Errorf("unsupported state mode %q", cfg.StateMode)
+	}
+	return nil
 }
 
 func planManagedStateRemoval(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container) (bool, string, error) {
@@ -82,4 +106,73 @@ func planManagedStateRemoval(ctx context.Context, docker containerruntime.Docker
 		}
 	}
 	return true, name, nil
+}
+
+func validateComposeVolumeOwnership(ctx context.Context, docker containerruntime.Docker, rendered compose.Rendered, workspace identity.Workspace) error {
+	for logicalName, definition := range rendered.Volumes {
+		if definition.External {
+			continue
+		}
+		if definition.Name == "" {
+			return fmt.Errorf("refuse Compose operation: rendered volume %s has no concrete name", logicalName)
+		}
+		volume, err := docker.InspectVolume(ctx, definition.Name)
+		if err != nil {
+			return err
+		}
+		if volume == nil {
+			continue
+		}
+		if volume.Labels["com.docker.compose.project"] != workspace.Project || volume.Labels["com.docker.compose.volume"] != logicalName {
+			return fmt.Errorf("refuse Compose operation: volume %s lacks exact Compose ownership labels for %s/%s", definition.Name, workspace.Project, logicalName)
+		}
+	}
+	return nil
+}
+
+func validateComposeNetworkOwnership(ctx context.Context, docker containerruntime.Docker, rendered compose.Rendered, workspace identity.Workspace) error {
+	for logicalName, definition := range rendered.Networks {
+		if definition.External {
+			continue
+		}
+		if definition.Name == "" {
+			return fmt.Errorf("refuse Compose operation: rendered network %s has no concrete name", logicalName)
+		}
+		network, err := docker.InspectNetwork(ctx, definition.Name)
+		if err != nil {
+			return err
+		}
+		if network == nil {
+			continue
+		}
+		if network.Labels["com.docker.compose.project"] != workspace.Project || network.Labels["com.docker.compose.network"] != logicalName {
+			return fmt.Errorf("refuse Compose operation: network %s lacks exact Compose ownership labels for %s/%s", definition.Name, workspace.Project, logicalName)
+		}
+	}
+	return nil
+}
+
+func renderedRemovalTargets(rendered compose.Rendered, stateName string) (composeVolumes, composeNetworks, retainedExternalVolumes, retainedExternalNetworks []string) {
+	for _, definition := range rendered.Volumes {
+		if definition.Name == stateName {
+			continue
+		}
+		if definition.External {
+			retainedExternalVolumes = append(retainedExternalVolumes, definition.Name)
+		} else {
+			composeVolumes = append(composeVolumes, definition.Name)
+		}
+	}
+	for _, definition := range rendered.Networks {
+		if definition.External {
+			retainedExternalNetworks = append(retainedExternalNetworks, definition.Name)
+		} else {
+			composeNetworks = append(composeNetworks, definition.Name)
+		}
+	}
+	sort.Strings(composeVolumes)
+	sort.Strings(composeNetworks)
+	sort.Strings(retainedExternalVolumes)
+	sort.Strings(retainedExternalNetworks)
+	return composeVolumes, composeNetworks, retainedExternalVolumes, retainedExternalNetworks
 }

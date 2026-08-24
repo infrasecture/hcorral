@@ -32,12 +32,33 @@ jobs:
           fetch-depth: 0
           submodules: true
       - env:
-          GITHUB_REF_NAME: main
+          GITHUB_REF_NAME: ${{ github.ref_name }}
         run: ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --prepare-only
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - id: prepared
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist/
+          retention-days: 30
+      - env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          ARTIFACT_ID: ${{ steps.prepared.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.prepared.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.prepared.outputs.artifact-digest }}
+        run: |
+          created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          expires_at="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            printf 'FORMAT=1\nVERSION=%s\nSOURCE_COMMIT=%s\n' "$VERSION" "$SOURCE_COMMIT"
+            printf 'ARTIFACT_ID=%s\nARTIFACT_URL=%s\nARTIFACT_DIGEST=%s\n' "$ARTIFACT_ID" "$ARTIFACT_URL" "$ARTIFACT_DIGEST"
+            printf 'CREATED_AT=%s\nRETENTION_DAYS=30\nEXPIRES_AT=%s\n' "$created_at" "$expires_at"
+          } >release-transport.env
+          cat release-transport.env >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-transport-${{ github.sha }}
+          path: release-transport.env
           retention-days: 30
 
   qualify-linux:
@@ -62,6 +83,8 @@ jobs:
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
           pkg_version="${VERSION#v}"
+          package_root="$(mktemp -d)"
+          trap 'rm -rf -- "${package_root}"' EXIT
           case '${{ matrix.arch }}' in
             amd64) rpm_arch=x86_64; arch_arch=x86_64 ;;
             arm64) rpm_arch=aarch64; arch_arch=aarch64 ;;
@@ -70,10 +93,39 @@ jobs:
             sh -c "dpkg -i /packages/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb && hcorral version"
           docker run --rm -v "$PWD/dist:/packages:ro" fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 \
             sh -c "rpm -i /packages/hcorral-${pkg_version}-1.${rpm_arch}.rpm && hcorral version"
-          docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
-            sh -c "pacman -U --noconfirm /packages/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst && hcorral version"
-          chmod 0755 "dist/bin/hcorral-linux-${{ matrix.arch }}"
-          HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}" ./tests/integration/real-docker.sh
+          arch_package="dist/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst"
+          if [[ '${{ matrix.arch }}' == amd64 ]]; then
+            docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
+              sh -c "pacman -U --noconfirm /packages/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst && hcorral version"
+          else
+            # Arch Linux's official container is amd64-only. Qualify the arm64
+            # package natively without adding an unofficial image to the trust
+            # chain: extract it as an isolated package root, verify metadata and
+            # install layout, and execute the exact packaged binary.
+            arch_root="${package_root}/arch"
+            mkdir -p "${arch_root}"
+            tar --zstd --extract --file "${arch_package}" --directory "${arch_root}"
+            grep -Fxq 'arch = aarch64' "${arch_root}/.PKGINFO"
+            test "$(stat -c '%a' "${arch_root}/usr/bin/hcorral")" = 755
+            test -f "${arch_root}/usr/share/doc/hcorral/LICENSE"
+            test -f "${arch_root}/usr/share/doc/hcorral/THIRD_PARTY_LICENSES.md"
+            "${arch_root}/usr/bin/hcorral" version
+          fi
+          dpkg-deb --extract "dist/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb" "${package_root}/deb"
+          HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/integration/run.sh
+      - env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          GATE: linux-${{ matrix.arch }}
+        run: |
+          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
+          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
+          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$GATE" --status passed --output "dist/qualification/$GATE.env"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-linux-${{ matrix.arch }}-${{ github.sha }}
+          path: dist/qualification/linux-${{ matrix.arch }}.env
+          retention-days: 30
 
   qualify-darwin:
     name: release/homebrew-${{ matrix.arch }}
@@ -87,6 +139,7 @@ jobs:
             arch: amd64
     runs-on: ${{ matrix.runner }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
@@ -95,10 +148,16 @@ jobs:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum --check SHA256SUMS)
+          else
+            (cd dist && shasum -a 256 --check SHA256SUMS)
+          fi
           pkg_version="${VERSION#v}"
           tar -xzf "dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz" -C "$RUNNER_TEMP"
           "$RUNNER_TEMP/hcorral" version
           ruby -c dist/Formula/hcorral.rb
+          brew audit --strict dist/Formula/hcorral.rb
           formula="$RUNNER_TEMP/hcorral.rb"
           cp dist/Formula/hcorral.rb "$formula"
           archive="$PWD/dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz"
@@ -111,6 +170,19 @@ jobs:
           hcorral version
           brew test "$formula"
           brew uninstall hcorral
+      - env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          GATE: darwin-${{ matrix.arch }}
+        run: |
+          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
+          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
+          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$GATE" --status passed --output "dist/qualification/$GATE.env"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-darwin-${{ matrix.arch }}-${{ github.sha }}
+          path: dist/qualification/darwin-${{ matrix.arch }}.env
+          retention-days: 30
 
   qualify-docker-desktop:
     name: release/docker-desktop
@@ -127,15 +199,88 @@ jobs:
           arch="$(uname -m | sed 's/x86_64/amd64/; s/arm64/arm64/')"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${arch}"
           chmod 0755 "$HCORRAL_TEST_BINARY"
-          ./tests/integration/real-docker.sh
+          ./tests/integration/run.sh
+      - env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
+          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
+          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate docker-desktop --status passed --output dist/qualification/docker-desktop.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-docker-desktop-${{ github.sha }}
+          path: dist/qualification/docker-desktop.env
+          retention-days: 30
+
+  qualify-linux-gui:
+    name: release/${{ matrix.gate }}
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - gate: linux-x11
+            mode: x11
+            runner_label: hcorral-x11
+          - gate: linux-wayland
+            mode: wayland
+            runner_label: hcorral-wayland
+          - gate: linux-xwayland
+            mode: x11
+            runner_label: hcorral-xwayland
+    runs-on: [self-hosted, Linux, "${{ matrix.runner_label }}"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          GATE: ${{ matrix.gate }}
+          GUI_MODE: ${{ matrix.mode }}
+        run: |
+          arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${arch}"
+          chmod 0755 "$HCORRAL_TEST_BINARY"
+          ./tests/qualification/linux-gui.sh "$GUI_MODE"
+          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
+          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
+          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$GATE" --status passed --output "dist/qualification/$GATE.env"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-${{ matrix.gate }}-${{ github.sha }}
+          path: dist/qualification/${{ matrix.gate }}.env
+          retention-days: 30
 
   approve:
     name: release/approve
-    needs: [qualify-linux, qualify-darwin, qualify-docker-desktop]
-    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && (needs.qualify-docker-desktop.result == 'success' || (inputs.channel == 'preview' && needs.qualify-docker-desktop.result == 'skipped'))
+    needs: [qualify-linux, qualify-darwin, qualify-linux-gui, qualify-docker-desktop]
+    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && needs.qualify-linux-gui.result == 'success' && (needs.qualify-docker-desktop.result == 'success' || (inputs.channel == 'preview' && needs.qualify-docker-desktop.result == 'skipped'))
     runs-on: ubuntu-24.04
     environment: release
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - if: inputs.channel == 'preview'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.version }}-${{ github.sha }}
+          path: dist
+      - if: inputs.channel == 'preview'
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
+          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
+          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate docker-desktop --status waived-preview --output dist/qualification/docker-desktop.env
+      - if: inputs.channel == 'preview'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualification-docker-desktop-${{ github.sha }}
+          path: dist/qualification/docker-desktop.env
+          retention-days: 30
       - run: echo 'Publication approved for ${{ inputs.version }}'
 
   publish:
@@ -155,9 +300,20 @@ jobs:
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: qualification-*-${{ github.sha }}
+          path: dist/qualification
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-transport-${{ github.sha }}
+          path: dist
       - env:
           GH_TOKEN: ${{ github.token }}
           HCORRAL_TAP_TOKEN: ${{ secrets.HCORRAL_TAP_TOKEN }}
+          HCORRAL_REQUIRE_ACTIONS_TRANSPORT: "true"
+          HCORRAL_RELEASE_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
@@ -165,6 +321,11 @@ jobs:
           git -C homebrew-tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C homebrew-tap remote set-url origin "https://x-access-token:${HCORRAL_TAP_TOKEN}@github.com/infrasecture/homebrew-tap.git"
           ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --publish-prepared
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-ledger-${{ github.sha }}
+          path: dist/release-state/${{ inputs.version }}/${{ github.sha }}/publication-ledger.tsv
+          retention-days: 90
 
   verify:
     name: release/verify
@@ -175,10 +336,28 @@ jobs:
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
-          gh release view '${{ inputs.version }}' --repo infrasecture/hcorral
+          release_json="$(gh api "repos/infrasecture/hcorral/releases/tags/${VERSION}")"
+          release_url="$(jq -r .html_url <<<"$release_json")"
+          release_id="$(jq -r .id <<<"$release_json")"
+          gh release download "$VERSION" --repo infrasecture/hcorral --dir "$RUNNER_TEMP/release"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$RUNNER_TEMP/release" && sha256sum --check SHA256SUMS)
+          else
+            (cd "$RUNNER_TEMP/release" && shasum -a 256 --check SHA256SUMS)
+          fi
           brew install infrasecture/tap/hcorral
           hcorral version
           brew test infrasecture/tap/hcorral
           brew audit --strict --online infrasecture/tap/hcorral
           brew uninstall hcorral
+          tag_object="$(gh api "repos/infrasecture/hcorral/git/ref/tags/${VERSION}" --jq .object.sha)"
+          tag_commit="$(gh api "repos/infrasecture/hcorral/git/tags/${tag_object}" --jq .object.sha)"
+          repo_commit="$(gh api repos/infrasecture/hcorral/commits/main --jq .sha)"
+          tap_commit="$(gh api repos/infrasecture/homebrew-tap/commits/main --jq .sha)"
+          {
+            printf 'Release: %s (database ID %s)\n' "$release_url" "$release_id"
+            printf 'Tag object: %s\nTag commit: %s\nRepository main: %s\nHomebrew tap main: %s\n' "$tag_object" "$tag_commit" "$repo_commit" "$tap_commit"
+            printf 'Formula: https://github.com/infrasecture/homebrew-tap/blob/%s/Formula/hcorral.rb\n' "$tap_commit"
+          } >>"$GITHUB_STEP_SUMMARY"

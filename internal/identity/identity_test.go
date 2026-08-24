@@ -3,7 +3,10 @@ package identity
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	containerruntime "github.com/infrasecture/hcorral/internal/runtime"
 )
 
 func TestSlug(t *testing.T) {
@@ -55,6 +58,9 @@ func TestResolveGoldenVectors(t *testing.T) {
 			if got := "hcorral-" + test.slug + "-" + fullID[:7]; got != test.project {
 				t.Fatalf("project = %s, want %s", got, test.project)
 			}
+			if got := strings.Count(test.project, "-"); got != 2 {
+				t.Fatalf("generated project %q has %d hyphens, want exactly 2", test.project, got)
+			}
 		})
 	}
 }
@@ -86,6 +92,18 @@ func TestValidateProject(t *testing.T) {
 		if err := ValidateProject(invalid); err == nil {
 			t.Errorf("ValidateProject(%q) unexpectedly succeeded", invalid)
 		}
+	}
+}
+
+func TestVerifyContainerRejectsForcedSevenCharacterCollision(t *testing.T) {
+	t.Parallel()
+	workspace := Workspace{Project: "hcorral-demo-2ac50aa", FullID: "2ac50aa" + strings.Repeat("1", 57)}
+	container := containerruntime.Container{Name: "/" + workspace.Project}
+	container.Config.Labels = map[string]string{
+		LabelWorkspaceID: "2ac50aa" + strings.Repeat("2", 57), LabelWorkspaceScheme: WorkspaceSchemeVersion, LabelRuntimeSchema: RuntimeSchemaVersion,
+	}
+	if err := VerifyContainer(&container, workspace); err == nil {
+		t.Fatal("equal seven-character suffix with different full ID was accepted")
 	}
 }
 

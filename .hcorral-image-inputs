@@ -1,5 +1,9 @@
 image/Dockerfile
 image/entrypoint.sh
 image/session-init.sh
+LICENSE
+THIRD_PARTY_LICENSES.md
 scripts/build-workstation-image.sh
 scripts/lib/hcorral-image.sh
+scripts/check-third-party.sh
+tests/image/entrypoint-matrix.sh

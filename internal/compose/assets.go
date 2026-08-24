@@ -84,7 +84,14 @@ func materializeOne(root, name string, content []byte) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(directory, name)
-	if existing, err := os.ReadFile(path); err == nil {
+	if info, statErr := os.Lstat(path); statErr == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("cached Compose asset is not a physical regular file: %s", path)
+		}
+		existing, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("inspect cached Compose asset: %w", err)
+		}
 		if string(existing) != string(content) {
 			return "", fmt.Errorf("cached Compose asset has unexpected content: %s", path)
 		}
@@ -92,8 +99,8 @@ func materializeOne(root, name string, content []byte) (string, error) {
 			return "", fmt.Errorf("protect cached Compose asset: %w", err)
 		}
 		return path, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("inspect cached Compose asset: %w", err)
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		return "", fmt.Errorf("inspect cached Compose asset: %w", statErr)
 	}
 
 	temporary, err := os.CreateTemp(directory, "."+name+".*")

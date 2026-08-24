@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "${script_dir}"
 
-builder_image="${HCORRAL_GOLANG_IMAGE:-golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587}"
+builder_image="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c60731c8ba49088448b91f63e2aed97ca9d1a9791622a05946}"
 nfpm_image="${HCORRAL_NFPM_IMAGE:-ghcr.io/goreleaser/nfpm:v2.47.0@sha256:a662cb167d7b6d3a83920c83d76b12d02b8ac5dd2c13e5c62c15270b23f6df0c}"
 release=false
 packages=false
@@ -49,10 +49,29 @@ for target in ${targets}; do [[ "${target}" =~ ^(linux|darwin)/(amd64|arm64)$ ]]
 commit="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
 source_date_epoch="${SOURCE_DATE_EPOCH:-315532800}"
 pkg_version="${cli_version#v}"
+gomod_cache_volume=hcorral-build-gomod-v1
+gobuild_cache_volume=hcorral-build-gocache-v1
 mkdir -p dist/bin dist/package-config
+artifacts=()
 
-docker volume create hcorral-gomodcache >/dev/null
-docker volume create hcorral-gobuildcache >/dev/null
+ensure_build_cache() {
+  local name="$1" kind="$2" actual
+  if ! docker volume inspect "${name}" >/dev/null 2>&1; then
+    docker volume create \
+      --label "ai.infrasecture.hcorral.build-cache=${kind}" \
+      --label ai.infrasecture.hcorral.runtime-schema=1 \
+      "${name}" >/dev/null
+  fi
+  actual="$(docker volume inspect --format '{{index .Labels "ai.infrasecture.hcorral.build-cache"}}|{{index .Labels "ai.infrasecture.hcorral.runtime-schema"}}' "${name}")"
+  [[ "${actual}" == "${kind}|1" ]] || { echo "ERROR: build cache volume ${name} lacks exact hcorral ownership labels" >&2; exit 1; }
+}
+
+ensure_build_cache "${gomod_cache_volume}" gomod
+ensure_build_cache "${gobuild_cache_volume}" gobuild
+docker run --rm --user root \
+  --volume "${gomod_cache_volume}:/go/pkg/mod" \
+  --volume "${gobuild_cache_volume}:/tmp/go-build" \
+  "${builder_image}" sh -c 'chown "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
 
 for target in ${targets}; do
   os="${target%/*}"; arch="${target#*/}"
@@ -61,20 +80,23 @@ for target in ${targets}; do
     --user "$(id -u):$(id -g)" \
     --env HOME=/tmp \
     --env GOWORK=off \
+	--env GOMODCACHE=/go/pkg/mod \
+	--env GOCACHE=/tmp/go-build \
     --env CGO_ENABLED=0 \
     --env GOOS="${os}" \
     --env GOARCH="${arch}" \
     --volume "${script_dir}:/src" \
-    --volume hcorral-gomodcache:/go/pkg/mod \
-    --volume hcorral-gobuildcache:/tmp/go-build \
+    --volume "${gomod_cache_volume}:/go/pkg/mod" \
+    --volume "${gobuild_cache_volume}:/tmp/go-build" \
     --workdir /src \
     "${builder_image}" \
     go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/infrasecture/hcorral/internal/app.Version=${cli_version} -X github.com/infrasecture/hcorral/internal/app.Commit=${commit}" -o "/src/${output}" ./cmd/hcorral
   chmod 0755 "${output}"
   archive="dist/hcorral_${pkg_version}_${os}_${arch}.tar.gz"
-  docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --network=none \
-    --volume "${script_dir}:/src" --volume hcorral-gomodcache:/go/pkg/mod --volume hcorral-gobuildcache:/tmp/go-build --workdir /src "${builder_image}" \
-    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md
+  docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md -file /src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md
+  artifacts+=("${archive}")
 done
 
 if [[ "${packages}" == true ]]; then
@@ -94,6 +116,8 @@ description: Harness Corral persistent AI workstation launcher
 vendor: infrasecture
 homepage: https://github.com/infrasecture/hcorral
 license: AGPL-3.0-or-later
+rpm:
+  buildhost: hcorral-reproducible
 contents:
   - src: /src/${binary}
     dst: /usr/bin/hcorral
@@ -101,23 +125,32 @@ contents:
       mode: 0755
   - src: /src/LICENSE
     dst: /usr/share/doc/hcorral/LICENSE
+  - src: /src/README.md
+    dst: /usr/share/doc/hcorral/README.md
+  - src: /src/THIRD_PARTY_LICENSES.md
+    dst: /usr/share/doc/hcorral/THIRD_PARTY_LICENSES.md
 EOF
     rpm_arch="${arch}"; arch_arch="${arch}"
     [[ "${arch}" == amd64 ]] && { rpm_arch=x86_64; arch_arch=x86_64; }
     [[ "${arch}" == arm64 ]] && { rpm_arch=aarch64; arch_arch=aarch64; }
-    docker run --rm --user "$(id -u):$(id -g)" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager deb --target "/src/dist/hcorral_${pkg_version}_linux_${arch}.deb"
-    docker run --rm --user "$(id -u):$(id -g)" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager rpm --target "/src/dist/hcorral-${pkg_version}-1.${rpm_arch}.rpm"
-    docker run --rm --user "$(id -u):$(id -g)" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager archlinux --target "/src/dist/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst"
+    docker run --rm --user "$(id -u):$(id -g)" --env "SOURCE_DATE_EPOCH=${source_date_epoch}" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager deb --target "/src/dist/hcorral_${pkg_version}_linux_${arch}.deb"
+    docker run --rm --user "$(id -u):$(id -g)" --env "SOURCE_DATE_EPOCH=${source_date_epoch}" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager rpm --target "/src/dist/hcorral-${pkg_version}-1.${rpm_arch}.rpm"
+    docker run --rm --user "$(id -u):$(id -g)" --env "SOURCE_DATE_EPOCH=${source_date_epoch}" --volume "${script_dir}:/src" --workdir /src "${nfpm_image}" package --config "/src/${config}" --packager archlinux --target "/src/dist/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst"
+    artifacts+=(
+      "dist/hcorral_${pkg_version}_linux_${arch}.deb"
+      "dist/hcorral-${pkg_version}-1.${rpm_arch}.rpm"
+      "dist/hcorral-${pkg_version}-1-${arch_arch}.pkg.tar.zst"
+    )
   done
 fi
 
-mapfile -d '' artifacts < <(find dist -maxdepth 1 -type f \( -name 'hcorral_*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' \) -print0 | LC_ALL=C sort -z)
-docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --network=none \
-  --volume "${script_dir}:/src" --volume hcorral-gomodcache:/go/pkg/mod --volume hcorral-gobuildcache:/tmp/go-build --workdir /src "${builder_image}" \
+mapfile -t artifacts < <(printf '%s\n' "${artifacts[@]}" | LC_ALL=C sort)
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
   go run ./cmd/hcorral-pack manifest -output /src/dist/component-manifest.json -version "${cli_version}" -commit "${commit}" "${artifacts[@]/#//src/}"
 artifacts+=(dist/component-manifest.json)
-docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --network=none \
-  --volume "${script_dir}:/src" --volume hcorral-gomodcache:/go/pkg/mod --volume hcorral-gobuildcache:/tmp/go-build --workdir /src "${builder_image}" \
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
   go run ./cmd/hcorral-pack checksums -output /src/dist/SHA256SUMS "${artifacts[@]/#//src/}"
 
 printf 'Built hcorral %s for %s\n' "${cli_version}" "${targets}"

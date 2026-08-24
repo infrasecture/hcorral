@@ -13,37 +13,40 @@ import (
 	containerruntime "github.com/infrasecture/hcorral/internal/runtime"
 )
 
-const codexLabel = "ai.infrasecture.hcorral.codex.version"
+const CodexLabel = "ai.infrasecture.hcorral.codex.version"
+
+type Facts struct {
+	Enabled         bool   `json:"enabled"`
+	Pinned          bool   `json:"pinned"`
+	Current         string `json:"current"`
+	Selected        string `json:"selected"`
+	Latest          string `json:"latest"`
+	SelectedNewer   bool   `json:"selected_newer"`
+	UpstreamNewer   bool   `json:"upstream_newer"`
+	LookupStatus    string `json:"lookup_status"`
+	LookupErrorKind string `json:"lookup_error_kind"`
+}
 
 type Checker struct {
-	Docker containerruntime.Docker
-	Client *http.Client
-	Out    io.Writer
+	Docker      containerruntime.Docker
+	Client      *http.Client
+	RegistryURL string
+	Out         io.Writer
 }
 
 func (c Checker) Notify(ctx context.Context, cfg config.Config, container *containerruntime.Container) {
 	if !cfg.UpdateCheck || container == nil || !container.State.Running {
 		return
 	}
-	currentRaw := c.imageVersion(ctx, container.Config.Image)
-	if _, err := Parse(currentRaw); err != nil {
-		if result, execErr := c.Docker.ExecCapture(ctx, container.CleanName(), "codex", "--version"); execErr == nil {
-			currentRaw = extractVersion(string(result.Stdout))
-		}
-	}
-	current, err := Parse(currentRaw)
+	facts := c.Inspect(ctx, cfg, container)
+	current, err := Parse(facts.Current)
 	if err != nil {
 		return
 	}
-	selectedRaw := c.imageVersion(ctx, cfg.ImageName+":"+cfg.ImageTag)
-	if selected, parseErr := Parse(selectedRaw); parseErr == nil && Compare(current, selected) < 0 {
+	if selected, parseErr := Parse(facts.Selected); parseErr == nil && Compare(current, selected) < 0 {
 		fmt.Fprintf(c.Out, "hcorral: selected image %s:%s contains Codex %s; this container runs %s. Run `hcorral up -d` to apply it.\n", cfg.ImageName, cfg.ImageTag, selected.Raw, current.Raw)
 	}
-	latestRaw, err := c.latest(ctx)
-	if err != nil {
-		return
-	}
-	latest, err := Parse(latestRaw)
+	latest, err := Parse(facts.Latest)
 	if err != nil || Compare(current, latest) >= 0 {
 		return
 	}
@@ -55,12 +58,50 @@ func (c Checker) Notify(ctx context.Context, cfg config.Config, container *conta
 	}
 }
 
+func (c Checker) Inspect(ctx context.Context, cfg config.Config, container *containerruntime.Container) Facts {
+	facts := Facts{Enabled: cfg.UpdateCheck, Pinned: cfg.ImageTag != "latest", LookupStatus: "disabled"}
+	if container != nil {
+		facts.Current = c.imageVersion(ctx, container.Config.Image)
+		if _, err := Parse(facts.Current); err != nil && container.State.Running {
+			if result, execErr := c.Docker.ExecCapture(ctx, container.CleanName(), "codex", "--version"); execErr == nil {
+				facts.Current = extractVersion(string(result.Stdout))
+			}
+		}
+	}
+	facts.Selected = c.imageVersion(ctx, cfg.ImageName+":"+cfg.ImageTag)
+	current, currentErr := Parse(facts.Current)
+	if selected, err := Parse(facts.Selected); err == nil && currentErr == nil {
+		facts.SelectedNewer = Compare(current, selected) < 0
+	}
+	if !cfg.UpdateCheck {
+		return facts
+	}
+	facts.LookupStatus = "unavailable"
+	latest, err := c.latest(ctx)
+	if err != nil {
+		facts.LookupErrorKind = classifyLookupError(err)
+		return facts
+	}
+	facts.Latest = latest
+	parsed, parseErr := Parse(latest)
+	if parseErr != nil {
+		facts.Latest = ""
+		facts.LookupErrorKind = "invalid-response"
+		return facts
+	}
+	facts.LookupStatus = "ok"
+	if currentErr == nil {
+		facts.UpstreamNewer = Compare(current, parsed) < 0
+	}
+	return facts
+}
+
 func (c Checker) imageVersion(ctx context.Context, reference string) string {
 	image, err := c.Docker.InspectImage(ctx, reference)
 	if err != nil || image == nil {
 		return ""
 	}
-	return image.Config.Labels[codexLabel]
+	return image.Config.Labels[CodexLabel]
 }
 
 func (c Checker) latest(ctx context.Context) (string, error) {
@@ -68,7 +109,11 @@ func (c Checker) latest(ctx context.Context) (string, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 3 * time.Second}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://registry.npmjs.org/@openai%2Fcodex/latest", nil)
+	registryURL := c.RegistryURL
+	if registryURL == "" {
+		registryURL = "https://registry.npmjs.org/@openai%2Fcodex/latest"
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, registryURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -87,6 +132,20 @@ func (c Checker) latest(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return document.Version, nil
+}
+
+func classifyLookupError(err error) string {
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "deadline"), strings.Contains(text, "timeout"):
+		return "timeout"
+	case strings.Contains(text, "decode"), strings.Contains(text, "semver"):
+		return "invalid-response"
+	case strings.Contains(text, "registry returned"):
+		return "http"
+	default:
+		return "network"
+	}
 }
 
 func extractVersion(output string) string {

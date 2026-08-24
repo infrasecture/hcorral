@@ -17,4 +17,9 @@ GUI forwarding is unsupported on macOS.
 
 Compose overlays may add sidecars and resources but cannot replace hcorral's
 image, identity labels, container name, workspace/home/state mounts, workdir,
-GUI boundary, or direct-launch guard.
+GUI boundary, or direct-launch guard. They also cannot make the managed service
+privileged, select host network/PID/IPC/user namespaces, add devices or
+capabilities, disable the image entrypoint, select a runtime user, make the
+root filesystem read-only, or weaken security options. Existing non-external
+Compose networks and volumes require exact Compose ownership labels before any
+mutation; external overlay resources remain explicitly user-managed.

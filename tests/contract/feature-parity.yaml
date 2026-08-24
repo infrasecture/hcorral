@@ -1,60 +1,165 @@
-schema: 1
-baseline:
-  mycodex_commit: cf3ee24af2b077996ac176ffffd1e34e892df061
-  inspected: 2026-08-23
-features:
-  - id: CLI-001
-    requirement: Typed CLI, environment precedence, JSON Compose argv, and exact process arguments
-    platforms: [linux, darwin]
-    evidence: [internal/config/config_test.go, internal/compose/argv_test.go, internal/command/runner_test.go]
-    status: implemented
-  - id: ID-001
-    requirement: Physical workspace, underscore slug, seven-character name hash, and full-label ownership
-    platforms: [linux, darwin]
-    evidence: [internal/identity/identity_test.go, tests/integration/real-docker.sh]
-    status: implemented
-  - id: LEGACY-001
-    requirement: Read-only same-workspace myCodex guard with zero mutation
-    platforms: [linux, darwin]
-    evidence: [internal/legacyguard/guard_test.go]
-    status: implemented
-  - id: STATE-001
-    requirement: Shared, private, and custom state with ownership-safe deletion
-    platforms: [linux, darwin]
-    evidence: [internal/app/state.go, tests/integration/real-docker.sh]
-    status: implemented
-  - id: COMPOSE-001
-    requirement: Built-in definition, ordered overlays, managed-field validation, sidecars, and drift
-    platforms: [linux, darwin]
-    evidence: [internal/compose, tests/integration/real-docker.sh]
-    status: implemented
-  - id: LIFE-001
-    requirement: Attach-first lifecycle, explicit pull/reconciliation, readiness, and process fidelity
-    platforms: [linux, darwin]
-    evidence: [internal/app/launch.go, tests/integration/real-docker.sh]
-    status: implemented
-  - id: SESSION-001
-    requirement: Idempotent entrypoint and in-place missing-session recovery
-    platforms: [linux, darwin]
-    evidence: [image/session-init.sh, tests/integration/real-docker.sh]
-    status: implemented
-  - id: UPDATE-001
-    requirement: Non-mutating bounded Codex version notice with SemVer and pin awareness
-    platforms: [linux, darwin]
-    evidence: [internal/update/semver_test.go]
-    status: implemented
-  - id: GUI-001
-    requirement: Narrow Linux X11 and Wayland forwarding; unconditional Darwin rejection
-    platforms: [linux, darwin]
-    evidence: [internal/gui, internal/config/config_test.go]
-    status: implemented
-  - id: IMAGE-001
-    requirement: Complete workstation tools, identity bootstrap, architectures, and immutable publication
-    platforms: [linux/amd64, linux/arm64]
-    evidence: [image, scripts/tests/image-versioning.sh]
-    status: implemented
-  - id: RELEASE-001
-    requirement: Four launcher targets, Linux packages, GitHub release, Homebrew, and exact-byte publication
-    platforms: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
-    evidence: [build.sh, release.sh, scripts/tests/release-contract.sh, .github/workflows]
-    status: implemented
+{
+  "schema": 1,
+  "baseline": {
+    "project": "myCodex",
+    "commit": "cf3ee24af2b077996ac176ffffd1e34e892df061",
+    "inspected": "2026-08-23",
+    "provenance": "docs/provenance.md"
+  },
+  "features": [
+    {
+      "id": "CLI-001",
+      "requirement": "Typed CLI, options, passthrough, generic Compose command, exact argv, environment, stdio, and exit fidelity",
+      "baseline_evidence": "myCodex launcher parsing and shell command construction at the recorded baseline",
+      "implementation_change": "Native typed Go parser and shell-free injectable command runner",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/config/config_test.go", "internal/compose/argv_test.go", "internal/command/runner_test.go"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Only HCORRAL_* configuration is accepted; Compose override is a JSON argv array"
+    },
+    {
+      "id": "PATH-001",
+      "requirement": "Physical workspace identity and same-path workspace, home, and workdir mounts",
+      "baseline_evidence": "myCodex cwd, home, and workspace mount behavior at the recorded baseline",
+      "implementation_change": "Physical symlink resolution plus namespace-separated full and seven-character hashes",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/identity/identity_test.go", "internal/compose/mounts_test.go", "tests/integration/runtime-contracts.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Generated slugs use underscores and exactly two structural hyphens"
+    },
+    {
+      "id": "IMAGE-USER-001",
+      "requirement": "UID, account, groups, sudo/gosu, home initialization, workdir ownership, and safe missing-only defaults",
+      "baseline_evidence": "myCodex entrypoint account and home initialization at the recorded baseline",
+      "implementation_change": "Namespaced entrypoint with idempotent account, home, Codex, and Claude initialization",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "automated_evidence": ["image/entrypoint.sh", "image/session-init.sh", "tests/image/entrypoint-matrix.sh", "tests/integration/real-docker.sh"],
+      "manual_evidence": ["release image canary exercises the native architecture and runtime account matrix"],
+      "status": "implemented",
+      "intentional_delta": "Hcorral creates only hcorral state markers and configuration"
+    },
+    {
+      "id": "STATE-001",
+      "requirement": "Shared, private, and custom state with ownership-safe deletion and complete preflight",
+      "baseline_evidence": "myCodex shared/private state and down behavior at the recorded baseline",
+      "implementation_change": "Typed state modes, canonical labels, reference checks, and pre-action removal plan",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/app/state.go", "tests/integration/runtime-contracts.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Custom state is always user-managed and legacy state is reused only when explicitly named"
+    },
+    {
+      "id": "COMPOSE-001",
+      "requirement": "Embedded base, ordered overlays, mounts, sidecars, rendered validation, hashes, and direct-use guard",
+      "baseline_evidence": "myCodex generated Compose and overlay behavior at the recorded baseline",
+      "implementation_change": "Content-addressed embedded Compose assets plus post-render managed-field validation",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/compose/assets_test.go", "internal/compose/mounts_test.go", "internal/compose/project_test.go", "tests/integration/runtime-contracts.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "The embedded base cannot be replaced; overlays may extend it without changing managed fields"
+    },
+    {
+      "id": "LIFE-001",
+      "requirement": "Attach-first lifecycle, explicit pull/reconcile, waits, progress, logs, PTY, signals, and process fidelity",
+      "baseline_evidence": "myCodex attach and lifecycle commands at the recorded baseline",
+      "implementation_change": "Ownership-gated state machine with advisory mutation locks and process replacement",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/app/launch_test.go", "tests/integration/real-docker.sh", "tests/integration/runtime-contracts.sh"],
+      "manual_evidence": ["stable release requires the macOS Docker Desktop headless suite"],
+      "status": "implemented",
+      "intentional_delta": "Bare attach never pulls or reconciles and stopped drift requires explicit up"
+    },
+    {
+      "id": "SESSION-001",
+      "requirement": "All-service drift, tmux readiness, idempotent recovery, status progress, and bounded failure logs",
+      "baseline_evidence": "myCodex Byobu entrypoint and issues 9 and 10 at the recorded baseline",
+      "implementation_change": "One session helper shared by entrypoint and in-place launcher recovery",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["image/session-init.sh", "internal/app/launch_test.go", "tests/integration/real-docker.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Session absence is independent of container state and recovery never recreates"
+    },
+    {
+      "id": "UPDATE-001",
+      "requirement": "Bounded non-mutating Codex update facts and notices with SemVer and pin awareness",
+      "baseline_evidence": "myCodex Codex version notice at the recorded baseline",
+      "implementation_change": "Image-label and executable discovery with bounded npm JSON lookup and typed facts",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/update/semver_test.go", "internal/update/check_test.go", "internal/app/info_test.go"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Notices never pull, update, restart, or recreate"
+    },
+    {
+      "id": "GUI-001",
+      "requirement": "Narrow Linux X11 and Wayland allowlists and unconditional Darwin GUI rejection",
+      "baseline_evidence": "myCodex Linux GUI forwarding behavior at the recorded baseline",
+      "implementation_change": "Explicit tri-state GUI resolver with one socket and owner-only Xauthority",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/gui/gui_linux_test.go", "internal/config/config_test.go"],
+      "manual_evidence": ["release workflow requires native X11, native Wayland, XWayland, and Darwin rejection qualification records"],
+      "status": "implemented",
+      "intentional_delta": "GUI is Linux-only forever; no D-Bus, audio, GPU, host network, or whole runtime directory"
+    },
+    {
+      "id": "INFO-001",
+      "requirement": "Stable human and schema-1 JSON information with ownership, state, Compose, session, update, no-mutation, and redaction",
+      "baseline_evidence": "myCodex diagnostic output at the recorded baseline",
+      "implementation_change": "One typed read-only snapshot rendered as JSON or human text",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/app/info_test.go", "internal/compose/project_test.go", "tests/integration/real-docker.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "Arbitrary Compose prefix arguments and rendered stderr are redacted"
+    },
+    {
+      "id": "IMAGE-TOOLS-001",
+      "requirement": "Complete workstation tools, entrypoint, exact Codex, optional agents, completion, and both image architectures",
+      "baseline_evidence": "myCodex Dockerfile tool surface at the recorded baseline",
+      "implementation_change": "Pinned base/frontend, checksum-verified Node 22, pinned optional agents, and canonical image labels",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "automated_evidence": ["image/Dockerfile", "scripts/build-workstation-image.sh", "scripts/tests/image-versioning.sh"],
+      "manual_evidence": ["release image jobs build and canary both native architectures"],
+      "status": "implemented",
+      "intentional_delta": "Only hcorral machine names and ai.infrasecture.hcorral.* labels are emitted"
+    },
+    {
+      "id": "IMAGE-PUBLISH-001",
+      "requirement": "Immutable architecture tags, matching multi-architecture manifest, monotonic aliases, retries, concurrency, and conflict refusal",
+      "baseline_evidence": "myCodex split native image publisher at the recorded baseline",
+      "implementation_change": "Single hcorral publisher with one pre-fan-out resolved identity and deterministic control digest",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "automated_evidence": ["scripts/tests/image-versioning.sh", ".github/workflows/publish-workstation-image.yaml"],
+      "manual_evidence": ["protected image-release workflow must qualify both GHCR architectures before manifest finalization"],
+      "status": "implemented",
+      "intentional_delta": "Only ghcr.io/infrasecture/hcorral is published"
+    },
+    {
+      "id": "RELEASE-001",
+      "requirement": "Four launcher targets, Linux packages, GitHub release, exact-byte publication, Homebrew, and qualification workflows",
+      "baseline_evidence": "Vaka build and release model at commit 409ee53a8072282a2660f3e73ab1f204be17b4a9",
+      "implementation_change": "Pinned Go/nFPM deterministic builder with prepare/publish ledger and Homebrew-tap submodule",
+      "platforms": ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
+      "automated_evidence": ["build.sh", "release.sh", "scripts/tests/release-contract.sh", ".github/workflows/release.yaml"],
+      "manual_evidence": ["protected release workflow qualifies packages, both macOS formulae, Docker Desktop, publication, and canonical install"],
+      "status": "implemented",
+      "intentional_delta": "Launcher and workstation image releases are independent"
+    },
+    {
+      "id": "LEGACY-001",
+      "requirement": "Read-only running, stopped, and ambiguous same-workspace myCodex guard with zero mutation",
+      "baseline_evidence": "Discussion 15 no-migration decision and frozen myCodex markers at the recorded baseline",
+      "implementation_change": "Dedicated classifier requiring exact same-path bind plus proven or partial legacy evidence",
+      "platforms": ["linux", "darwin"],
+      "automated_evidence": ["internal/legacyguard/guard_test.go", "internal/app/launch_test.go", "tests/integration/runtime-contracts.sh"],
+      "manual_evidence": [],
+      "status": "implemented",
+      "intentional_delta": "No myCodex execution, resource adoption, environment aliases, migration, or compatibility layer"
+    }
+  ]
+}

@@ -44,3 +44,14 @@ func TestWaylandRejectsPathTraversal(t *testing.T) {
 		t.Fatal("expected rejection")
 	}
 }
+
+func TestSecureStateDirectoryRejectsSymlinkComponent(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "hcorral")); err != nil {
+		t.Fatal(err)
+	}
+	if err := secureStateDirectory(root, "hcorral", "gui", "workspace"); err == nil {
+		t.Fatal("symlinked state component was accepted")
+	}
+}

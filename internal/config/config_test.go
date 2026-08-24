@@ -17,6 +17,11 @@ func TestParseDefaults(t *testing.T) {
 	if cfg.StateMode != StateShared || cfg.GUI.Specified || !reflect.DeepEqual(cfg.ComposeCommand, []string{"docker", "compose"}) {
 		t.Fatalf("unexpected typed defaults: %#v", cfg)
 	}
+	for _, key := range []string{"workspace", "project_name", "image_name", "image_tag", "state", "gui", "compose_command", "compose_files", "extra_volumes", "container_home", "workdir", "update_check", "wait_timeout", "progress_interval", "session", "auto_attach"} {
+		if cfg.Sources[key] != "default" {
+			t.Errorf("source %s = %q, want default", key, cfg.Sources[key])
+		}
+	}
 }
 
 func TestParsePrecedenceAndOrderedArrays(t *testing.T) {
@@ -43,6 +48,16 @@ func TestParsePrecedenceAndOrderedArrays(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg.Command, []string{"up", "-d"}) {
 		t.Fatalf("command = %#v", cfg.Command)
+	}
+	for key, want := range map[string]string{
+		"workspace":       "cli",
+		"compose_command": "environment",
+		"compose_files":   "environment+cli",
+		"state":           "environment",
+	} {
+		if cfg.Sources[key] != want {
+			t.Errorf("source %s = %q, want %q", key, cfg.Sources[key], want)
+		}
 	}
 }
 
@@ -76,6 +91,21 @@ func TestParseInvalidComposeCommand(t *testing.T) {
 		}
 		if _, err := Parse(nil, options(env)); err == nil {
 			t.Errorf("accepted %q", value)
+		}
+	}
+}
+
+func TestParseValidatesSessionTarget(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"bad:window", "bad session", "-", string(make([]byte, 65))} {
+		if value == "-" {
+			if _, err := Parse(nil, options(map[string]string{"HCORRAL_BYOBU_SESSION": value})); err != nil {
+				t.Fatalf("safe punctuation session %q rejected: %v", value, err)
+			}
+			continue
+		}
+		if _, err := Parse(nil, options(map[string]string{"HCORRAL_BYOBU_SESSION": value})); err == nil {
+			t.Errorf("unsafe session %q accepted", value)
 		}
 	}
 }

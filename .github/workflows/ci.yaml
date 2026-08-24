@@ -38,7 +38,7 @@ jobs:
           retention-days: 7
 
   linux:
-    name: ci/linux
+    name: ci/linux-${{ matrix.arch }}
     needs: build
     strategy:
       matrix:
@@ -60,10 +60,49 @@ jobs:
       - if: matrix.arch == 'amd64'
         env:
           HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-amd64
-        run: ./tests/integration/real-docker.sh
+        run: ./tests/integration/run.sh
+
+  linux-gate:
+    name: ci/linux
+    if: always()
+    needs: [linux, compose-compat]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test '${{ needs.linux.result }}' = success && test '${{ needs.compose-compat.result }}' = success
+
+  compose-compat:
+    name: ci/compose-2.24.6-${{ matrix.arch }}
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            compose_arch: x86_64
+            sha256: eca30ae32dc451f9e6d6c8ddce078a76f23b355c3ca0ab391d58f59e87c0d310
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            compose_arch: aarch64
+            sha256: 05b91fcc38d80378508dc42e027fa71f13431bdd3247139e51fa084e95c3de9c
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist
+      - run: |
+          compose="$RUNNER_TEMP/docker-compose"
+          curl --fail --silent --show-error --location --output "$compose" \
+            "https://github.com/docker/compose/releases/download/v2.24.6/docker-compose-linux-${{ matrix.compose_arch }}"
+          printf '%s  %s\n' '${{ matrix.sha256 }}' "$compose" | sha256sum --check --strict
+          chmod 0755 "$compose" "dist/bin/hcorral-linux-${{ matrix.arch }}"
+          export HCORRAL_COMPOSE_COMMAND="[\"$compose\"]"
+          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}"
+          ./tests/integration/run.sh
 
   darwin:
-    name: ci/darwin
+    name: ci/darwin-${{ matrix.arch }}
     needs: build
     strategy:
       matrix:
@@ -86,6 +125,14 @@ jobs:
             echo 'macOS GUI request unexpectedly succeeded' >&2
             exit 1
           fi
+
+  darwin-gate:
+    name: ci/darwin
+    if: always()
+    needs: darwin
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test '${{ needs.darwin.result }}' = success
 
   reproducible:
     name: ci/reproducible

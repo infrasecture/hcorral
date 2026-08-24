@@ -21,11 +21,9 @@ func AcquireLock(project string) (*Lock, error) {
 		return nil, err
 	}
 	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	base := filepath.Dir(filepath.Dir(directory))
+	if err := secureLockDirectory(base, filepath.Base(filepath.Dir(directory)), filepath.Base(directory)); err != nil {
 		return nil, fmt.Errorf("create mutation lock directory: %w", err)
-	}
-	if info, err := os.Lstat(directory); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("mutation lock directory is not a physical directory: %s", directory)
 	}
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return nil, fmt.Errorf("protect mutation lock directory: %w", err)
@@ -45,6 +43,34 @@ func AcquireLock(project string) (*Lock, error) {
 		return nil, fmt.Errorf("protect mutation lock: %w", err)
 	}
 	return &Lock{file: file, Path: path}, nil
+}
+
+func secureLockDirectory(base string, components ...string) error {
+	info, err := os.Lstat(base)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(base, 0o700); err != nil {
+			return err
+		}
+		info, err = os.Lstat(base)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("lock root is not a physical directory: %s", base)
+	}
+	current := base
+	for _, component := range components {
+		current = filepath.Join(current, component)
+		if err := os.Mkdir(current, 0o700); err != nil && !os.IsExist(err) {
+			return err
+		}
+		info, err := os.Lstat(current)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("lock path is not a physical directory: %s", current)
+		}
+	}
+	return nil
 }
 
 func (l *Lock) Close() error {
