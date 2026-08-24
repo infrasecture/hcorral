@@ -131,12 +131,15 @@ jobs:
     name: release/homebrew-${{ matrix.arch }}
     needs: prepare
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: macos-15
             arch: arm64
+            colima: false
           - runner: macos-15-intel
             arch: amd64
+            colima: true
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -173,6 +176,10 @@ jobs:
           hcorral version
           HOMEBREW_NO_INSTALL_FROM_API=1 brew test "$qualified_formula"
           brew uninstall hcorral
+      - if: matrix.colima
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
           brew install colima docker docker-compose
           mkdir -p "$HOME/.docker/cli-plugins"
           ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"

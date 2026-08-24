@@ -39,6 +39,8 @@ grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'brew audit --strict "$qualified_formula"' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
 grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
+grep -Fq 'if: matrix.colima' .github/workflows/release.yaml || fail 'Colima qualification is not isolated to its supported macOS runner'
+grep -Fq 'fail-fast: false' .github/workflows/release.yaml || fail 'Darwin architecture qualification can cancel independent evidence'
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
 if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml; then fail 'Homebrew qualification audits a disabled formula path'; fi
