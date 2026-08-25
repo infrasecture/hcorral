@@ -43,6 +43,8 @@ grep -Fq 'brew audit --strict "$qualified_formula"' .github/workflows/release.ya
 grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
 grep -Fq 'if: matrix.colima' .github/workflows/release.yaml || fail 'Colima qualification is not isolated to its supported macOS runner'
 grep -Fq 'fail-fast: false' .github/workflows/release.yaml || fail 'Darwin architecture qualification can cancel independent evidence'
+grep -Fq "if: always() && needs.approve.result == 'success'" .github/workflows/release.yaml || fail 'publish can be skipped through a waived preview qualification'
+grep -Fq "if: always() && needs.publish.result == 'success'" .github/workflows/release.yaml || fail 'verification can be skipped through a waived preview qualification'
 # shellcheck disable=SC2016 # Match literal workflow-shell expansions.
 grep -Fq 'export TEST_TMPDIR="$HOME/hcorral-ci-tmp"' .github/workflows/release.yaml || fail 'Colima qualification workspace is not daemon-visible'
 # shellcheck disable=SC2016 # Match the literal nested-default expression.
