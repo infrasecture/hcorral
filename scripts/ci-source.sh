@@ -14,7 +14,9 @@ run_go sh -c 'work=$(mktemp -d); cp -a /src/. "$work"; cd "$work"; go mod tidy; 
 run_go go vet ./...
 run_go go test ./...
 docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${builder}" sh -c 'apk add --no-cache gcc musl-dev >/dev/null && CGO_ENABLED=1 go test -race ./...'
-run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=2s
+# A fixed iteration budget exercises the fuzz engine without coupling success
+# to hosted-runner scheduling delays at a short wall-clock deadline.
+run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=25000x
 
 shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
 bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
