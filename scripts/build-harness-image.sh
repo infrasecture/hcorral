@@ -158,20 +158,29 @@ fi
 build_arch() {
 	local arch="$1"
 	local ref="${image_name}:${release_tag}-${arch}"
-	local output=(--load)
 	if [[ "${push}" == true ]] && remote_exists "${ref}"; then
 		matches_current "${ref}" "${revision}" || { echo "immutable tag conflict: ${ref}" >&2; return 1; }
-		echo "Keeping matching immutable tag ${ref}"; return
+		echo "Testing matching immutable tag ${ref} before reuse"
+		docker pull "${ref}"
+	else
+		docker buildx build --platform "linux/${arch}" --load --target "${harness}" \
+			--file "${project_root}/image/Dockerfile" \
+			--build-arg "${version_arg}=${version}" --build-arg "HCORRAL_IMAGE_REVISION=${revision}" \
+			--build-arg "HCORRAL_SOURCE_REVISION=${source_revision}" --build-arg "HCORRAL_BUILD_INPUT_DIGEST=${build_input_digest}" \
+			"${codex_checksum_args[@]}" --tag "${ref}" "${project_root}"
 	fi
-	if [[ "${push}" == true ]]; then output=(--push); fi
-	docker buildx build --platform "linux/${arch}" "${output[@]}" --target "${harness}" \
-		--file "${project_root}/image/Dockerfile" \
-		--build-arg "${version_arg}=${version}" --build-arg "HCORRAL_IMAGE_REVISION=${revision}" \
-		--build-arg "HCORRAL_SOURCE_REVISION=${source_revision}" --build-arg "HCORRAL_BUILD_INPUT_DIGEST=${build_input_digest}" \
-		"${codex_checksum_args[@]}" --tag "${ref}" "${project_root}"
-	if [[ "${push}" != true ]]; then
-		docker run --rm --entrypoint bash "${ref}" -c "test ! -e /workspace; command -v ${harness}; ${harness} --version; for tool in codex claude pi; do [[ \"\$tool\" == ${harness} ]] || ! command -v \"\$tool\"; done"
-		docker run --rm --entrypoint "${harness}" "${ref}" --version | grep -F "${version}"
+	[[ "$(docker image inspect --format '{{.Architecture}}' "${ref}")" == "${arch}" ]]
+	docker run --rm --entrypoint bash "${ref}" -c "test ! -e /workspace; command -v ${harness}; ${harness} --version; for tool in codex claude pi; do [[ \"\$tool\" == ${harness} ]] || ! command -v \"\$tool\"; done"
+	docker run --rm --entrypoint "${harness}" "${ref}" --version | grep -F "${version}"
+	"${project_root}/tests/image/entrypoint-matrix.sh" "${ref}"
+	if [[ "${push}" == true ]]; then
+		if ! remote_exists "${ref}"; then
+			docker push "${ref}"
+			matches_current "${ref}" "${revision}" || { echo "published architecture identity mismatch: ${ref}" >&2; return 1; }
+		else
+			echo "Keeping tested matching immutable tag ${ref}"
+		fi
+	else
 		docker image tag "${ref}" "${image_name}:${release_tag}"
 	fi
 }

@@ -31,7 +31,11 @@ Publish one or all image streams with `Publish harness image`, or locally:
 Each stream resolves its upstream version, recipe revision, source commit, and
 input digest independently. Immutable architecture and manifest tags are never
 replaced on conflicting identity; matching retries are idempotent. Moving
-version and `latest` aliases advance monotonically.
+version and `latest` aliases advance monotonically. Each native architecture is
+loaded locally and passes the full account, persisted-home, configuration,
+session, argv, and user-prefix update canary before its immutable tag is pushed.
+An idempotent retry pulls and re-runs that same canary before reusing a matching
+immutable tag.
 
 Create a launcher preview through `Release launcher` with `v0.1.0` and
 `preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,

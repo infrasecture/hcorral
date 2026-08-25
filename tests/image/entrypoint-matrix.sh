@@ -35,6 +35,11 @@ run_case() {
       if [[ "$HCORRAL_HARNESS_TYPE" == codex ]]; then [[ -s /etc/codex/config.toml && ! -e "$HOME/.codex/config.toml" ]]; fi
       if [[ "$HCORRAL_HARNESS_TYPE" == claude ]]; then [[ -s "$HOME/.claude/settings.json" && "$DISABLE_AUTOUPDATER" == 1 ]]; fi
       if [[ "$HCORRAL_HARNESS_TYPE" == pi ]]; then grep -Fq defaultProjectTrust "$HOME/.pi/agent/settings.json"; grep -Fq always "$HOME/.pi/agent/settings.json"; fi
+      mkdir -p "$HOME/.local/bin"
+      printf "#!/bin/sh\nprintf user-prefix\n" >"$HOME/.local/bin/$HCORRAL_HARNESS_TYPE"
+      chmod 0755 "$HOME/.local/bin/$HCORRAL_HARNESS_TYPE"
+      [[ "$(command -v "$HCORRAL_HARNESS_TYPE")" == "$HOME/.local/bin/$HCORRAL_HARNESS_TYPE" ]]
+      [[ "$("$HCORRAL_HARNESS_TYPE" --version)" == user-prefix ]]
       [[ "$0" == argv-zero && "$1" == "space arg" && "$2" == $'"'"'line\nbreak'"'"' ]]
     ' argv-zero "space arg" $'line\nbreak'
 }
