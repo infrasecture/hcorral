@@ -102,16 +102,27 @@ container_id="$(docker inspect --format '{{.Id}}' "${project}")"
 started_at="$(docker inspect --format '{{.State.StartedAt}}' "${project}")"
 
 docker exec "${project}" tmux kill-server >/dev/null 2>&1 || true
-set +e
+attach_log="${test_root}/attach.log"
+timeout_binary=timeout
 if [[ "$(uname -s)" == Darwin ]]; then
-  gtimeout 3 script -q /dev/null "${binary}" >/dev/null 2>&1
-else
-  timeout 3 script -qec "${binary}" /dev/null >/dev/null 2>&1
+  timeout_binary=gtimeout
 fi
+set +e
+"${timeout_binary}" 3 python3 -c \
+  'import os, pty, sys; raise SystemExit(os.waitstatus_to_exitcode(pty.spawn([sys.argv[1]])))' \
+  "${binary}" >"${attach_log}" 2>&1
 attach_status=$?
 set -e
-[[ ${attach_status} -eq 0 || ${attach_status} -eq 124 ]]
-docker exec "${project}" tmux has-session -t hcorral
+if [[ ${attach_status} -ne 0 && ${attach_status} -ne 124 ]]; then
+  cat "${attach_log}" >&2
+  echo "attach recovery exited with status ${attach_status}" >&2
+  exit 1
+fi
+if ! docker exec "${project}" tmux has-session -t hcorral; then
+  cat "${attach_log}" >&2
+  echo 'attach recovery did not recreate the hcorral tmux session' >&2
+  exit 1
+fi
 [[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
 [[ "$(docker inspect --format '{{.State.StartedAt}}' "${project}")" == "${started_at}" ]]
 
