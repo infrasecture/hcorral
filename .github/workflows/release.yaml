@@ -280,6 +280,10 @@ jobs:
   publish:
     name: release/publish
     needs: approve
+    # The preview GUI matrix is intentionally skipped. GitHub propagates that
+    # skipped ancestor through the dependency graph unless this job explicitly
+    # evaluates the successful approval result.
+    if: always() && needs.approve.result == 'success'
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -326,6 +330,7 @@ jobs:
   verify:
     name: release/verify
     needs: publish
+    if: always() && needs.publish.result == 'success'
     runs-on: macos-15
     permissions:
       contents: read
