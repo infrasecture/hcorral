@@ -6,32 +6,51 @@ workspace, while the workspace and an optional persisted home can be shared.
 
 ## Install
 
-Hcorral requires Docker and Docker Compose v2. On macOS, install the launcher
-from the Infrasecture Homebrew tap:
+Hcorral requires Docker and Docker Compose v2, installed separately.
+
+### Linux
+
+Linux is the primary target. DEB, RPM, Arch Linux, and standalone archives for
+AMD64 and ARM64 are available from the
+[v0.1.0 preview release](https://github.com/infrasecture/hcorral/releases/tag/v0.1.0).
+Download `SHA256SUMS` once, then choose the package for your distribution. For
+x86-64 Linux:
+
+```console
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/SHA256SUMS
+
+# Debian or Ubuntu
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral_0.1.0_linux_amd64.deb
+$ sha256sum --ignore-missing --check SHA256SUMS
+$ sudo apt install ./hcorral_0.1.0_linux_amd64.deb
+
+# Fedora, RHEL, or another RPM-based distribution
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral-0.1.0-1.x86_64.rpm
+$ sha256sum --ignore-missing --check SHA256SUMS
+$ sudo dnf install ./hcorral-0.1.0-1.x86_64.rpm
+
+# Arch Linux
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral-0.1.0-1-x86_64.pkg.tar.zst
+$ sha256sum --ignore-missing --check SHA256SUMS
+$ sudo pacman -U ./hcorral-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+For ARM64, select the release asset containing `arm64` for DEB or `aarch64` for
+RPM and Arch. Linux archives provide a package-manager-independent alternative.
+After installation, run `hcorral version`.
+
+### macOS
+
+The launcher supports headless operation on macOS. Install it from the
+Infrasecture Homebrew tap:
 
 ```console
 $ brew install infrasecture/tap/hcorral
 $ hcorral version
 ```
 
-Linux packages and standalone archives are available from the
-[v0.1.0 preview release](https://github.com/infrasecture/hcorral/releases/tag/v0.1.0).
-For Debian or Ubuntu on x86-64:
-
-```console
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral_0.1.0_linux_amd64.deb
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/SHA256SUMS
-$ sha256sum --ignore-missing --check SHA256SUMS
-$ sudo apt install ./hcorral_0.1.0_linux_amd64.deb
-$ hcorral version
-```
-
-The release also provides `arm64` Debian packages, `x86_64` and `aarch64` RPM
-and Arch packages, and Linux/macOS archives for both architectures. Download
-`SHA256SUMS` from the same release and verify a package before installing it.
-See [installation](docs/installation.md) for the runtime dependency and package
-details. Hcorral installs only the launcher; it does not install or modify
-Docker.
+See [installation](docs/installation.md) for runtime details. Hcorral installs
+only the launcher; it does not install or modify Docker.
 
 ## Run
 
