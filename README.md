@@ -52,10 +52,12 @@ The default persisted home is the global external volume `hcorral_state`.
 selects a user-managed custom volume.
 
 `hcorral down` removes only the selected Compose project. `hcorral down -v`
-also removes the selected workspace-private volume when its complete ownership
-labels match and no other running or stopped container references it. The
-selected project's own reference disappears during teardown. It never removes
-`hcorral_state` or a custom volume. Orphan cleanup is explicit:
+also removes the selected workspace-private volume. If its complete ownership
+labels do not match, or another running or stopped container references it,
+hcorral refuses the request before tearing down the selected project and names
+the blocker. Remove the other corrals first, using plain `down` where their
+shared state must remain, then retry `down -v`. It never removes `hcorral_state`
+or a custom volume. Orphan cleanup is explicit:
 
 ```console
 hcorral state rm --scope workspace
