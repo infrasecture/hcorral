@@ -49,6 +49,7 @@ grep -Fq 'export TEST_TMPDIR="$HOME/hcorral-ci-tmp"' .github/workflows/release.y
 grep -Fq 'TEST_TMPDIR:-${TMPDIR:-/tmp}' tests/integration/real-docker.sh || fail 'real Docker fixture root cannot be selected for remote daemons'
 grep -Fq 'os.waitstatus_to_exitcode(pty.spawn([sys.argv[1]]))' tests/integration/real-docker.sh || fail 'PTY attach recovery must preserve the child exit status'
 grep -Fq 'timeout_binary=gtimeout' tests/integration/real-docker.sh || fail 'macOS PTY attach recovery must use the installed GNU timeout'
+if grep -R -E '(^|[[:space:]])(mapfile|readarray)([[:space:]]|$)' tests/integration; then fail 'integration tests require Bash features newer than macOS Bash 3.2'; fi
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
 if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml; then fail 'Homebrew qualification audits a disabled formula path'; fi

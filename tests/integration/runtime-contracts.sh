@@ -40,7 +40,10 @@ cleanup() {
   done
   for compose_project in "${project:-}" "${codex_project}" "${claude_project}" "${sidecar_project}" "${review_project}" "${implementation_project}"; do
     if [[ -n "${compose_project}" ]]; then
-      mapfile -t project_containers < <(docker ps -aq --filter "label=com.docker.compose.project=${compose_project}")
+      project_containers=()
+      while IFS= read -r container_id; do
+        if [[ -n "${container_id}" ]]; then project_containers+=("${container_id}"); fi
+      done < <(docker ps -aq --filter "label=com.docker.compose.project=${compose_project}")
       if ((${#project_containers[@]})); then docker rm --force "${project_containers[@]}" >/dev/null 2>&1 || true; fi
       docker network rm "${compose_project}_default" >/dev/null 2>&1 || true
     fi
