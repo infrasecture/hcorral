@@ -39,6 +39,7 @@ grep -Fq 'artifact_digest="sha256:${artifact_digest}"' .github/workflows/release
 grep -Fq 'object_type}" == tag' release.sh || fail 'existing release tag type is not verified'
 # shellcheck disable=SC2016 # Match literal workflow expressions.
 grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .github/workflows/release.yaml || fail 'protected repository publication credential is missing'
+grep -A24 -F 'name: release/publish' .github/workflows/release.yaml | grep -Fq 'persist-credentials: false' || fail 'publish checkout can override protected credentials with its read-only token'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
