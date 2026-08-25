@@ -34,6 +34,8 @@ grep -Fq 'publication-ledger.tsv' release.sh || fail 'publication ledger is miss
 grep -Fq 'reconcile_existing_release' release.sh || fail 'partial release recovery is missing'
 grep -Fq 'existing pointer-bump child references a different formula' release.sh || fail 'tap retry identity check is missing'
 grep -Fq 'actions/artifacts/' release.sh || fail 'Actions transport identity is not verified remotely'
+# shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
+grep -Fq 'artifact_digest="sha256:${artifact_digest}"' .github/workflows/release.yaml || fail 'bare upload-artifact digest is not normalized to the API identity form'
 grep -Fq 'object_type}" == tag' release.sh || fail 'existing release tag type is not verified'
 # shellcheck disable=SC2016 # Match literal workflow expressions.
 grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .github/workflows/release.yaml || fail 'protected repository publication credential is missing'

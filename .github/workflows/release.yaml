@@ -49,9 +49,12 @@ jobs:
         run: |
           created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           expires_at="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+          artifact_digest="$ARTIFACT_DIGEST"
+          [[ "$artifact_digest" == sha256:* ]] || artifact_digest="sha256:${artifact_digest}"
+          [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid prepared artifact digest' >&2; exit 1; }
           {
             printf 'FORMAT=1\nVERSION=%s\nSOURCE_COMMIT=%s\n' "$VERSION" "$SOURCE_COMMIT"
-            printf 'ARTIFACT_ID=%s\nARTIFACT_URL=%s\nARTIFACT_DIGEST=%s\n' "$ARTIFACT_ID" "$ARTIFACT_URL" "$ARTIFACT_DIGEST"
+            printf 'ARTIFACT_ID=%s\nARTIFACT_URL=%s\nARTIFACT_DIGEST=%s\n' "$ARTIFACT_ID" "$ARTIFACT_URL" "$artifact_digest"
             printf 'CREATED_AT=%s\nRETENTION_DAYS=30\nEXPIRES_AT=%s\n' "$created_at" "$expires_at"
           } >release-transport.env
           cat release-transport.env >>"$GITHUB_STEP_SUMMARY"
