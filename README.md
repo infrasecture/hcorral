@@ -4,6 +4,37 @@
 Docker. Each harness gets an independent container in the same physical
 workspace, while the workspace and an optional persisted home can be shared.
 
+## Install
+
+Hcorral requires Docker and Docker Compose v2. On macOS, install the launcher
+from the Infrasecture Homebrew tap:
+
+```console
+$ brew install infrasecture/tap/hcorral
+$ hcorral version
+```
+
+Linux packages and standalone archives are available from the
+[v0.1.0 preview release](https://github.com/infrasecture/hcorral/releases/tag/v0.1.0).
+For Debian or Ubuntu on x86-64:
+
+```console
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral_0.1.0_linux_amd64.deb
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/SHA256SUMS
+$ sha256sum --ignore-missing --check SHA256SUMS
+$ sudo apt install ./hcorral_0.1.0_linux_amd64.deb
+$ hcorral version
+```
+
+The release also provides `arm64` Debian packages, `x86_64` and `aarch64` RPM
+and Arch packages, and Linux/macOS archives for both architectures. Download
+`SHA256SUMS` from the same release and verify a package before installing it.
+See [installation](docs/installation.md) for the runtime dependency and package
+details. Hcorral installs only the launcher; it does not install or modify
+Docker.
+
+## Run
+
 ```console
 $ cd ~/src/payment-api
 $ hcorral --harness codex
