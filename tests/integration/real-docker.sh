@@ -108,19 +108,36 @@ if [[ "$(uname -s)" == Darwin ]]; then
   timeout_binary=gtimeout
 fi
 set +e
-"${timeout_binary}" 3 python3 -c \
+"${timeout_binary}" 35 python3 -c \
   'import os, pty, sys; raise SystemExit(os.waitstatus_to_exitcode(pty.spawn([sys.argv[1]])))' \
-  "${binary}" >"${attach_log}" 2>&1
+  "${binary}" >"${attach_log}" 2>&1 &
+attach_pid=$!
+set -e
+
+# A remote Docker daemon can make each recovery probe take several seconds.
+# Observe the actual PTY client instead of killing the launcher after an
+# arbitrary delay. The outer timeout remains a guard for a broken recovery.
+attach_ready=false
+for _ in {1..120}; do
+  if docker exec "${project}" tmux list-clients -t hcorral >/dev/null 2>&1; then
+    attach_ready=true
+    break
+  fi
+  if ! kill -0 "${attach_pid}" 2>/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+if [[ "${attach_ready}" == true ]]; then
+  docker exec "${project}" tmux kill-session -t hcorral >/dev/null 2>&1 || true
+fi
+set +e
+wait "${attach_pid}"
 attach_status=$?
 set -e
-if [[ ${attach_status} -ne 0 && ${attach_status} -ne 124 ]]; then
+if [[ "${attach_ready}" != true ]]; then
   cat "${attach_log}" >&2
-  echo "attach recovery exited with status ${attach_status}" >&2
-  exit 1
-fi
-if ! docker exec "${project}" tmux has-session -t hcorral; then
-  cat "${attach_log}" >&2
-  echo 'attach recovery did not recreate the hcorral tmux session' >&2
+  echo "attach recovery did not attach a PTY client (status ${attach_status})" >&2
   exit 1
 fi
 [[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
