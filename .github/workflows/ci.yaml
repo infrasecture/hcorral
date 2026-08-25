@@ -77,7 +77,6 @@ jobs:
           ./scripts/build-harness-image.sh --harness "$HARNESS" --version "$version" --revision "$revision" --arch "$ARCH"
           image="ghcr.io/infrasecture/hcorral-${HARNESS}:${version}-r${revision}-${ARCH}"
           [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == "$ARCH" ]]
-          ./tests/image/entrypoint-matrix.sh "$image"
 
   images-gate:
     name: ci/images

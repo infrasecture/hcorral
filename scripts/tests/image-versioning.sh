@@ -23,6 +23,10 @@ fi
 grep -Fq 'DISABLE_AUTOUPDATER=1' "${root}/image/Dockerfile"
 grep -Fq -- '--ignore-scripts' "${root}/image/Dockerfile"
 grep -Fq '/etc/codex/config.toml' "${root}/image/entrypoint.sh"
+grep -Fq 'tests/image/entrypoint-matrix.sh' "${root}/scripts/build-harness-image.sh"
+# shellcheck disable=SC2016 # Match the literal ref expansion in the publisher.
+grep -Fq 'docker push "${ref}"' "${root}/scripts/build-harness-image.sh"
+grep -Fq 'user-prefix' "${root}/tests/image/entrypoint-matrix.sh"
 # shellcheck disable=SC2016 # Match the literal expansion, not this test process.
 if grep -Fq '${CODEX_HOME}/config.toml' "${root}/image/entrypoint.sh"; then
 	echo 'entrypoint writes the persisted Codex user configuration' >&2
