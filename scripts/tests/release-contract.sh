@@ -10,6 +10,7 @@ grep -Fq -- '--release' <<<"${build_help}" || fail 'build help lacks release mod
 grep -Fq -- '--packages' <<<"${build_help}" || fail 'build help lacks packages'
 if grep -Eq 'docker (push|buildx imagetools create)' build.sh; then fail 'build.sh contains publication'; fi
 grep -Fq 'ai.infrasecture.hcorral.build-cache' build.sh || fail 'build cache ownership label is missing'
+grep -Fq -- "-fuzztime=25000x" scripts/ci-source.sh || fail 'fuzz qualification uses a scheduler-sensitive wall-clock deadline'
 grep -Fq 'lacks exact hcorral ownership labels' build.sh || fail 'build cache collision refusal is missing'
 grep -Fq 'buildhost: hcorral-build' build.sh || fail 'fixed RPM build host is missing'
 grep -Fq '/src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md' build.sh || fail 'raw archives omit the dependency-license inventory'
