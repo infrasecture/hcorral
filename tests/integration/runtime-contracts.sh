@@ -154,8 +154,9 @@ run_hcorral ps >/dev/null
 
 # Harness type participates in corral identity but not workspace identity.
 # Two harness corrals therefore run concurrently with distinct projects while
-# sharing the same workspace-private home. The first down -v retains that home
-# because the other container still references it; the final down -v removes it.
+# sharing the same workspace-private home. A down -v request fails without
+# teardown while the other project references that home. Plain down removes
+# only the selected project; the final down -v removes the shared home.
 codex_project="$(HCORRAL_PRIVATE_ENV=true run_harness codex info --format=json | sed -n '/^[[:space:]]*"project": {/,/^[[:space:]]*}/ s/^[[:space:]]*"name": "\([^"]*\)",*$/\1/p' | head -1)"
 claude_project="$(HCORRAL_PRIVATE_ENV=true run_harness claude info --format=json | sed -n '/^[[:space:]]*"project": {/,/^[[:space:]]*}/ s/^[[:space:]]*"name": "\([^"]*\)",*$/\1/p' | head -1)"
 codex_volume="$(HCORRAL_PRIVATE_ENV=true HCORRAL_HARNESS=codex volume_from_info)"
@@ -166,14 +167,19 @@ HCORRAL_PRIVATE_ENV=true run_harness claude up -d >/dev/null
 [[ "$(docker inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.harness.type"}}' "${codex_project}")" == codex ]]
 [[ "$(docker inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.harness.type"}}' "${claude_project}")" == claude ]]
 codex_down_output="${test_root}/codex-down.out"
-HCORRAL_PRIVATE_ENV=true run_harness codex down -v >"${codex_down_output}" 2>&1
-grep -Fq "retain external volume ${codex_volume}" "${codex_down_output}"
-if docker container inspect "${codex_project}" >/dev/null 2>&1; then
-  echo 'codex corral survived down -v' >&2
+HCORRAL_PRIVATE_ENV=true expect_status 1 run_harness codex down -v >"${codex_down_output}" 2>&1
+grep -Fq "workspace-private volume ${codex_volume} is still referenced by ${claude_project}" "${codex_down_output}"
+if ! docker container inspect "${codex_project}" >/dev/null 2>&1; then
+  echo 'codex corral was torn down by a refused down -v' >&2
   exit 1
 fi
 [[ "$(docker inspect --format '{{.State.Running}}' "${claude_project}")" == true ]]
 docker volume inspect "${codex_volume}" >/dev/null
+HCORRAL_PRIVATE_ENV=true run_harness codex down >/dev/null
+if docker container inspect "${codex_project}" >/dev/null 2>&1; then
+  echo 'codex corral survived plain down' >&2
+  exit 1
+fi
 HCORRAL_PRIVATE_ENV=true run_harness claude down -v >/dev/null
 if docker volume inspect "${codex_volume}" >/dev/null 2>&1; then
   echo 'workspace-private volume survived the final down -v' >&2
@@ -198,9 +204,12 @@ if docker container inspect "${project}" >/dev/null 2>&1; then
   exit 1
 fi
 explicit_volume="$(HCORRAL_PRIVATE_ENV=true HCORRAL_PROJECT_NAME="${review_project}" HCORRAL_HARNESS=codex volume_from_info)"
-HCORRAL_PRIVATE_ENV=true run_harness codex --project-name "${review_project}" down -v >"${test_root}/review-down.out" 2>&1
-grep -Fq "retain external volume ${explicit_volume}" "${test_root}/review-down.out"
+HCORRAL_PRIVATE_ENV=true expect_status 1 run_harness codex --project-name "${review_project}" down -v >"${test_root}/review-down.out" 2>&1
+grep -Fq "workspace-private volume ${explicit_volume} is still referenced by ${implementation_project}" "${test_root}/review-down.out"
+docker container inspect "${review_project}" >/dev/null
+docker container inspect "${implementation_project}" >/dev/null
 docker volume inspect "${explicit_volume}" >/dev/null
+HCORRAL_PRIVATE_ENV=true run_harness codex --project-name "${review_project}" down >/dev/null
 HCORRAL_PRIVATE_ENV=true run_harness codex --project-name "${implementation_project}" down -v >/dev/null
 if docker volume inspect "${explicit_volume}" >/dev/null 2>&1; then
   echo 'explicit projects left their unreferenced workspace volume behind' >&2

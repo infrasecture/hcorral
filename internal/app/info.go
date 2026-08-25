@@ -364,13 +364,13 @@ func removalSnapshot(ctx context.Context, docker containerruntime.Docker, cfg co
 	}
 	remove, _, err := planManagedStateRemoval(ctx, docker, cfg, workspace, containers)
 	if err != nil {
-		result.Action, result.Reason = "refuse", "ownership or reference check failed"
+		result.Action, result.Reason = "refuse", err.Error()
 		return result
 	}
 	if remove {
 		result.Action, result.Reason = "remove", "launcher-managed volume is safe to remove"
 	} else {
-		result.Reason = "workspace-private volume remains referenced"
+		result.Action, result.Reason = "nothing", "workspace-private volume is absent"
 	}
 	return result
 }

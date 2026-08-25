@@ -17,7 +17,8 @@ add privileges and host sockets, discard ownership labels, or otherwise remove
 every built-in safety property. Hcorral deliberately does not validate them.
 
 Lifecycle operations verify full `ai.infrasecture.hcorral.*` identities before
-reusing or deleting managed resources. After tearing down the selected project,
-`down -v` deletes its exactly owned workspace-private volume only when no other
-running or stopped container references it. Global and custom state are
-retained. The read-only myCodex guard never operates legacy resources.
+reusing or deleting managed resources. A successful `down -v` deletes its
+exactly owned workspace-private volume. If another running or stopped container
+references that volume, hcorral refuses before project teardown instead of
+silently retaining requested state. Global and custom state are retained. The
+read-only myCodex guard never operates legacy resources.

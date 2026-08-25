@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/infrasecture/hcorral/internal/compose"
 	"github.com/infrasecture/hcorral/internal/config"
@@ -108,16 +109,18 @@ func planManagedStateRemoval(ctx context.Context, docker containerruntime.Docker
 			return false, name, fmt.Errorf("refuse to remove private volume %s with mismatched labels", name)
 		}
 	}
+	references := []string{}
 	for _, container := range containers {
 		for _, mount := range container.Mounts {
 			if mount.Type == "volume" && mount.Name == name && container.Config.Labels["com.docker.compose.project"] != workspace.Project {
-				// The selected project can still be torn down safely. Retain the
-				// workspace volume while any other running or stopped container
-				// references it; a later `down -v` or explicit state removal can
-				// delete it after the final reference is gone.
-				return false, name, nil
+				references = append(references, container.CleanName())
+				break
 			}
 		}
+	}
+	if len(references) > 0 {
+		sort.Strings(references)
+		return false, name, fmt.Errorf("refuse down -v: workspace-private volume %s is still referenced by %s; remove those corrals first or use down without -v", name, strings.Join(references, ", "))
 	}
 	return true, name, nil
 }

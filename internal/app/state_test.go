@@ -51,7 +51,7 @@ func TestValidateStateOwnershipIsReadOnlyAndRequiresFullPrivateLabels(t *testing
 	}
 }
 
-func TestPlanManagedStateRemovalRetainsReferencedWorkspaceVolume(t *testing.T) {
+func TestPlanManagedStateRemovalRefusesReferencedWorkspaceVolume(t *testing.T) {
 	t.Parallel()
 	workspace := identity.Workspace{
 		FullID:  strings.Repeat("a", 64),
@@ -71,11 +71,11 @@ func TestPlanManagedStateRemovalRetainsReferencedWorkspaceVolume(t *testing.T) {
 	other.Config.Labels = map[string]string{"com.docker.compose.project": "hcorral-demo-explicit"}
 
 	remove, gotName, err := planManagedStateRemoval(context.Background(), docker, cfg, workspace, []containerruntime.Container{selected, other})
-	if err != nil {
-		t.Fatalf("referenced workspace volume prevented project teardown: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "hcorral-demo-explicit") {
+		t.Fatalf("referenced workspace volume error = %v, want named preflight refusal", err)
 	}
 	if remove || gotName != name {
-		t.Fatalf("remove=%v name=%q, want retain %q", remove, gotName, name)
+		t.Fatalf("remove=%v name=%q, want refusal for %q", remove, gotName, name)
 	}
 
 	remove, gotName, err = planManagedStateRemoval(context.Background(), docker, cfg, workspace, []containerruntime.Container{selected})
