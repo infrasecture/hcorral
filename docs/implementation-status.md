@@ -24,11 +24,11 @@ development testing.
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
-| Session format discovery and dependencies | Pending | Legacy/paginated, forks, revert selection, archive and Zstandard |
-| Session consistency and conflicts | Pending | Writer coordination, SQLite WAL, prefixes, no-overwrite publication |
+| Session format discovery and dependencies | Core implemented; runtime pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; actual Codex qualification pending |
+| Session consistency and conflicts | Partial | Read-only SQLite/WAL selection and compatible writer guards tested; destination conflicts and publication remain pending |
 | Session endpoints and helper distribution | Pending | Host CODEX_HOME, runtime identity, cross-architecture Linux helpers |
 | Session transfer lifecycle | Pending | No workstation pull/start/recreate/attach; stopped helper path |
-| Actual Codex resume acceptance | Pending | Isolated homes and controlled history checks for supported versions |
+| Actual Codex resume acceptance | Partial | Native 0.160.1 fixture resume, picker, inherited model context and writer-lock checks pass; real transfer and supported version matrix remain pending |
 
 ## Execution environment
 
@@ -63,3 +63,32 @@ These results are development checkpoints, not release qualification. Re-run
 the relevant gates against final artifacts, especially after adding the session
 transfer dependencies and embedded Linux helpers. No Docker image was built or
 published and no real conversation was transferred by this checkpoint.
+
+## Session resolver checkpoint
+
+`internal/session` now implements native history inspection and scoped writer
+guards. Tests exercise committed SQLite WAL selection after revert, relocated
+state, legacy schemas and copied metadata, compressed/archived files, nested
+exact prefixes, malformed boundaries, conflicts, symlinks/special files,
+cancellation and actual local flock ownership. The open publication and
+runtime-compatibility questions are recorded in `session-transfer-design.md`.
+The user-facing transfer commands are not implemented yet.
+
+Verification for this checkpoint:
+
+- The full Go suite and vet passed; session tests and optional native tests
+  passed under the race detector. The vulnerability scan reported no findings.
+- Native Codex 0.160.1 resumed synthetic legacy/paginated/fork/revert histories
+  and sent their expected saved context to a loopback mock provider. Native
+  picker selection and writer exclusion were checked. Archived resume required
+  an explicit unarchive; the test then resumed the correct reverted rollout.
+- Session test executables cross-built with cgo disabled for all four targets
+  and passed executable linkage inspection. The Linux AMD64 static executable
+  ran its tests. Other target binaries were inspected, not executed; these
+  development test binaries are not qualified release artifacts.
+- Dependency notices are bundled for archives/packages, and the license and
+  release-command checks pass. ShellCheck with the repository's `-x` setting
+  passes for the changed shell scripts and release script they source.
+
+These checks used only disposable synthetic conversations. No user session,
+credential, workstation container or image was migrated or published.

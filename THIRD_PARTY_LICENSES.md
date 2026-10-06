@@ -7,9 +7,26 @@ classifications below aligned with the Dockerfile and image builder.
 
 ## Launcher
 
-The launcher directly uses `github.com/pelletier/go-toml/v2` (MIT) to parse its
-user configuration file. Release archives and Linux packages contain the
-statically linked hcorral binary, AGPL license, README, and this inventory.
+The launcher and session-transfer core use these direct Go dependencies:
+
+| Module | Version | Purpose | License |
+|---|---|---|---|
+| `github.com/pelletier/go-toml/v2` | `v2.2.4` | User configuration | MIT |
+| `github.com/klauspost/compress` | `v1.20.1` | Streaming Zstandard decoding | BSD-3-Clause and bundled notices |
+| `golang.org/x/sys` | `v0.47.0` | Rooted filesystem access and Codex writer locks | BSD-3-Clause |
+| `modernc.org/sqlite` | `v1.59.0` | Read-only thread selection, including WAL | BSD-3-Clause and bundled notices |
+
+SQLite v1.59.0 was selected to retain Go 1.25 compatibility. Its newer 1.60
+releases require Go 1.26; a toolchain upgrade needs its own qualification.
+All selected dependencies work with cgo disabled. No host SQLite or Zstandard
+executable is invoked.
+
+`THIRD_PARTY_GO_LICENSES.txt` preserves the full notices for linked modules,
+including the SQLite translation's libc/memory components and the Zstandard
+decoder's xxhash implementation. Release archives and Linux packages include
+that file alongside the AGPL license, README and this inventory. Update the
+notices when changing dependencies; an inventory entry alone does not replace
+the upstream license text.
 
 ## Workstation image
 

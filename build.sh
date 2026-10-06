@@ -98,7 +98,7 @@ for target in ${targets}; do
   archive="dist/hcorral_${pkg_version}_${os}_${arch}.tar.gz"
   docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
     --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
-    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md -file /src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md
+    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md -file /src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md -file /src/THIRD_PARTY_GO_LICENSES.txt=THIRD_PARTY_GO_LICENSES.txt
   artifacts+=("${archive}")
 done
 
@@ -132,6 +132,8 @@ contents:
     dst: /usr/share/doc/hcorral/README.md
   - src: /src/THIRD_PARTY_LICENSES.md
     dst: /usr/share/doc/hcorral/THIRD_PARTY_LICENSES.md
+  - src: /src/THIRD_PARTY_GO_LICENSES.txt
+    dst: /usr/share/doc/hcorral/THIRD_PARTY_GO_LICENSES.txt
 EOF
     rpm_arch="${arch}"; arch_arch="${arch}"
     [[ "${arch}" == amd64 ]] && { rpm_arch=x86_64; arch_arch=x86_64; }

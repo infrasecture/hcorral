@@ -8,6 +8,11 @@ fail() { echo "ERROR: third-party inventory: $*" >&2; exit 1; }
 [[ -s THIRD_PARTY_LICENSES.md ]] || fail 'THIRD_PARTY_LICENSES.md is missing'
 grep -Fq 'github.com/pelletier/go-toml/v2' go.mod || fail 'TOML dependency missing from go.mod'
 grep -Fq 'github.com/pelletier/go-toml/v2' THIRD_PARTY_LICENSES.md || fail 'TOML dependency missing from inventory'
+[[ -s THIRD_PARTY_GO_LICENSES.txt ]] || fail 'Go dependency license texts are missing'
+while read -r module version _; do
+  [[ "${module}" == *.*/* && "${version}" == v* ]] || continue
+  grep -Fq -- "${module}@${version} /" THIRD_PARTY_GO_LICENSES.txt || fail "Go license text/version missing: ${module}@${version}"
+done < go.mod
 node_version="$(sed -nE 's/^ARG HCORRAL_NODE_VERSION=([^[:space:]]+)$/\1/p' image/Dockerfile)"
 [[ -n "${node_version}" ]] || fail 'cannot resolve Node version'
 grep -Fq "| Node.js | ${node_version} |" THIRD_PARTY_LICENSES.md || fail 'Node version differs from inventory'

@@ -14,6 +14,8 @@ grep -Fq -- "-fuzztime=25000x" scripts/ci-source.sh || fail 'fuzz qualification 
 grep -Fq 'lacks exact hcorral ownership labels' build.sh || fail 'build cache collision refusal is missing'
 grep -Fq 'buildhost: hcorral-build' build.sh || fail 'fixed RPM build host is missing'
 grep -Fq '/src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md' build.sh || fail 'raw archives omit the dependency-license inventory'
+grep -Fq '/src/THIRD_PARTY_GO_LICENSES.txt=THIRD_PARTY_GO_LICENSES.txt' build.sh || fail 'raw archives omit Go dependency license texts'
+grep -Fq '/usr/share/doc/hcorral/THIRD_PARTY_GO_LICENSES.txt' build.sh || fail 'Linux packages omit Go dependency license texts'
 # shellcheck disable=SC2016 # Match the literal token expansion.
 grep -Fq 'Authorization: Bearer ${token}' scripts/build-harness-image.sh || fail 'GitHub API image resolution does not support authenticated CI requests'
 if grep -Fq 'find dist -maxdepth 1' build.sh release.sh; then fail 'release artifacts are discovered from stale dist contents'; fi
