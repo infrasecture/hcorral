@@ -27,6 +27,8 @@ type Facts struct {
 	Enabled         bool   `json:"enabled"`
 	Pinned          bool   `json:"pinned"`
 	Current         string `json:"current"`
+	Bundled         string `json:"bundled"`
+	Installed       string `json:"installed"`
 	Selected        string `json:"selected"`
 	Latest          string `json:"latest"`
 	SelectedNewer   bool   `json:"selected_newer"`
@@ -41,6 +43,7 @@ type Checker struct {
 	RegistryURL     string
 	Out             io.Writer
 	LauncherVersion string
+	ImageRefreshed  bool
 }
 
 func (c Checker) Notify(ctx context.Context, cfg config.Config, container *containerruntime.Container) {
@@ -63,7 +66,11 @@ func (c Checker) Notify(ctx context.Context, cfg config.Config, container *conta
 		return
 	}
 	fmt.Fprintf(c.Out, "hcorral: %s %s is available upstream; this container runs %s.\n", cfg.Harness, latest.Raw, current.Raw)
-	if !imagePinned(cfg.Image) {
+	if cfg.Image == "" {
+		fmt.Fprintln(c.Out, "hcorral: the selected image could not be resolved; use `hcorral info` with the intended Compose options before updating.")
+	} else if c.ImageRefreshed {
+		fmt.Fprintln(c.Out, "hcorral: the latest published workstation image was just pulled; a newer upstream release does not mean its workstation image has been published yet.")
+	} else if !imagePinned(cfg.Image) {
 		fmt.Fprintln(c.Out, "hcorral: run `hcorral pull` to refresh the selected image; pulling does not recreate the container.")
 	} else {
 		fmt.Fprintf(c.Out, "hcorral: selected image %s is pinned; select a newer reference to update.\n", cfg.Image)
@@ -71,19 +78,29 @@ func (c Checker) Notify(ctx context.Context, cfg config.Config, container *conta
 }
 
 func (c Checker) Inspect(ctx context.Context, cfg config.Config, container *containerruntime.Container) Facts {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	facts := Facts{Enabled: cfg.UpdateCheck, Pinned: imagePinned(cfg.Image), LookupStatus: "disabled", LauncherCurrent: c.LauncherVersion}
 	if container != nil {
-		facts.Current = c.imageVersion(ctx, container.Config.Image, cfg.Harness)
-		if container.State.Running {
+		facts.Bundled = c.imageVersion(ctx, container.ImageID, cfg.Harness)
+		facts.Current = facts.Bundled
+		if container.State.Running && !container.State.Paused && !container.State.Restarting {
 			command := cfg.Harness
 			if definition, ok := harness.Lookup(cfg.Harness); ok {
 				command = definition.Command
 			}
 			uid := containerEnvironment(container, "HCORRAL_HOST_UID")
-			probe := []string{"gosu", uid, "env", "HOME=" + cfg.ContainerHome, "bash", "--login", "-c", `exec "$@"`, "bash", command, "--version"}
+			home := containerEnvironment(container, "HCORRAL_CONTAINER_HOME")
+			if home == "" {
+				home = cfg.ContainerHome
+			}
+			// Bound the process inside the container as well as the Docker client.
+			// Killing docker exec alone does not kill its container-side process.
+			probe := []string{"timeout", "--signal=TERM", "--kill-after=1s", "2s", "gosu", uid, "env", "HOME=" + home, "bash", "--login", "-c", `exec "$@"`, "bash", command, "--version"}
 			if uid != "" {
-				if result, execErr := c.Docker.ExecCapture(ctx, container.CleanName(), probe...); execErr == nil {
+				if result, execErr := c.Docker.ExecCapture(ctx, container.ID, probe...); execErr == nil {
 					if installed := extractVersion(string(result.Stdout)); installed != "" {
+						facts.Installed = installed
 						facts.Current = installed
 					}
 				}
@@ -157,6 +174,9 @@ func (c Checker) latestLauncher(ctx context.Context) (string, error) {
 }
 
 func (c Checker) imageVersion(ctx context.Context, reference, harnessType string) string {
+	if reference == "" {
+		return ""
+	}
 	image, err := c.Docker.InspectImage(ctx, reference)
 	if err != nil || image == nil {
 		return ""
@@ -224,7 +244,7 @@ func (c Checker) latest(ctx context.Context, harnessType string) (string, error)
 	return document.Version, nil
 }
 
-func imagePinned(reference string) bool { return !strings.HasSuffix(reference, ":latest") }
+func imagePinned(reference string) bool { return !containerruntime.IsLatest(reference) }
 
 func classifyLookupError(err error) string {
 	text := strings.ToLower(err.Error())

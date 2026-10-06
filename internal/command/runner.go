@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
 type Result struct {
@@ -28,6 +29,7 @@ func (ExecRunner) Capture(ctx context.Context, argv, env []string) (Result, erro
 	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = time.Second
 	cmd.Env = env
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -40,6 +42,7 @@ func (ExecRunner) Run(ctx context.Context, argv, env []string, stdin io.Reader, 
 		return fmt.Errorf("empty command")
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = time.Second
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, stdin, stdout, stderr
 	return cmd.Run()
 }

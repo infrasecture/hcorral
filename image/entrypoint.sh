@@ -365,6 +365,57 @@ exec_as_runtime_user() {
 	exec gosu "${RUNTIME_USER}" "${runtime_env[@]}" "$@"
 }
 
+initialize_shell_config() {
+  # Run as the actual user: root's permission checks hide inaccessible homes.
+  # This deliberately runs even for homes with an old bootstrap marker.
+  if ! as_runtime_user /bin/bash --noprofile --norc -s <<'EOF'
+set -euo pipefail
+[[ -d "$HOME" && -x "$HOME" && -w "$HOME" ]] || exit 1
+[[ -r /etc/hcorral/bashrc ]] || exit 1
+
+# Publish complete files without overwriting anything, even when simultaneous
+# container startups share this home. The temporary file has the user's UID.
+create_missing() {
+  local path="$1"
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    (
+      temp="$(mktemp "$HOME/.hcorral-shell.XXXXXX")"
+      trap 'rm -f -- "$temp"' EXIT
+      cat >"$temp"
+      chmod 0644 "$temp"
+      ln -T -- "$temp" "$path" 2>/dev/null || [[ -e "$path" || -L "$path" ]]
+    )
+  fi
+  [[ -f "$path" && -r "$path" ]] || {
+    printf 'hcorral: unreadable shell startup file: %s\n' "$path" >&2
+    return 1
+  }
+}
+
+create_missing "$HOME/.bashrc" <<'RC'
+# Shared hcorral defaults. Add personal settings below this line.
+if [ -r /etc/hcorral/bashrc ]; then
+    . /etc/hcorral/bashrc
+elif [ -r /etc/skel/.bashrc ]; then
+    # Containers on older images may still share this home.
+    . /etc/skel/.bashrc
+fi
+RC
+
+# Bash reads only the first login file; do not bypass a user's chosen profile.
+for profile in .bash_profile .bash_login .profile; do
+  if [[ -e "$HOME/$profile" || -L "$HOME/$profile" ]]; then
+    create_missing "$HOME/$profile" </dev/null
+    exit
+  fi
+done
+create_missing "$HOME/.profile" </etc/skel/.profile
+EOF
+  then
+    die "cannot initialize shell files in ${RUNTIME_HOME} as UID ${RUNTIME_UID}/GID ${RUNTIME_GID}; check home traversal/write permissions and startup-file readability. Existing files and ownership were preserved."
+  fi
+}
+
 startup_status "configuring runtime user"
 PRIMARY_GROUP="$(group_name_for_gid "${RUNTIME_GID}" "${REQUESTED_GROUP}")"
 RUNTIME_USER="$(ensure_runtime_user "${RUNTIME_UID}" "${RUNTIME_GID}" "${REQUESTED_USER}" "${PRIMARY_GROUP}" "${RUNTIME_HOME}")"
@@ -373,6 +424,7 @@ ensure_passwordless_sudo "${RUNTIME_USER}"
 
 startup_status "preparing workspace and home"
 bootstrap_empty_home_volume "${RUNTIME_HOME}" "${RUNTIME_UID}" "${RUNTIME_GID}" "${RUNTIME_WORKDIR}"
+initialize_shell_config
 if [[ ! -e "${RUNTIME_WORKDIR}" ]]; then
   mkdir -p "${RUNTIME_WORKDIR}"
   chown -R "${RUNTIME_UID}:${RUNTIME_GID}" "${RUNTIME_WORKDIR}"

@@ -15,7 +15,7 @@ usage() {
 Usage: ./build.sh [--release --cli-version vX.Y.Z [--packages]]
 
 Without --release, build the native hcorral binary. Release mode builds static
-Linux and Darwin amd64/arm64 archives. --packages additionally creates deb,
+Linux and self-contained Darwin amd64/arm64 archives. --packages additionally creates deb,
 rpm, and Arch Linux packages for both Linux architectures. Nothing is published.
 EOF
 }
@@ -92,6 +92,9 @@ for target in ${targets}; do
     "${builder_image}" \
     go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/infrasecture/hcorral/internal/app.Version=${cli_version} -X github.com/infrasecture/hcorral/internal/app.Commit=${commit}" -o "/src/${output}" ./cmd/hcorral
   chmod 0755 "${output}"
+  docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+    --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+    go run ./cmd/hcorral-pack linkage -os "${os}" -arch "${arch}" "/src/${output}"
   archive="dist/hcorral_${pkg_version}_${os}_${arch}.tar.gz"
   docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
     --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \

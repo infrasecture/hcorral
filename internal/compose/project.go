@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 )
@@ -39,6 +40,8 @@ type RenderedService struct {
 }
 
 func (p Project) Capture(ctx context.Context, args ...string) (command.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	argv := p.Invocation.Args(args...)
 	result, err := p.Runner.Capture(ctx, argv, p.Invocation.Env)
 	if err != nil {

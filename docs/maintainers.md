@@ -37,6 +37,24 @@ session, argv, and user-prefix update canary before its immutable tag is pushed.
 An idempotent retry pulls and re-runs that same canary before reusing a matching
 immutable tag.
 
+Manual publication on separate native builders remains supported. Both builders
+must use the same reviewed source, harness version and recipe revision:
+
+```console
+# Run on the corresponding native architecture host.
+./scripts/build-harness-image.sh --harness codex --version VERSION --revision REVISION --arch amd64 --push
+./scripts/build-harness-image.sh --harness codex --version VERSION --revision REVISION --arch arm64 --push
+# Finalize explicitly if both immutable architecture tags already exist.
+./scripts/build-harness-image.sh --harness codex --version VERSION --revision REVISION --manifest
+```
+
+The image builder currently uses Python 3 for JSON parsing. Python 3, tmux and
+less are also development prerequisites for the real terminal tests in
+`ci-source.sh`. These are maintainer dependencies, not requirements for users
+installing the compiled launcher. Linux binaries are built with `CGO_ENABLED=0`;
+Darwin binaries use macOS system libraries without requiring an installed Go
+runtime. Launcher and image publication do not depend on being performed together.
+
 Create a launcher preview through `Release launcher` with `v0.1.0` and
 `preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,
 and `infrasecture/homebrew-tap/Formula/hcorral.rb`, then verifies public

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 )
@@ -24,6 +25,7 @@ type Mount struct {
 
 type Container struct {
 	ID      string `json:"Id"`
+	ImageID string `json:"Image"`
 	Name    string `json:"Name"`
 	Created string `json:"Created"`
 	Config  struct {
@@ -32,9 +34,11 @@ type Container struct {
 		Env    []string          `json:"Env"`
 	} `json:"Config"`
 	State struct {
-		Status  string `json:"Status"`
-		Running bool   `json:"Running"`
-		Started string `json:"StartedAt"`
+		Status     string `json:"Status"`
+		Running    bool   `json:"Running"`
+		Paused     bool   `json:"Paused"`
+		Restarting bool   `json:"Restarting"`
+		Started    string `json:"StartedAt"`
 	} `json:"State"`
 	Mounts []Mount `json:"Mounts"`
 }
@@ -214,6 +218,10 @@ func (d Docker) ContainerLogs(ctx context.Context, name string, tail int) (comma
 }
 
 func (d Docker) capture(ctx context.Context, argv []string) (command.Result, error) {
+	// Inspection must not hang indefinitely when a daemon or exec probe stalls.
+	// A caller's shorter readiness/update deadline still takes precedence.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	result, err := d.Runner.Capture(ctx, argv, d.Env)
 	if err != nil {
 		return result, fmt.Errorf("%s: %w: %s", strings.Join(argv[:min(3, len(argv))], " "), err, strings.TrimSpace(string(result.Stderr)))

@@ -35,7 +35,7 @@ func TestDockerInspectionDecodesExactShapesAndStripsComposeEnvironment(t *testin
 	runner := &dockerRunner{
 		results: []command.Result{
 			{Stdout: []byte("abc\n")},
-			{Stdout: []byte(`[{"Id":"abc","Name":"/hcorral-demo-aaaaaaa","Config":{"Image":"image:v1","Labels":{"a":"b"},"Env":["K=V"]},"State":{"Status":"running","Running":true,"StartedAt":"now"},"Mounts":[{"Type":"volume","Name":"state","Destination":"/home/a","RW":true}]}]`)},
+			{Stdout: []byte(`[{"Id":"abc","Image":"sha256:deployed","Name":"/hcorral-demo-aaaaaaa","Config":{"Image":"image:v1","Labels":{"a":"b"},"Env":["K=V"]},"State":{"Status":"running","Running":true,"Paused":false,"Restarting":false,"StartedAt":"now"},"Mounts":[{"Type":"volume","Name":"state","Destination":"/home/a","RW":true}]}]`)},
 		},
 		errors: []error{nil, nil},
 	}
@@ -49,6 +49,9 @@ func TestDockerInspectionDecodesExactShapesAndStripsComposeEnvironment(t *testin
 	}
 	if !reflect.DeepEqual(runner.argv[1], []string{"docker", "inspect", "--type", "container", "abc"}) {
 		t.Fatalf("inspect argv = %#v", runner.argv[1])
+	}
+	if containers[0].ImageID != "sha256:deployed" || containers[0].Config.Image != "image:v1" {
+		t.Fatalf("deployed identity and configured reference were conflated: %#v", containers[0])
 	}
 	for _, env := range runner.env {
 		if strings.HasPrefix(strings.Join(env, "\n"), "COMPOSE_FILE=") || strings.Contains(strings.Join(env, "\n"), "\nCOMPOSE_FILE=") {

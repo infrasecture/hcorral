@@ -173,6 +173,7 @@ build_arch() {
 	docker run --rm --entrypoint bash "${ref}" -c "test ! -e /workspace; command -v ${harness}; ${harness} --version; for tool in codex claude pi; do [[ \"\$tool\" == ${harness} ]] || ! command -v \"\$tool\"; done"
 	docker run --rm --entrypoint "${harness}" "${ref}" --version | grep -F "${version}"
 	"${project_root}/tests/image/entrypoint-matrix.sh" "${ref}"
+	"${project_root}/tests/image/runtime-home.sh" "${ref}"
 	if [[ "${push}" == true ]]; then
 		if ! remote_exists "${ref}"; then
 			docker push "${ref}"

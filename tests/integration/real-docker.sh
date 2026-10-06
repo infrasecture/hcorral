@@ -18,6 +18,7 @@ export XDG_CACHE_HOME="${test_root}/cache"
 export HCORRAL_WORKSPACE="${workspace}"
 export HCORRAL_PRIVATE_ENV=true
 export HCORRAL_UPDATE_CHECK=false
+export HCORRAL_GUI=none
 
 project=""
 cleanup() {
@@ -79,7 +80,9 @@ docker image inspect "${image}" >/dev/null
 "${binary}" exec true
 "${binary}" stop
 
-# Bare stopped launch refuses desired/deployed drift; explicit up reconciles it.
+# A pinned stopped project keeps its original container even if desired
+# options differ. This non-PTY invocation starts successfully, then Docker
+# refuses interactive attachment; assert the lifecycle result separately.
 drift_overlay="${test_root}/drift.yaml"
 cat >"${drift_overlay}" <<'EOF'
 services:
@@ -92,7 +95,12 @@ set +e
 drift_status=$?
 set -e
 [[ ${drift_status} -eq 1 ]]
-grep -Fq 'stopped environment has present drift' "${test_root}/drift.err"
+[[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
+[[ "$(docker inspect --format '{{.State.Running}}' "${project}")" == true ]]
+if docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${project}" | grep -q '^TEST_DRIFT='; then
+  echo 'bare startup applied configuration drift to a pinned container' >&2
+  exit 1
+fi
 "${binary}" -f "${drift_overlay}" up -d
 [[ "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${project}" | grep '^TEST_DRIFT=')" == TEST_DRIFT=reconciled ]]
 container_id="$(docker inspect --format '{{.Id}}' "${project}")"

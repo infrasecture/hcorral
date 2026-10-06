@@ -32,7 +32,9 @@ type feature struct {
 	IntentionalDelta     string   `json:"intentional_delta"`
 }
 
-func TestFeatureParityManifestIsCompleteAndEvidenced(t *testing.T) {
+// This checks traceability, not execution or qualification of the referenced
+// behavior. Runtime results and outstanding gates live in the acceptance ledger.
+func TestFeatureParityManifestHasRequiredTraceability(t *testing.T) {
 	t.Parallel()
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {

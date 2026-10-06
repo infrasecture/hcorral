@@ -18,8 +18,11 @@ docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${bu
 # to hosted-runner scheduling delays at a short wall-clock deadline.
 run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=25000x
 
-shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
-bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+shellcheck -x build.sh release.sh image/*.sh internal/app/assets/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+for script in build.sh release.sh image/*.sh internal/app/assets/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh; do
+  bash -n "${script}"
+done
+python3 tests/tmux-notices_test.py
 scripts/check-third-party.sh
 scripts/check-provenance.sh
 scripts/tests/release-contract.sh

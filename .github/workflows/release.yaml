@@ -49,6 +49,7 @@ jobs:
         run: |
           created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           expires_at="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+          # shellcheck disable=SC2153 # ARTIFACT_DIGEST is supplied by the step env.
           artifact_digest="$ARTIFACT_DIGEST"
           [[ "$artifact_digest" == sha256:* ]] || artifact_digest="sha256:${artifact_digest}"
           [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid prepared artifact digest' >&2; exit 1; }
@@ -170,6 +171,7 @@ jobs:
           cp dist/Formula/hcorral.rb "$formula"
           HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --strict "$qualified_formula"
           archive="$PWD/dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz"
+          # shellcheck disable=SC2016 # Ruby, not the shell, expands $_.
           ARCHIVE="$archive" ARCH="$ARCH" ruby -pi -e '
             if $_.include?("darwin_#{ENV.fetch("ARCH")}.tar.gz\"")
               $_ = "    url \"file://#{ENV.fetch("ARCHIVE")}\"\n"

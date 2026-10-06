@@ -121,6 +121,7 @@ func childExitCode(err error) int {
 const Usage = `Usage:
   hcorral [options]                  Start if needed, then attach
   hcorral [options] attach           Attach to the workstation session
+  hcorral [options] notices          Reopen its retained startup/update report
   hcorral [options] info [--format=human|json]
   hcorral [options] state rm --scope global|workspace
   hcorral [options] ps|start|stop|restart|pull|up|create|down [args...]

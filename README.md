@@ -132,6 +132,17 @@ reconciles the container. Bare launch attaches to an already-running container
 without pulling or recreating it. Update checks are bounded, informational, and
 disabled with `HCORRAL_UPDATE_CHECK=false`.
 
+For inactive projects, bare launch refreshes `latest` by default. A stopped
+container is replaced only if its image changed and Compose can reproduce its
+deployed configuration; otherwise its original image and mounts are preserved.
+An offline registry also preserves the stopped container. Set
+`HCORRAL_AUTO_PULL=false` to disable automatic refresh. Named tags and digests
+remain pinned. See the complete [runtime policy](docs/runtime-model.md).
+
+Startup and update reports remain available inside tmux. Dismiss the scrollable
+report with `q`, and reopen it later with `hcorral notices`. A session badge
+shows the deployed GUI mode.
+
 Manual in-container updates are allowed and persisted-user paths precede image
 tools. Recreating a container restores the selected image layer while retaining
 mounted state and workspace data.
@@ -147,6 +158,11 @@ hcorral --gui=x11
 hcorral --gui=wayland
 hcorral --no-gui
 ```
+
+New Linux environments automatically prefer usable Wayland, then X11, with a
+headless fallback. Automatic forwarding is disabled over SSH and unsupported
+daemons; macOS remains headless. Explicit GUI requests report unavailable access.
+An existing container keeps its mode until explicit reconciliation.
 
 The embedded base Compose file is always first. `-f FILE` overlays and `-v`
 mounts are trusted, unrestricted Docker inputs and may replace any built-in
