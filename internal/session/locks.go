@@ -19,8 +19,9 @@ const writerDirectory = "thread-writer-locks"
 // This coordinates conforming writers; callers must qualify their Codex runtime
 // against that protocol. It cannot coordinate arbitrary editors or older Codex.
 type Snapshot struct {
-	Plan  Plan
-	guard *writerGuards
+	Plan   Plan
+	guard  *writerGuards
+	limits Limits
 }
 
 func (s *Snapshot) Close() error { return s.guard.Close() }
@@ -36,7 +37,7 @@ func (h *Home) Snapshot(ctx context.Context, threadID string, sqliteHome *Home, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := limits.validate(); err != nil {
+	if err := limits.Validate(); err != nil {
 		return nil, err
 	}
 	if sqliteHome == nil {
@@ -54,7 +55,7 @@ func (h *Home) Snapshot(ctx context.Context, threadID string, sqliteHome *Home, 
 		guard.Close()
 		return nil, err
 	}
-	return &Snapshot{Plan: plan, guard: guard}, nil
+	return &Snapshot{Plan: plan, guard: guard, limits: limits}, nil
 }
 
 type writerGuards struct {

@@ -113,30 +113,120 @@ report those prerequisites and explain their limited history.
 
 An archived main conversation stays archived. Native Codex requires an explicit
 `codex unarchive <ID>` before resume; the test exercises the equivalent app-server
-operation, not an automatic import action. Native tests currently cover fresh
-homes. Existing-destination collision/backfill cases and the older supported
-runtime matrix still need qualification before finalizing publication. An
-existing complete ancestor may satisfy a matching required prefix, but it must
-never be truncated or replaced by that prefix.
+operation, not an automatic import action. Native 0.160.0 and 0.160.1 tests now
+cover fresh homes and a running app server whose initial backfill has already
+completed. An existing complete ancestor can satisfy a matching required prefix
+without being truncated or replaced. The inspector excludes managed prefixes
+when selecting a complete main conversation, allowing an imported revert to be
+re-exported before its destination SQLite index exists.
+
+## Transfer stream and publication
+
+Protocol 1 is a tar stream with a bounded `manifest.json`, numbered regular JSONL
+payloads, and `complete.sha256`. The manifest identifies the selected thread,
+ordered rollout IDs, decoded lengths, hashes, timestamps and relative target
+paths. It does not carry source absolute paths, archive ownership, credentials,
+configuration or database contents. Unknown manifest fields/protocols fail
+explicitly; unknown fields within native rollout records remain byte-preserved.
+
+Export retains its source writer guards through streaming. It decompresses only
+the selected bytes, checks the planned SHA-256 and length, and emits completion
+only after every payload verifies. The receiver accepts only the expected
+regular members and exact order, validates native metadata and lineage again,
+and requires the completion checksum, both tar end blocks and transport EOF.
+No shell tar extractor writes into live session storage.
+
+The receiver creates a random private `.hcorral-transfer-<nonce>` directory in
+the destination home. Payload files are 0600, staged directories 0700, and data
+is flushed before publication. Timestamps are preserved to microsecond precision
+by descriptor-based operations. Existing directory modes are unchanged. Staged
+files belong to the receiving user; archive UID/GID values are never applied.
+
+Publication acquires destination writer guards for every affected thread and
+rollout identity, then checks all conflicts before installing any live file.
+Identical active/archived/plain/compressed representations can be reused. A full
+existing ancestor is compared only through the required prefix and remains
+untouched. A different selected main rollout or different bytes under the same
+identity cause a conflict. Missing authoritative destination files are not
+silently repaired by choosing another history.
+
+New files are installed with exclusive same-filesystem hard links, prerequisites
+first and the main rollout last. Existing paths cannot be overwritten. Newly
+created parent directory entries and installed file entries are synced. On a
+handled failure, reverse cleanup removes only links whose inode still belongs
+to this attempt; replacements and preexisting files are preserved. Empty created
+directories may remain. Closing the incoming transfer removes its private
+staging, never the successful installed files.
+
+This is not an atomic transaction across several rollout paths. SIGINT/SIGTERM
+and ordinary transport errors run cleanup; SIGKILL or machine failure can leave
+private staging and already-published prerequisite prefixes. Do not recursively
+delete every matching staging directory: another transfer may own it. A cleanup
+or retry protocol for those interrupted states remains part of final integration.
+
+## Internal helper
+
+`cmd/hcorral-session` supplies a shell-free endpoint for this implementation:
+
+```text
+hcorral-session protocol
+hcorral-session export --protocol=1 --home /absolute/codex-home --sqlite-home /absolute/state-home --id UUID
+hcorral-session import --protocol=1 --home /absolute/codex-home --sqlite-home /absolute/state-home --id UUID
+```
+
+The protocol probe reports its protocol and compiled OS/architecture without
+opening a home. Export writes the stream to stdout. Import reads stdin and writes
+one JSON result to stdout; errors go to stderr. The receiver checks that the
+manifest thread is the explicitly requested UUID before publication. An import
+may create the selected destination home, but a missing source or relocated
+SQLite directory is not initialized. Effective SQLite location discovery belongs
+to the endpoint integration and cannot be inferred from the default home.
+
+The helper exposes explicit record/file/manifest byte limits and a lineage-file
+limit. It sets a private umask and handles cancellation of blocked stdio pipes;
+signal tests exercise the command entrypoint in real subprocesses. No credentials,
+shell startup, Codex execution, Docker access or network is part of this helper.
+Its Linux binaries still need to be packaged with the launcher and selected using
+the actual container architecture.
+
+## Remaining consistency questions
+
+The tested initialized-home case is not proof against a new native initial
+backfill starting midway through publication. The researched backfill does not
+take thread writer locks and recursively indexes prerequisite prefixes. A same-ID
+prefix observed before the main rollout can become an authoritative SQLite row.
+Resolve and test that race before claiming general concurrent import support;
+the implementation currently refuses a preexisting prefix selection and does not
+write SQLite to repair it.
+
+Likewise, a longer required prefix or a complete parent imported after an earlier
+partial prerequisite currently conflicts. That preserves existing data, but is
+not the final answer for compatible extensions: qualify a way to preserve both
+existing dependents and the newly requested complete history without making a
+short prefix the selected complete conversation. Source/destination aliases
+also require endpoint-level detection before acquiring both sets of locks.
 
 ## Remaining implementation
 
-1. Finish qualifying prefix placement for existing homes and supported runtime
-   versions. Define selection when an imported revert has no SQLite row yet;
-   the generic inspector currently rejects its several same-thread rollouts
-   until authoritative selection is available.
-2. Implement destination conflict checks, private staging, exclusive
-   publication, interruption cleanup and idempotent retries.
-3. Implement the versioned streaming protocol and target-architecture Linux
-   helpers, with cancellation and size/hash verification.
-4. Wire `session export/import` through actual deployed home/mount/identity
-   inspection; qualify running/stopped and remote-Docker paths.
-5. Qualify runtime writer compatibility, optional metadata and external
-   attachment limitations, then execute the full source/destination matrix.
+1. Resolve concurrent initial backfill, compatible prefix extension/promotion
+   and recovery after an uncatchable interruption. Keep database selection and
+   prerequisite visibility explicit.
+2. Resolve effective endpoint paths and SQLite configuration, storage aliases,
+   source/destination identity, and result reporting including saved policy and
+   optional metadata/resource limitations.
+3. Package the Linux helpers and implement Docker streaming/cancellation using
+   actual deployed home/mount/identity and architecture inspection.
+4. Wire public `session export/import`; qualify running/stopped and remote-Docker
+   paths without workstation pull/start/recreate/attach side effects.
+5. Extend native fixtures, runtime writer qualification and platform coverage,
+   then execute the full endpoint and source/destination acceptance matrix.
 
 `HCORRAL_TEST_CODEX=/absolute/path/to/codex go test -v ./internal/session -run
-TestCodexResumesNativeHistory` runs the optional native test. It uses disposable
-homes, no credentials and a loopback mock provider. It checks picker visibility,
-selected-rollout identity, actual resume, model-visible saved/inherited messages
-and exclusion by the native runtime's writer lock. This is native format evidence,
-not yet end-to-end transport/publication acceptance. See `implementation-status.md`.
+TestCodexResumesNativeHistory` runs the optional native test. Set
+`HCORRAL_TEST_CODEX_PEER` to a second executable for a cross-version round trip;
+otherwise the same executable is used at both endpoints. It uses disposable
+homes, no credentials and a loopback mock provider. It checks the core stream and
+publication, picker visibility, selected rollout, actual resumed model context,
+writer exclusion, and re-export of a completed native-written turn. It does not
+yet qualify Docker transport, a real model service or all metadata portability.
+See `implementation-status.md` for the executed version matrix.

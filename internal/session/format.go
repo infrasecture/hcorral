@@ -29,10 +29,44 @@ type HistoryPosition struct {
 // payload is never serialized back over the original bytes.
 type Metadata struct {
 	ThreadID    string           `json:"id"`
+	Timestamp   string           `json:"timestamp"`
 	Version     string           `json:"cli_version"`
 	CWD         string           `json:"cwd"`
 	HistoryMode string           `json:"history_mode"`
 	HistoryBase *HistoryPosition `json:"history_base"`
+}
+
+const prerequisiteRoot = "archived_sessions/.hcorral-history/"
+
+func prerequisitePath(path string) bool { return strings.HasPrefix(path, prerequisiteRoot) }
+
+// Native consumers search canonical filenames. Normalize their directory layout
+// on publication without changing a single byte of the rollout contents.
+func publicationPath(file File) (string, error) {
+	name := filepath.Base(strings.TrimSuffix(file.Path, ".zst"))
+	c, ok := parseName(name)
+	if !ok {
+		if file.Metadata.HistoryMode != "legacy" {
+			return "", fmt.Errorf("paginated rollout requires a canonical filename: %s", file.Path)
+		}
+		stamp, err := time.Parse(time.RFC3339Nano, file.Metadata.Timestamp)
+		if err != nil {
+			return "", fmt.Errorf("legacy rollout has neither a canonical filename nor a usable timestamp")
+		}
+		name = "rollout-" + stamp.UTC().Format("2006-01-02T15-04-05") + "-" + file.ThreadID + ".jsonl"
+		c, _ = parseName(name)
+	}
+	if c.threadID != file.ThreadID || c.rolloutID != file.RolloutID {
+		return "", fmt.Errorf("rollout filename and manifest identity disagree: %s", file.Path)
+	}
+	if file.Prefix {
+		return prerequisiteRoot + file.RolloutID + "/" + name, nil
+	}
+	if strings.HasPrefix(file.Path, "archived_sessions/") {
+		return "archived_sessions/" + name, nil
+	}
+	date := strings.TrimPrefix(name, "rollout-")[:10]
+	return "sessions/" + strings.ReplaceAll(date, "-", "/") + "/" + name, nil
 }
 
 type candidate struct {

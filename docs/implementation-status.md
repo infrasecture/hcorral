@@ -24,11 +24,11 @@ development testing.
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
-| Session format discovery and dependencies | Core implemented; runtime pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; actual Codex qualification pending |
-| Session consistency and conflicts | Partial | Read-only SQLite/WAL selection and compatible writer guards tested; destination conflicts and publication remain pending |
-| Session endpoints and helper distribution | Pending | Host CODEX_HOME, runtime identity, cross-architecture Linux helpers |
+| Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
+| Session consistency and conflicts | Core implemented; indexing race still open | Read-only SQLite/WAL selection, writer guards, conflict checks, private staging and exclusive publication tested; simultaneous initial Codex backfill needs a resolved contract |
+| Session endpoints and helper distribution | Partial | Internal stdio helper with explicit paths, protocol negotiation and signal cleanup; host/container discovery, aliases, packaging and Docker transport pending |
 | Session transfer lifecycle | Pending | No workstation pull/start/recreate/attach; stopped helper path |
-| Actual Codex resume acceptance | Partial | Native 0.160.1 fixture resume, picker, inherited model context and writer-lock checks pass; real transfer and supported version matrix remain pending |
+| Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
 ## Execution environment
 
@@ -92,3 +92,46 @@ Verification for this checkpoint:
 
 These checks used only disposable synthetic conversations. No user session,
 credential, workstation container or image was migrated or published.
+
+## Session publication and helper checkpoint
+
+The transfer core now streams a versioned tar envelope, validates it in private
+destination staging, checks all existing rollout identities, and publishes with
+exclusive hard links. Exact existing content is reused, including full ancestors
+that satisfy a required prefix. Conflicts, truncation and invalid members cannot
+overwrite existing history. Handled publication failures remove only the links
+created by that attempt; a retry can use the verified staging data.
+
+`cmd/hcorral-session` exposes the internal export/import protocol on stdio with
+explicit Codex/SQLite homes and session IDs. It is not yet bundled or wired to
+the user-facing launcher commands. It runs without a shell or Codex process and
+handles signals while blocked on input. The original signal test exposed a
+blocking inherited-pipe issue; pollable duplicates resolved it, and repeated
+SIGINT/SIGTERM cleanup tests pass.
+
+Verification at this checkpoint:
+
+- The full Go suite and vet pass. The changed session, helper and command tests
+  pass under the race detector, including the native 0.160.1-to-0.160.0 matrix.
+- Native tests use the actual export/receive/publish pipeline for legacy,
+  paginated, inherited, reverted and archived histories. Both fresh and already
+  initialized homes are covered. After a completed native turn and clean app
+  server shutdown, the written history is re-exported to the other Codex version
+  and resumed. Saved user/assistant context survives; private parent continuation
+  and unrelated conversations do not leak. Both version directions pass.
+- The 0.160.0 Linux executable came from the official `rust-v0.160.0` release;
+  its archive matched the release asset SHA-256
+  `306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13`.
+- Session test executables cross-build with cgo disabled for Linux/macOS
+  AMD64/ARM64 and pass the linkage gate. Static Linux AMD64 publication tests
+  pass as UID/GID 1000:1000, 501:20 and 12345:23456. Other platforms remain
+  inspected rather than natively executed.
+- Linux AMD64/ARM64 helper builds pass static-linkage inspection. Their stripped
+  executable sizes are approximately 7.5 MB and 7.3 MB before compression. These
+  are development builds, not qualified release artifacts or bundled launchers.
+
+Open work includes concurrent initial backfill, handling a longer required
+prefix or a full parent after an earlier partial import, source/destination
+alias detection, effective SQLite-home discovery, result/policy reporting,
+helper bundling, and running/stopped/remote Docker integration. These are still
+requirements to resolve, not waived acceptance gates.

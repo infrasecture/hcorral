@@ -20,32 +20,34 @@ import (
 // Limits bound a corrupt input's resource use. Callers can raise these for
 // large legitimate conversations without changing the transfer format.
 type Limits struct {
-	RecordBytes int64
-	FileBytes   int64
-	Files       int
+	RecordBytes   int64
+	FileBytes     int64
+	Files         int
+	ManifestBytes int64
 }
 
 func DefaultLimits() Limits {
-	return Limits{RecordBytes: 256 << 20, FileBytes: 64 << 30, Files: 4096}
+	return Limits{RecordBytes: 256 << 20, FileBytes: 64 << 30, Files: 4096, ManifestBytes: 8 << 20}
 }
 
-func (l Limits) validate() error {
-	if l.RecordBytes < 1 || l.FileBytes < 1 || l.RecordBytes > l.FileBytes || l.Files < 1 {
+func (l Limits) Validate() error {
+	if l.RecordBytes < 1 || l.FileBytes < 1 || l.RecordBytes > l.FileBytes || l.Files < 1 || l.ManifestBytes < 1 {
 		return errors.New("session limits must be positive and record size must not exceed file size")
 	}
 	return nil
 }
 
 type File struct {
-	SourcePath string    `json:"source_path"`
-	Path       string    `json:"path"` // Relative destination path; decoded JSONL.
-	ThreadID   string    `json:"thread_id"`
-	RolloutID  string    `json:"rollout_id"`
-	Bytes      int64     `json:"bytes"`
-	SHA256     string    `json:"sha256"`
-	Modified   time.Time `json:"modified"`
-	Prefix     bool      `json:"prefix"`
-	Metadata   Metadata  `json:"metadata"`
+	SourcePath  string    `json:"source_path"`
+	Path        string    `json:"path"` // Relative destination path; decoded JSONL.
+	ThreadID    string    `json:"thread_id"`
+	RolloutID   string    `json:"rollout_id"`
+	Bytes       int64     `json:"bytes"`
+	SHA256      string    `json:"sha256"`
+	Modified    time.Time `json:"modified"`
+	Prefix      bool      `json:"prefix"`
+	Metadata    Metadata  `json:"metadata"`
+	lastOrdinal uint64
 }
 
 type line struct {
@@ -160,6 +162,7 @@ func (h *Home) readRollout(ctx context.Context, c candidate, end *HistoryPositio
 		return File{}, fmt.Errorf("rollout changed during inspection: %s", c.path)
 	}
 	result.SHA256 = hex.EncodeToString(digest.Sum(nil))
+	result.lastOrdinal = previous
 	return result, nil
 }
 

@@ -27,7 +27,7 @@ func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := limits.validate(); err != nil {
+	if err := limits.Validate(); err != nil {
 		return Plan{}, err
 	}
 	if sqliteHome == nil {
@@ -46,6 +46,9 @@ func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 		path, err := h.managedRelative(selected.path)
 		if err != nil {
 			return Plan{}, err
+		}
+		if prerequisitePath(path) {
+			return Plan{}, fmt.Errorf("thread %s selects only an inherited history prefix, not a complete conversation", id)
 		}
 		for _, c := range inventory {
 			if strings.TrimSuffix(c.path, ".zst") == strings.TrimSuffix(path, ".zst") {
@@ -70,7 +73,7 @@ func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 		}
 	} else {
 		for _, c := range inventory {
-			if c.threadID == id {
+			if c.threadID == id && !prerequisitePath(c.path) {
 				main = append(main, c)
 			}
 		}
