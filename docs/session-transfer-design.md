@@ -186,8 +186,92 @@ The helper exposes explicit record/file/manifest byte limits and a lineage-file
 limit. It sets a private umask and handles cancellation of blocked stdio pipes;
 signal tests exercise the command entrypoint in real subprocesses. No credentials,
 shell startup, Codex execution, Docker access or network is part of this helper.
-Its Linux binaries still need to be packaged with the launcher and selected using
-the actual container architecture.
+The build now prepares Linux payloads for selection by actual container image
+architecture, as described below. Public launcher integration remains pending.
+
+## Endpoint transport and bundled helpers
+
+`internal/sessiontransport` implements a disposable helper container for both
+running and stopped workstations. Using one transport avoids injecting files into
+the workstation's writable layer and gives cancellation a separately stoppable
+remote process. Target inspection requires the actual image ID, numeric runtime
+UID/GID/groups, runtime home, schema and ownership. The launcher supplies a static
+Linux helper selected by the inspected image architecture, not the client host's
+architecture. No normal entrypoint, login shell, tmux attachment, image refresh
+or workstation start is part of the operation.
+
+Mount selection retains the storage covering the Codex home and its nested state
+mounts. An explicitly resolved, relocated SQLite home must also be in persistent
+storage. Additional database mounts are read-only and narrowed to the database
+directory; direct database-file/sidecar mounts are retained without adding
+unrelated nested workspace mounts. Named-volume subpaths come from Docker's
+`HostConfig.Mounts[].VolumeOptions.Subpath` and are preserved when narrowing.
+Existing Codex mounts remain writable because writer coordination needs them.
+Bind paths refer to the daemon; user-supplied host source/destination paths never
+become daemon bind mounts. A narrowed volume subdirectory requires Docker's
+`volume-subpath` capability and must be qualified with the supported CLI/daemon.
+
+The helper uses the deployed image ID with `--pull never`, the established
+numeric identity/groups, no network, dropped capabilities, no new privileges,
+no image healthcheck and an explicit SIGTERM stop signal. `volume-nocopy` prevents
+image-content initialization. Unused image-declared volumes are covered with
+bounded temporary storage instead of anonymous persistent volumes. Selected
+mounts and image volume declarations cannot overlap the helper executable.
+The executable is supplied using a one-file tar through `docker cp`, outside
+the selected persistent mounts. The helper's disposable rootfs is writable;
+it is not advertised as a read-only container.
+
+Ownership, mounts and deployed identity are rechecked before helper creation
+and again before execution. Cancellation closes the local pipe and separately
+stops the helper under a fresh bounded cleanup context. A random name and exact
+operation token restrict cleanup to this helper; neither the workstation nor
+its volumes is removed. A lost create reply is handled by inspecting that exact
+name/token. Project locking in the public command is still needed. Docker CLI
+preflight is not an atomic reservation against another actor deleting the
+original container and volume between inspection and helper creation; qualify
+and retain this boundary rather than claiming the CLI cannot create a missing
+volume under every external race.
+
+The host/controller and helper share the same transfer core. A producer completes
+inspection before the consumer initializes its destination. The producer must
+release source locks before closing the transport pipe: the receiver requires
+EOF before acquiring destination locks for publication. This supports identical
+source/destination storage, including tested root-symlink aliases, without taking
+two incompatible locks on the same file. Shared Docker-volume aliases still need
+real endpoint qualification.
+
+A valid import acknowledgement means the destination confirmed publication,
+even when the following Docker inspection or helper cleanup fails. The controller
+returns that result together with the finalization error. A missing, malformed
+or lost acknowledgement must not be reported as an unchanged destination. Export
+to the host waits for successful remote source finalization before publishing.
+Both result and small configuration-read buffers have enforced size limits,
+including when a command runner uses `io.Copy` optimizations.
+
+Configuration discovery can read a specific TOML file through bounded
+`docker cp -L <actual-container-id>:<path> -` while the workstation is stopped.
+This reads the actual writable layer as well as mounted files; a helper created
+from the image would miss such container-local changes. Only a single bounded
+regular member is accepted and nothing is extracted into host storage. A missing
+file is distinguished from a missing container, access failure or failed Docker
+connection, followed by an identity recheck before treating a layer as absent.
+The configuration resolver itself is not wired yet; it must inspect only relevant
+config files, avoid credentials and avoid including configuration contents in
+parse diagnostics. It must resolve or explicitly reject ambiguous managed,
+project/profile and runtime overrides rather than assume the default database.
+
+`build.sh` builds both Linux helpers first, validates their ELF linkage and
+architecture, and deterministically compresses them into generated embed assets.
+The decoder rejects missing, empty, corrupted, truncated or concatenated payloads.
+The bundle test runs the native architecture's actual executable and inspects the
+other one. Ordinary source-only builds can compile without generated helpers,
+but transfer then reports the missing payload. The launcher still needs public
+command integration to make this package and its embedded bytes reachable; final
+artifact inclusion, size and native platform behavior remain release gates.
+
+Docker contracts checked against the primary sources: [volume population and
+subdirectories](https://docs.docker.com/engine/storage/volumes/) and
+[Engine mount types](https://github.com/moby/moby/blob/master/api/types/mount/mount.go).
 
 ## Remaining consistency questions
 
@@ -203,19 +287,21 @@ Likewise, a longer required prefix or a complete parent imported after an earlie
 partial prerequisite currently conflicts. That preserves existing data, but is
 not the final answer for compatible extensions: qualify a way to preserve both
 existing dependents and the newly requested complete history without making a
-short prefix the selected complete conversation. Source/destination aliases
-also require endpoint-level detection before acquiring both sets of locks.
+short prefix the selected complete conversation. Source/destination alias
+handling now releases source locks before destination acquisition as described
+above; real shared-volume/remote endpoint qualification remains outstanding.
 
 ## Remaining implementation
 
 1. Resolve concurrent initial backfill, compatible prefix extension/promotion
    and recovery after an uncatchable interruption. Keep database selection and
    prerequisite visibility explicit.
-2. Resolve effective endpoint paths and SQLite configuration, storage aliases,
+2. Resolve effective endpoint paths and SQLite configuration, qualify storage aliases,
    source/destination identity, and result reporting including saved policy and
    optional metadata/resource limitations.
-3. Package the Linux helpers and implement Docker streaming/cancellation using
-   actual deployed home/mount/identity and architecture inspection.
+3. Wire the prepared helper bundle into the public launcher and qualify the
+   implemented Docker streaming/cancellation against actual containers, deployed
+   home/mount/identity and architecture inspection.
 4. Wire public `session export/import`; qualify running/stopped and remote-Docker
    paths without workstation pull/start/recreate/attach side effects.
 5. Extend native fixtures, runtime writer qualification and platform coverage,

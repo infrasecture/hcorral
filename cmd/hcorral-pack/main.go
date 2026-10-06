@@ -25,7 +25,7 @@ func (s *fileSpecs) Set(value string) error { *s = append(*s, value); return nil
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("expected archive, checksums, manifest, or linkage")
+		fatal("expected archive, checksums, manifest, linkage, or helpers")
 	}
 	var err error
 	switch os.Args[1] {
@@ -37,6 +37,8 @@ func main() {
 		err = manifest(os.Args[2:])
 	case "linkage":
 		err = linkage(os.Args[2:])
+	case "helpers":
+		err = helpers(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}

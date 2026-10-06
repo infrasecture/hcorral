@@ -26,8 +26,8 @@ development testing.
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core implemented; indexing race still open | Read-only SQLite/WAL selection, writer guards, conflict checks, private staging and exclusive publication tested; simultaneous initial Codex backfill needs a resolved contract |
-| Session endpoints and helper distribution | Partial | Internal stdio helper with explicit paths, protocol negotiation and signal cleanup; host/container discovery, aliases, packaging and Docker transport pending |
-| Session transfer lifecycle | Pending | No workstation pull/start/recreate/attach; stopped helper path |
+| Session endpoints and helper distribution | Partial | Inspected mount/identity selection, separate SQLite mounts, streaming controller, bounded config reads and two-architecture helper packaging implemented; effective configuration discovery, public command wiring and final launcher inclusion remain |
+| Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
 ## Execution environment
@@ -135,3 +135,60 @@ prefix or a full parent after an earlier partial import, source/destination
 alias detection, effective SQLite-home discovery, result/policy reporting,
 helper bundling, and running/stopped/remote Docker integration. These are still
 requirements to resolve, not waived acceptance gates.
+
+## Transport and helper-packaging checkpoint
+
+`internal/sessiontransport` now inspects the deployed numeric identity, image
+ID, runtime home and storage rather than invoking Compose preparation. A
+disposable helper serves both running and stopped workstations. Only selected
+state and metadata mounts are attached; a separately mounted SQLite directory
+is read-only and narrowed to its required subdirectory. Existing volume subpaths
+are preserved. Image healthchecks, entrypoint, network access and automatic image
+pulls are disabled. Cleanup verifies an operation-specific ownership token and
+only stops/removes that helper, without removing its volumes.
+
+The streaming controller uses the native Go implementation on the host and the
+supplied Linux helper remotely. Source inspection completes before destination
+initialization. Source writer locks are released before EOF permits destination
+publication, so shared-storage aliases can reuse identical data without locking
+themselves out. A validated completion result survives a subsequent remote cleanup
+error; missing acknowledgements are not reported as proof of no destination
+changes. Bounded configuration reads use the actual workstation's filesystem,
+including its writable layer, without starting it or extracting files locally.
+
+`build.sh` now prepares and validates both Linux helper payloads before building
+launchers. Both compressed helpers total approximately 6.5 MB. The generated
+payload files are ignored by Git. Native helper protocol and transfer tests run
+against the embedded payloads as a build step. **The app does not yet reference
+the transport package: this is prepared packaging, not evidence that the current
+launcher binary already contains or exposes the feature.** Public command wiring
+must make the package reachable and final launcher artifacts must be checked.
+
+Local verification for this checkpoint:
+
+- Go unit tests and vet pass; the changed transport/runtime/packager packages
+  pass race checks. ShellCheck, Bash syntax and release-contract checks pass.
+- Controlled Docker tests cover running/stopped storage selection, non-default
+  IDs/groups, image-ID architecture selection, volume subpaths, unused image
+  volumes, missing resources, replacement races, cancellation and cleanup.
+- Both helper payloads pass static ELF architecture/linkage inspection. The
+  embedded AMD64 executable runs its protocol and transfers synthetic histories
+  in both directions, including source/destination symlink aliases. ARM64 payload
+  inspection is not native execution.
+- Transport test executables cross-build with cgo disabled for Linux/macOS
+  AMD64/ARM64 and pass the linkage gate. These are development test binaries,
+  not final launcher archives or packages.
+- The static Linux AMD64 transport tests and its embedded native helper pass
+  as UID/GID 1000:1000, 501:20 and 12345:23456, with supplementary group 44444.
+  Tests verify destination ownership and 0600 file permissions. This is local
+  subprocess evidence, not a Docker mount/entrypoint test.
+- Stream tests cover early source failure, cancellation, lost acknowledgements,
+  confirmed publication followed by remote failure, and bounded result handling.
+  Config-read tests distinguish missing files from failed container inspection,
+  reject extra/special/truncated archive members and enforce output bounds.
+
+Docker is still unavailable locally. The Dockerized build step, running/stopped
+helper containers, remote daemons, real mount permissions and independent remote
+process cleanup remain unexecuted. Effective SQLite config discovery, public
+commands/result reporting and the remaining consistency gates above are next;
+this checkpoint does not complete phase 5 or the full proposal.

@@ -21,6 +21,17 @@ type Mount struct {
 	Source      string `json:"Source"`
 	Destination string `json:"Destination"`
 	RW          bool   `json:"RW"`
+	// Subpath is populated from HostConfig.Mounts when a volume uses a subdir.
+	Subpath string `json:"-"`
+}
+
+type MountDefinition struct {
+	Type          string `json:"Type"`
+	Source        string `json:"Source"`
+	Target        string `json:"Target"`
+	VolumeOptions struct {
+		Subpath string `json:"Subpath"`
+	} `json:"VolumeOptions"`
 }
 
 type Container struct {
@@ -38,9 +49,13 @@ type Container struct {
 		Running    bool   `json:"Running"`
 		Paused     bool   `json:"Paused"`
 		Restarting bool   `json:"Restarting"`
+		ExitCode   int    `json:"ExitCode"`
 		Started    string `json:"StartedAt"`
 	} `json:"State"`
-	Mounts []Mount `json:"Mounts"`
+	Mounts     []Mount `json:"Mounts"`
+	HostConfig struct {
+		Mounts []MountDefinition `json:"Mounts"`
+	} `json:"HostConfig"`
 }
 
 func (c Container) CleanName() string { return strings.TrimPrefix(c.Name, "/") }
@@ -61,10 +76,13 @@ type Network struct {
 }
 
 type Image struct {
-	ID          string   `json:"Id"`
-	RepoDigests []string `json:"RepoDigests"`
-	Config      struct {
-		Labels map[string]string `json:"Labels"`
+	ID           string   `json:"Id"`
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+	RepoDigests  []string `json:"RepoDigests"`
+	Config       struct {
+		Labels  map[string]string   `json:"Labels"`
+		Volumes map[string]struct{} `json:"Volumes"`
 	} `json:"Config"`
 }
 

@@ -73,6 +73,24 @@ docker run --rm --user root \
   --volume "${gobuild_cache_volume}:/tmp/go-build" \
   "${builder_image}" sh -c 'chown -R "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
 
+# Every launcher can target either Linux architecture, regardless of its host.
+# Build helpers first, then validate and embed their exact compressed bytes.
+for helper_arch in amd64 arm64; do
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS=linux --env "GOARCH=${helper_arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go build -buildvcs=false -trimpath -ldflags '-s -w' -o "/src/dist/bin/hcorral-session-linux-${helper_arch}" ./cmd/hcorral-session
+done
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+  go run ./cmd/hcorral-pack helpers -amd64 /src/dist/bin/hcorral-session-linux-amd64 -arm64 /src/dist/bin/hcorral-session-linux-arm64 -output /src/internal/sessiontransport/helpers
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --env CGO_ENABLED=0 --env HCORRAL_TEST_BUNDLED_HELPERS=1 \
+  --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+  go test -count=1 -run '^TestBundledHelpers$' ./internal/sessiontransport
+
 for target in ${targets}; do
   os="${target%/*}"; arch="${target#*/}"
   output="dist/bin/hcorral-${os}-${arch}"

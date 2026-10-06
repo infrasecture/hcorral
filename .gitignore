@@ -1,2 +1,3 @@
 .plan/
 dist/
+internal/sessiontransport/helpers/*.gz
