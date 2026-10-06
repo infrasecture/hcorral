@@ -169,7 +169,9 @@ start/recreate the workstation, attach to tmux or resume Codex.
 
 The command copies the selected native history and required inherited prefixes.
 It preserves the session ID and reuses identical existing files; divergent
-history is a conflict. Credentials, configuration, workspace files, database-only
+history is a conflict. A managed inherited prefix can grow when a later fork
+needs more matching history; existing children keep their original boundaries.
+Credentials, configuration, workspace files, database-only
 names/metadata and external resources are excluded. The selected persisted
 conversation must be inactive. Review its saved workspace and permissions before
 resuming at the destination. Archived sessions stay archived.

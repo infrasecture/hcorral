@@ -165,6 +165,9 @@ func decodeResult(data []byte, options TransferOptions) (session.Result, error) 
 	}
 	main := 0
 	for _, file := range result.Files {
+		if file.Extended && (file.Created || !file.Prefix) {
+			return session.Result{}, errors.New("completion result claims an invalid prefix extension")
+		}
 		if _, err := session.ParseID(file.RolloutID); err != nil {
 			return session.Result{}, err
 		}

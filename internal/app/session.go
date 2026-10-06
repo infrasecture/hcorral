@@ -244,10 +244,12 @@ func printSessionResult(out io.Writer, request sessionRequest, result session.Re
 			"Database-only names/metadata and external resources are not transferred. Review the saved workspace and Codex permissions before resuming.",
 		}})
 	}
-	created, reused, prefixes := 0, 0, 0
+	created, reused, extended, prefixes := 0, 0, 0, 0
 	for _, file := range result.Files {
 		if file.Created {
 			created++
+		} else if file.Extended {
+			extended++
 		} else {
 			reused++
 		}
@@ -261,7 +263,7 @@ func printSessionResult(out io.Writer, request sessionRequest, result session.Re
 	}
 	var report strings.Builder
 	fmt.Fprintf(&report, "Session %s copied to %s Codex home %q.\n", result.ThreadID, destination, result.Destination)
-	fmt.Fprintf(&report, "Files: %d created, %d reused; %d inherited-history prefixes.\n", created, reused, prefixes)
+	fmt.Fprintf(&report, "Files: %d created, %d reused, %d compatibly extended; %d inherited-history prefixes.\n", created, reused, extended, prefixes)
 	fmt.Fprintf(&report, "SQLite homes: host %q; container %q.\n", hostState.Path, containerState.Path)
 	if result.Metadata.CWD != "" {
 		fmt.Fprintf(&report, "Saved working directory: %q. Workspace files and local resources were not copied.\n", result.Metadata.CWD)
@@ -302,5 +304,6 @@ SQLite discovery uses local base config, local requirements and CODEX_SQLITE_HOM
 Use explicit SQLite paths for database overrides from project config, selected
 Codex profiles, runtime flags, cloud policy or macOS managed preferences.
 The persisted conversation must be inactive. Existing divergent history is a
-conflict; identical content is reused. Credentials and workspace files are excluded.
+conflict; identical content is reused. Managed inherited prefixes may grow when
+all prior bytes match. Credentials and workspace files are excluded.
 `

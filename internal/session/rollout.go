@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -48,6 +49,7 @@ type File struct {
 	Prefix      bool      `json:"prefix"`
 	Metadata    Metadata  `json:"metadata"`
 	lastOrdinal uint64
+	stored      os.FileInfo
 }
 
 type line struct {
@@ -85,7 +87,7 @@ func (h *Home) readRollout(ctx context.Context, c candidate, end *HistoryPositio
 	}
 	r := bufio.NewReaderSize(input, 64<<10)
 	digest := sha256.New()
-	result := File{SourcePath: c.path, Path: strings.TrimSuffix(c.path, ".zst"), ThreadID: c.threadID, RolloutID: c.rolloutID, Modified: before.ModTime(), Prefix: end != nil}
+	result := File{SourcePath: c.path, Path: strings.TrimSuffix(c.path, ".zst"), ThreadID: c.threadID, RolloutID: c.rolloutID, Modified: before.ModTime(), Prefix: end != nil, stored: before}
 	var previous uint64
 	var records int64
 	var sawMetadata bool

@@ -18,6 +18,7 @@ type InstalledFile struct {
 	RolloutID string `json:"rollout_id"`
 	Prefix    bool   `json:"prefix"`
 	Created   bool   `json:"created"`
+	Extended  bool   `json:"extended,omitempty"`
 }
 
 type Result struct {
@@ -30,13 +31,16 @@ type Result struct {
 }
 
 type choice struct {
-	path   string
-	exists bool
+	path       string
+	exists     bool
+	extensions []prefixExtension
 }
 
 // Publish validates every existing identity before installing any live file.
-// Installation uses exclusive hard links from same-filesystem staging, never
-// rename-overwrite. Writer guards remain held through validation and publication.
+// New rollouts use exclusive hard links from same-filesystem staging.
+// A managed prerequisite may grow atomically after its entire
+// existing prefix is verified against the incoming bytes. Writer guards remain
+// held through validation and publication.
 func (in *Incoming) Publish(ctx context.Context, sqliteHome *Home) (_ Result, resultErr error) {
 	if in.stage == nil || len(in.Plan.Files) == 0 {
 		return Result{}, errors.New("incoming session is empty or closed")
@@ -61,10 +65,14 @@ func (in *Incoming) Publish(ctx context.Context, sqliteHome *Home) (_ Result, re
 		return Result{}, err
 	}
 	var installed []publishedLink
+	extended := 0
 	defer func() {
 		if resultErr != nil {
 			for i := len(installed) - 1; i >= 0; i-- {
 				resultErr = errors.Join(resultErr, installed[i].removeIfOwned())
+			}
+			if extended > 0 {
+				resultErr = fmt.Errorf("%d inherited prefixes were compatibly extended before publication failed; their original bytes remain intact and retry is safe: %w", extended, resultErr)
 			}
 		}
 		for _, link := range installed {
@@ -77,6 +85,12 @@ func (in *Incoming) Publish(ctx context.Context, sqliteHome *Home) (_ Result, re
 			return Result{}, err
 		}
 		chosen := choices[i]
+		for _, extension := range chosen.extensions {
+			if err := in.extendPrefix(ctx, file, extension); err != nil {
+				return Result{}, err
+			}
+			extended++
+		}
 		if !chosen.exists {
 			parent, err := in.home.directory(filepath.Dir(chosen.path), true)
 			if err != nil {
@@ -103,7 +117,7 @@ func (in *Incoming) Publish(ctx context.Context, sqliteHome *Home) (_ Result, re
 				return Result{}, fmt.Errorf("sync installed rollout %s: %w", chosen.path, err)
 			}
 		}
-		result.Files = append(result.Files, InstalledFile{Path: chosen.path, RolloutID: file.RolloutID, Prefix: file.Prefix, Created: !chosen.exists})
+		result.Files = append(result.Files, InstalledFile{Path: chosen.path, RolloutID: file.RolloutID, Prefix: file.Prefix, Created: !chosen.exists, Extended: len(chosen.extensions) > 0})
 		if !file.Prefix {
 			result.MainPath = chosen.path
 			result.Archived = strings.HasPrefix(chosen.path, "archived_sessions/")
@@ -221,15 +235,17 @@ func (in *Incoming) checkConflicts(ctx context.Context, sqliteHome *Home) ([]cho
 			if incoming.Prefix {
 				end = in.Plan.Files[i+1].Metadata.HistoryBase
 			}
-			existing, err := in.home.readRollout(ctx, c, end, in.limits)
+			existing, extension, err := in.compareExisting(ctx, incoming, c, end)
 			if err != nil {
 				return nil, conflict("cannot validate existing rollout %s: %v", c.path, err)
 			}
-			if incoming.SHA256 != existing.SHA256 || incoming.Bytes != existing.Bytes {
+			if extension != nil {
+				choices[i].extensions = append(choices[i].extensions, *extension)
+			} else if incoming.SHA256 != existing.SHA256 || incoming.Bytes != existing.Bytes {
 				return nil, conflict("rollout %s has different bytes at %s", incoming.RolloutID, c.path)
 			}
 			if !choices[i].exists || (!prerequisitePath(c.path) && prerequisitePath(choices[i].path)) || strings.TrimSuffix(c.path, ".zst") == strings.TrimSuffix(selectedPath, ".zst") {
-				choices[i] = choice{path: c.path, exists: true}
+				choices[i].path, choices[i].exists = c.path, true
 			}
 		}
 	}

@@ -25,7 +25,7 @@ development testing.
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
-| Session consistency and conflicts | Core implemented; indexing race still open | Read-only SQLite/WAL selection, writer guards, conflict checks, private staging and exclusive publication tested; simultaneous initial Codex backfill needs a resolved contract |
+| Session consistency and conflicts | Core and compatible prefix extension implemented; indexing/promotion remain | Read-only SQLite/WAL selection, writer guards, conflicts and publication tested; longer plain/compressed prerequisites preserve existing children in native Codex; initial backfill and complete-parent promotion need resolution |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
@@ -236,3 +236,42 @@ uncatchable-interruption recovery, broader writer/runtime qualification, actual
 Docker transfers and cancellation, real native platform/package/image acceptance,
 and the demonstrated myCodex transition. No user conversation or workstation was
 migrated, no image/release was published, and the full goal remains incomplete.
+
+## Compatible inherited-prefix extension checkpoint
+
+A second fork with a longer inherited prefix now succeeds after an earlier
+shorter import. Every existing managed representation is checked before writes;
+only a complete byte-for-byte extension may atomically replace a prerequisite.
+Regular conversation files are never extended or replaced. Repeated shorter
+imports do not truncate history, and handled later failures retain a valid
+extension with explicit retry information. Human/JSON results report extensions.
+
+Core tests cover plain, compressed and duplicate representations, preserved open
+readers, unchanged dependent files, divergence, later main conflicts, a replaced
+prerequisite and publication failure followed by retry. Native Codex 0.160.0 and
+0.160.1 both resume the old and new children after extension, with plain and
+compressed prerequisites. Requests to the loopback fixture provider contain
+exactly each child's inherited range and exclude the parent's private tail.
+
+Final local checks for this checkpoint:
+
+- The full Go suite and vet pass; session, transport and app race checks pass.
+- The existing native 0.160.0/0.160.1 transfer/resume/completed-turn round-trip
+  matrix still passes in both directions, along with configuration discovery
+  and the new extension cases.
+- Static Linux AMD64 extension tests pass as 1000:1000, 501:20 and 12345:23456
+  with supplementary group 44444, including preservation of an existing file's
+  non-primary group and Unix mode bits.
+- Both Linux helpers were rebuilt. The actual embedded AMD64 helper imports
+  shorter/longer forks, reports the extension and re-exports the longer child;
+  ARM64 is inspected, not executed locally. Compressed payloads total 6,730,498
+  bytes.
+- All four final development launchers cross-build, pass linkage inspection
+  and contain both exact helper payloads. Their sizes are 18,596,024 bytes
+  (Linux AMD64), 18,022,584 (Linux ARM64), 18,685,280 (macOS AMD64) and
+  18,190,770 (macOS ARM64). Native Linux AMD64 runs the public session help.
+  These remain development artifacts, not qualified release archives/packages.
+
+This resolves compatible growth, not complete-parent promotion or simultaneous
+initial indexing. Those cases, uncatchable-interruption recovery, actual Docker
+transport and the remaining image/platform/transition matrix stay open.

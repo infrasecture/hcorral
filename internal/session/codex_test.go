@@ -247,6 +247,96 @@ func nativeFixture(t *testing.T, id, mode string, base *HistoryPosition, text st
 	return append(data, b.Bytes()...)
 }
 
+func TestNativeCodexResumesExtendedPrefixes(t *testing.T) {
+	binary := os.Getenv("HCORRAL_TEST_CODEX")
+	if binary == "" {
+		t.Skip("set HCORRAL_TEST_CODEX to an explicitly selected Codex executable")
+	}
+	for _, compressed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("compressed=%v", compressed), func(t *testing.T) {
+			source, destination := fixtureHome(t), fixtureHome(t)
+			workspace := t.TempDir()
+			short := nativeFixture(t, threadA, "paginated", nil, "earlier inherited fixture")
+			var suffix bytes.Buffer
+			encoder := json.NewEncoder(&suffix)
+			for i, payload := range []map[string]any{
+				{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": "later inherited fixture"}}},
+				{"type": "item_completed", "thread_id": threadA, "turn_id": "later-turn", "item": map[string]any{"type": "UserMessage", "id": "later-user", "content": []any{map[string]any{"type": "text", "text": "later inherited fixture", "text_elements": []any{}}}}},
+			} {
+				kind := "response_item"
+				if i == 1 {
+					kind = "event_msg"
+				}
+				if err := encoder.Encode(map[string]any{"type": kind, "timestamp": "2026-10-06T12:34:57Z", "ordinal": i + 3, "payload": payload}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			longer := append(append([]byte(nil), short...), suffix.Bytes()...)
+			suffix.Reset()
+			if err := encoder.Encode(map[string]any{"type": "response_item", "timestamp": "2026-10-06T12:34:58Z", "ordinal": 5, "payload": map[string]any{"type": "message", "role": "user", "content": []any{map[string]string{"type": "input_text", "text": "private parent continuation"}}}}); err != nil {
+				t.Fatal(err)
+			}
+			writeFixture(t, source, fixturePath(threadA, threadA), append(append([]byte(nil), longer...), suffix.Bytes()...))
+			for i, id := range []string{threadB, threadC} {
+				prefix := [][]byte{short, longer}[i]
+				base := &HistoryPosition{RolloutID: threadA, EndByteOffset: uint64(len(prefix)), EndOrdinalExclusive: uint64(3 + 2*i)}
+				writeFixture(t, source, fixturePath(id, id), nativeFixture(t, id, "paginated", base, "dependent "+id))
+			}
+			requests := make(chan string, 4)
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(io.LimitReader(r.Body, 16<<20))
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				select {
+				case requests <- string(body):
+				default:
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_extension\"}}\n\n")
+				fmt.Fprint(w, "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"id\":\"msg_extension\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"extension reply\"}]}}\n\n")
+				fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_extension\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")
+			}))
+			t.Cleanup(provider.Close)
+			config := fmt.Sprintf("model = \"fixture-model\"\nmodel_provider = \"test-provider\"\n[model_providers.test-provider]\nname = \"Local fixture\"\nbase_url = %q\nwire_api = \"responses\"\nrequires_openai_auth = false\n", provider.URL+"/v1")
+			writeFixture(t, destination, "config.toml", []byte(config))
+			first := published(t, received(t, destination, exported(t, source, threadB)))
+			if compressed {
+				path := first.Files[0].Path
+				writeFixture(t, destination, path+".zst", short)
+				if err := os.Remove(filepath.Join(destination.Path, path)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			server := startCodex(t, binary, destination.Path, workspace)
+			server.call(t, "thread/list", map[string]any{"limit": 100})
+			second := published(t, received(t, destination, exported(t, source, threadC)))
+			if !second.Files[0].Extended {
+				t.Fatal("second import did not extend the prerequisite")
+			}
+			for _, id := range []string{threadB, threadC} {
+				server.notifications = nil
+				server.call(t, "thread/resume", map[string]any{"threadId": id, "cwd": workspace, "modelProvider": "test-provider", "approvalPolicy": "never", "sandbox": "read-only"})
+				server.call(t, "turn/start", map[string]any{"threadId": id, "input": []any{map[string]string{"type": "text", "text": "check inherited context"}}})
+				select {
+				case body := <-requests:
+					if !strings.Contains(body, "earlier inherited fixture") || !strings.Contains(body, "dependent "+id) {
+						t.Fatalf("native resume lost inherited or child context: %.2000s", body)
+					}
+					if strings.Contains(body, "later inherited fixture") != (id == threadC) || strings.Contains(body, "private parent continuation") {
+						t.Fatalf("native resume crossed the child's inherited boundary: %.2000s", body)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("native Codex did not send resumed context")
+				}
+				server.waitNotification(t, "turn/completed")
+			}
+			server.finish(t)
+		})
+	}
+}
+
 type codexServer struct {
 	stdin         io.WriteCloser
 	scanner       *bufio.Scanner

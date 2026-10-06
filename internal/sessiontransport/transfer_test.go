@@ -3,7 +3,9 @@ package sessiontransport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -36,6 +38,66 @@ func transferFixture(t *testing.T) (string, []byte) {
 
 func transferOptions(operation, host, container string) TransferOptions {
 	return TransferOptions{Operation: operation, ThreadID: transferID, HostHome: host, HostSQLiteHome: host, ContainerSQLiteHome: container, Limits: session.DefaultLimits()}
+}
+
+func TestTransferReportsCompatiblePrefixExtensions(t *testing.T) {
+	testPrefixTransfers(t, sessionhelper.Run)
+}
+
+// Exercise result decoding and both endpoint roles. The bundled-helper test
+// also runs this against the actual embedded executable, detecting stale assets
+// that pass the basic protocol check but still lack compatible-prefix support.
+func testPrefixTransfers(t *testing.T, remote helperRun) {
+	t.Helper()
+	source, destination := t.TempDir(), t.TempDir()
+	record := func(kind string, ordinal int, payload any) []byte {
+		data, err := json.Marshal(map[string]any{"type": kind, "ordinal": ordinal, "payload": payload})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(data, '\n')
+	}
+	parent := record("session_meta", 0, session.Metadata{ThreadID: transferID, HistoryMode: "paginated", Version: "0.160.0"})
+	parent = append(parent, record("response_item", 1, map[string]string{"text": "first inherited"})...)
+	short := len(parent)
+	parent = append(parent, record("response_item", 2, map[string]string{"text": "second inherited"})...)
+	long := len(parent)
+	parent = append(parent, record("response_item", 3, map[string]string{"text": "private parent tail"})...)
+	write := func(id string, data []byte) {
+		path := filepath.Join(source, strings.Replace(transferRollout, transferID, id, 1))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(transferID, parent)
+	var lastID string
+	for i, cutoff := range []int{short, long} {
+		id := fmt.Sprintf("019a1234-2222-7222-8222-%012d", i)
+		lastID = id
+		base := &session.HistoryPosition{RolloutID: transferID, EndOrdinalExclusive: uint64(i + 2), EndByteOffset: uint64(cutoff)}
+		write(id, record("session_meta", i+2, session.Metadata{ThreadID: id, HistoryMode: "paginated", Version: "0.160.0", HistoryBase: base}))
+		options := transferOptions("import", source, destination)
+		options.ThreadID = id
+		result, err := transfer(context.Background(), destination, options, remote)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Files) != 2 || result.Files[0].Extended != (i == 1) {
+			t.Fatalf("missing prefix result: %+v", result)
+		}
+		got, err := os.ReadFile(filepath.Join(destination, result.Files[0].Path))
+		if err != nil || !bytes.Equal(got, parent[:cutoff]) {
+			t.Fatalf("helper copied the wrong ancestor range: %v", err)
+		}
+	}
+	options := transferOptions("export", t.TempDir(), destination)
+	options.ThreadID = lastID
+	if _, err := transfer(context.Background(), destination, options, remote); err != nil {
+		t.Fatalf("helper could not re-export an extended prerequisite: %v", err)
+	}
 }
 
 func TestTransferCoordinatesBothDirectionsAndStorageAliases(t *testing.T) {

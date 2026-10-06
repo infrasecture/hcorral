@@ -121,6 +121,23 @@ without being truncated or replaced. The inspector excludes managed prefixes
 when selecting a complete main conversation, allowing an imported revert to be
 re-exported before its destination SQLite index exists.
 
+A later fork may require a longer prefix of the same ancestor. Its existing
+managed prefix is validated in full against the incoming bytes, including the
+last ordinal and byte boundary. After all conversation conflicts have passed,
+the complete longer prefix is staged, synced and atomically renamed over the
+managed prerequisite while writer guards remain held. Open readers keep their
+original inode; new readers get a complete longer file. Plain and Zstandard
+representations are both extended when present, since native lineage lookup
+can select either. Existing ownership and Unix mode bits are preserved. The extra
+tail is exactly what the new child inherits, not the parent's full continuation.
+
+No ordinary conversation file is extended or replaced. Reimporting the shorter
+child reuses the longer prerequisite without shortening it. Results distinguish
+created, reused and extended files. A later handled failure leaves a completed
+compatible extension intact and explains that retry is safe; it cannot invalidate
+any preexisting dependent's shorter cutoff. This is separate from promoting a
+prerequisite into a complete parent conversation, which remains unresolved.
+
 ## Transfer stream and publication
 
 Protocol 1 is a tar stream with a bounded `manifest.json`, numbered regular JSONL
@@ -152,9 +169,11 @@ identity cause a conflict. Missing authoritative destination files are not
 silently repaired by choosing another history.
 
 New files are installed with exclusive same-filesystem hard links, prerequisites
-first and the main rollout last. Existing paths cannot be overwritten. Newly
-created parent directory entries and installed file entries are synced. On a
-handled failure, reverse cleanup removes only links whose inode still belongs
+first and the main rollout last. An existing complete conversation cannot be
+overwritten; only the verified extension of a managed prerequisite described
+above uses atomic replacement. Newly created parent directory entries and
+installed file entries are synced. On a handled failure, reverse cleanup removes
+only links whose inode still belongs
 to this attempt; replacements and preexisting files are preserved. Empty created
 directories may remain. Closing the incoming transfer removes its private
 staging, never the successful installed files.
@@ -333,17 +352,16 @@ Resolve and test that race before claiming general concurrent import support;
 the implementation currently refuses a preexisting prefix selection and does not
 write SQLite to repair it.
 
-Likewise, a longer required prefix or a complete parent imported after an earlier
-partial prerequisite currently conflicts. That preserves existing data, but is
-not the final answer for compatible extensions: qualify a way to preserve both
-existing dependents and the newly requested complete history without making a
-short prefix the selected complete conversation. Source/destination alias
+Compatible longer prefixes are implemented and pass native resume tests, but
+a complete parent imported after an earlier partial prerequisite still conflicts.
+Resolve promotion without making a short prefix the selected complete conversation
+or invalidating existing dependents. Source/destination alias
 handling now releases source locks before destination acquisition as described
 above; real shared-volume/remote endpoint qualification remains outstanding.
 
 ## Remaining implementation
 
-1. Resolve concurrent initial backfill, compatible prefix extension/promotion
+1. Resolve concurrent initial backfill, complete-parent promotion
    and recovery after an uncatchable interruption. Keep database selection and
    prerequisite visibility explicit.
 2. Qualify endpoint paths, configuration boundaries, storage aliases and

@@ -79,6 +79,15 @@ func TestBundledHelpers(t *testing.T) {
 			if capabilities.Protocol != session.ProtocolVersion || capabilities.OS != "linux" || capabilities.Arch != arch {
 				t.Fatalf("bundled protocol mismatch: %+v", capabilities)
 			}
+			t.Run("compatible-prefix-extension", func(t *testing.T) {
+				testPrefixTransfers(t, func(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
+					cmd := exec.CommandContext(ctx, path, args...)
+					cmd.WaitDelay = time.Second
+					cmd.Stdin, cmd.Stdout = input, output
+					cmd.Stderr = os.Stderr
+					return cmd.Run()
+				})
+			})
 			for _, operation := range []string{"export", "import"} {
 				for _, alias := range []bool{false, true} {
 					name := operation
