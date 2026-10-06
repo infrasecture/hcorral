@@ -147,6 +147,55 @@ Manual in-container updates are allowed and persisted-user paths precede image
 tools. Recreating a container restores the selected image layer while retaining
 mounted state and workspace data.
 
+## Codex session transfer
+
+Session transfer is implemented on the development branch and still undergoing
+Docker/runtime and consistency qualification. See the remaining gates in the
+[implementation ledger](docs/implementation-status.md) before using it with
+important conversations.
+
+```console
+hcorral session export <session-id>
+hcorral session import <session-id> /path/to/host/codex-home
+hcorral session --help
+```
+
+Export copies from the selected Codex corral to the host; import reverses that
+direction. The optional path names the host Codex home itself and defaults to
+host `CODEX_HOME`, then `~/.codex`. Relative paths use the caller's directory.
+The host is the Docker client machine, including when Docker uses a remote daemon.
+An existing running or stopped corral is required; transfer does not pull images,
+start/recreate the workstation, attach to tmux or resume Codex.
+
+The command copies the selected native history and required inherited prefixes.
+It preserves the session ID and reuses identical existing files; divergent
+history is a conflict. Credentials, configuration, workspace files, database-only
+names/metadata and external resources are excluded. The selected persisted
+conversation must be inactive. Review its saved workspace and permissions before
+resuming at the destination. Archived sessions stay archived.
+
+SQLite metadata may live outside `CODEX_HOME`. Discovery reads local base config,
+local requirements and `CODEX_SQLITE_HOME` separately at each endpoint. To select
+the effective directory when Codex uses project config, CLI-selected profiles,
+runtime flags, cloud policy or macOS managed preferences, use:
+
+```console
+hcorral session export <session-id> --host-sqlite-home /host/state --container-sqlite-home /container/state
+```
+
+Explicit container paths must be absolute. A separate SQLite directory must
+already exist; container metadata must be in persistent mounted storage.
+`--format=json` returns the confirmed result and resolved database locations.
+A result can accompany a nonzero exit if publication succeeded but later helper
+cleanup failed. A missing result is not proof that the destination was unchanged;
+inspect it or retry, which reuses verified identical history.
+
+Complete builds bundle Linux AMD64 and ARM64 helpers, so users need neither Go
+nor Python installed. Use `build.sh` for a complete source build; plain `go build`
+without generated helper assets cannot perform transfers. Advanced size limits
+and the detailed endpoint behavior are documented in `hcorral session --help` and
+the [transfer design](docs/session-transfer-design.md).
+
 ## GUI and Compose overlays
 
 Headless mode works with the selected Docker context, including Colima and

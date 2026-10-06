@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/infrasecture/hcorral/internal/sessionconfig"
 )
 
 // Opt-in native format qualification. An isolated app server resumes synthetic
@@ -256,10 +258,15 @@ type codexServer struct {
 }
 
 func startCodex(t *testing.T, binary, home, workspace string) *codexServer {
+	return startCodexWithEnv(t, binary, home, workspace, nil)
+}
+
+func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []string) *codexServer {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	cmd := exec.CommandContext(ctx, binary, "app-server", "--listen", "stdio://")
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "CODEX_HOME=" + home, "RUST_LOG=error"}
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Dir = workspace
 	cmd.WaitDelay = time.Second
 	var stderr bytes.Buffer
@@ -302,6 +309,59 @@ func startCodex(t *testing.T, binary, home, workspace string) *codexServer {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestNativeCodexSQLiteLocationMatchesDiscovery(t *testing.T) {
+	binary := os.Getenv("HCORRAL_TEST_CODEX")
+	if binary == "" {
+		t.Skip("set HCORRAL_TEST_CODEX to a selected Codex executable")
+	}
+	for _, name := range []string{"/etc/codex/config.toml", "/etc/codex/requirements.toml", "/etc/codex/managed_config.toml"} {
+		if _, err := os.Stat(name); !os.IsNotExist(err) {
+			t.Skip("native SQLite qualification requires an unmanaged system configuration")
+		}
+	}
+	for _, mode := range []string{"default", "environment relative", "user config over environment"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			workspace := filepath.Join(root, "workspace")
+			for _, dir := range []string{home, workspace} {
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			config := "model='fixture-model'\nmodel_provider='test-provider'\n[model_providers.test-provider]\nname='Local fixture'\nbase_url='http://127.0.0.1:1/v1'\nwire_api='responses'\nrequires_openai_auth=false\n"
+			environment := ""
+			if mode != "default" {
+				environment = " relative state \n"
+			}
+			if mode == "user config over environment" {
+				config = "sqlite_home='../user state'\n" + config
+			}
+			if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := sessionconfig.SQLiteHome(context.Background(), sessionconfig.SQLiteOptions{Home: home, CWD: workspace, Environment: environment}, sessionconfig.ReadLocalFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(resolved.Path, root+string(filepath.Separator)) {
+				t.Fatalf("fixture resolved outside its disposable root: %q", resolved.Path)
+			}
+			server := startCodexWithEnv(t, binary, home, workspace, []string{"CODEX_SQLITE_HOME=" + environment})
+			server.call(t, "thread/list", map[string]any{"limit": 1})
+			server.finish(t)
+			if _, err := os.Stat(filepath.Join(resolved.Path, "state_5.sqlite")); err != nil {
+				t.Fatalf("native Codex did not use the resolved SQLite home %q: %v", resolved.Path, err)
+			}
+			if resolved.Path != home {
+				if _, err := os.Stat(filepath.Join(home, "state_5.sqlite")); !os.IsNotExist(err) {
+					t.Fatal("native Codex also initialized the default database")
+				}
+			}
+		})
+	}
 }
 
 func (s *codexServer) call(t *testing.T, method string, params any) json.RawMessage {

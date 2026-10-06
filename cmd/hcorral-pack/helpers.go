@@ -79,3 +79,31 @@ func writeHelperPayload(directory, name string, data []byte) error {
 	}
 	return os.Rename(f.Name(), filepath.Join(directory, name))
 }
+
+// Check the final launcher, not merely generated source assets. Go's linker
+// omits unreachable embed data; preparing helpers does not prove they shipped.
+// Payload linkage/protocol validation happens before this inclusion gate.
+func bundledHelpers(args []string) error {
+	flags := flag.NewFlagSet("bundled-helpers", flag.ContinueOnError)
+	directory := flags.String("directory", "", "directory of validated helper payloads")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *directory == "" || flags.NArg() != 1 {
+		return errors.New("bundled-helpers requires -directory and launcher executable")
+	}
+	launcher, err := os.ReadFile(flags.Arg(0))
+	if err != nil {
+		return err
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		payload, err := os.ReadFile(filepath.Join(*directory, "linux-"+arch+".gz"))
+		if err != nil {
+			return err
+		}
+		if len(payload) == 0 || !bytes.Contains(launcher, payload) {
+			return fmt.Errorf("launcher does not contain the exact validated Linux %s helper payload", arch)
+		}
+	}
+	return nil
+}

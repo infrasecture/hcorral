@@ -65,4 +65,25 @@ func TestHelperPackagingChecksBothArchitecturesAndIsReproducible(t *testing.T) {
 	if _, err := os.Stat(badOutput); !os.IsNotExist(err) {
 		t.Fatal("packaging wrote files before validating both architectures")
 	}
+	// Compile real go:embed data, then verify inclusion in the linked artifact.
+	// Changing an expected payload must fail even though both files still exist.
+	embedSource := []byte("package main\nimport (\"embed\";\"fmt\")\n//go:embed payloads/*.gz\nvar assets embed.FS\nfunc main(){for _,arch:=range []string{\"amd64\",\"arm64\"}{data,_:=assets.ReadFile(\"payloads/linux-\"+arch+\".gz\");fmt.Println(len(data))}}\n")
+	if err := os.WriteFile(source, embedSource, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(dir, "launcher")
+	cmd := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-buildvcs=false", "-trimpath", "-o", launcher, source)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off")
+	if data, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build embedded fixture: %v\n%s", err, data)
+	}
+	if err := bundledHelpers([]string{"-directory", output, launcher}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(output, "linux-arm64.gz"), append(first["arm64"], 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := bundledHelpers([]string{"-directory", output, launcher}); err == nil {
+		t.Fatal("accepted launcher with a different helper payload")
+	}
 }

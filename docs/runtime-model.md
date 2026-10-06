@@ -65,3 +65,12 @@ volumes, pull images, reconcile containers or install/replace X11 credentials.
 Deployed image facts use Docker's actual image ID, independently of mutable
 image references. Installed harness versions can differ from bundled versions
 when the persisted user prefix contains an update.
+
+`session export/import` uses the existing Codex corral's inspected identity and
+storage, under the project lock, without Compose or GUI preparation. A temporary
+helper runs against that storage whether the workstation is running or stopped;
+only the helper is started and removed. The host participates through native Go
+code and streaming Docker I/O, so its paths need not exist on a remote daemon.
+Explicit state selections that disagree with the deployed runtime home are
+rejected. Conversation writer locks are separate from the local project lock.
+See [the transfer design and remaining qualification gates](session-transfer-design.md).

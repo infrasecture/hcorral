@@ -1,9 +1,14 @@
 # Configuration
 
-Hcorral does not read repository-local configuration. On Linux it reads
+Hcorral's launcher settings do not come from repository-local configuration.
+On Linux it reads
 `${XDG_CONFIG_HOME:-$HOME/.config}/hcorral/config.toml`; on macOS it reads
 `$HOME/Library/Application Support/hcorral/config.toml`. It never creates or
 modifies the file.
+
+Codex session transfer separately reads Codex configuration to locate its SQLite
+metadata. It never uses that configuration to select or reconcile Docker resources;
+see [the transfer configuration boundary](session-transfer-design.md#public-commands-and-configuration-boundary).
 
 ```toml
 default_harness = "codex"

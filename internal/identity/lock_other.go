@@ -2,11 +2,17 @@
 
 package identity
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 type Lock struct{}
 
 func AcquireLock(string) (*Lock, error) {
+	return nil, fmt.Errorf("mutation locks unsupported on this platform")
+}
+func AcquireLockContext(context.Context, string) (*Lock, error) {
 	return nil, fmt.Errorf("mutation locks unsupported on this platform")
 }
 func AcquireVolumeLock(string) (*Lock, error) {

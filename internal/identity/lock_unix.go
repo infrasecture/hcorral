@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 )
 
 type Lock struct {
@@ -18,11 +20,17 @@ type Lock struct {
 }
 
 func AcquireLock(project string) (*Lock, error) {
+	return AcquireLockContext(context.Background(), project)
+}
+
+// AcquireLockContext lets an interrupted transfer stop while another launcher
+// owns the project lock. No goroutine remains blocked in flock after cancellation.
+func AcquireLockContext(ctx context.Context, project string) (*Lock, error) {
 	path, err := lockPath(project)
 	if err != nil {
 		return nil, err
 	}
-	return acquireLockPath(path)
+	return acquireLockPathContext(ctx, path)
 }
 
 // AcquireVolumeLock serializes launcher-managed volume creation, reference
@@ -41,6 +49,13 @@ func AcquireVolumeLock(volume string) (*Lock, error) {
 }
 
 func acquireLockPath(path string) (*Lock, error) {
+	return acquireLockPathContext(context.Background(), path)
+}
+
+func acquireLockPathContext(ctx context.Context, path string) (*Lock, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	directory := filepath.Dir(path)
 	base := filepath.Dir(filepath.Dir(directory))
 	if err := secureLockDirectory(base, filepath.Base(filepath.Dir(directory)), filepath.Base(directory)); err != nil {
@@ -54,9 +69,28 @@ func acquireLockPath(path string) (*Lock, error) {
 		return nil, fmt.Errorf("open mutation lock: %w", err)
 	}
 	file := os.NewFile(uintptr(fd), path)
-	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+	for {
+		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN && err != syscall.EINTR {
+			file.Close()
+			return nil, fmt.Errorf("acquire mutation lock: %w", err)
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			file.Close()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		syscall.Flock(fd, syscall.LOCK_UN)
 		file.Close()
-		return nil, fmt.Errorf("acquire mutation lock: %w", err)
+		return nil, err
 	}
 	if err := file.Chmod(0o600); err != nil {
 		syscall.Flock(fd, syscall.LOCK_UN)

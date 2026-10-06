@@ -26,7 +26,7 @@ development testing.
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core implemented; indexing race still open | Read-only SQLite/WAL selection, writer guards, conflict checks, private staging and exclusive publication tested; simultaneous initial Codex backfill needs a resolved contract |
-| Session endpoints and helper distribution | Partial | Inspected mount/identity selection, separate SQLite mounts, streaming controller, bounded config reads and two-architecture helper packaging implemented; effective configuration discovery, public command wiring and final launcher inclusion remain |
+| Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
@@ -192,3 +192,47 @@ helper containers, remote daemons, real mount permissions and independent remote
 process cleanup remain unexecuted. Effective SQLite config discovery, public
 commands/result reporting and the remaining consistency gates above are next;
 this checkpoint does not complete phase 5 or the full proposal.
+
+## Public session-command checkpoint
+
+`hcorral session export/import <UUID> [host-codex-home]` now dispatches before
+ordinary lifecycle/Compose/GUI preparation. It captures the host environment,
+honors explicit path / `CODEX_HOME` / `~/.codex` precedence, verifies the selected
+existing corral under a cancellable project lock, and refuses an explicit state
+selection that disagrees with its deployed home. Human and JSON output preserve
+a confirmed publication result even if later remote cleanup fails.
+
+`internal/sessionconfig` resolves Unix system/user base TOML, local requirements,
+legacy managed TOML and `CODEX_SQLITE_HOME`. Config paths are relative to their
+file, while relative environment paths use the endpoint working directory. A
+project config declaring `sqlite_home` requires an explicit endpoint path rather
+than approximating Codex's trust rules. CLI-selected profile-v2 files, per-process
+runtime overrides, cloud policy and macOS managed preferences are not discoverable
+from these base files; database overrides from those sources require explicit
+`--host-sqlite-home` / `--container-sqlite-home`. This boundary is documented in
+help and README. Parse failures do not echo configuration contents.
+
+Evidence at this checkpoint:
+
+- Controlled public-command tests exercise both directions and running/stopped
+  corrals, all host-path defaults, relocated authoritative SQLite selection,
+  excluded credentials, ownership/state refusal and publication acknowledgement
+  followed by cleanup failure. They run the actual transfer core through an
+  injectable Docker runner, not a real daemon.
+- Native Codex 0.160.0 and 0.160.1 created their databases at the locations chosen
+  by discovery for default, relative environment and overriding relative user
+  config cases. These tests use disposable homes and no account credentials.
+- Both Linux and both macOS launchers cross-build with cgo disabled and pass
+  linkage inspection. A new final-executable gate verifies the exact AMD64 and
+  ARM64 helper payload bytes are present in every launcher; it rejects a changed
+  expected payload. Native Linux AMD64 runs the public session help command.
+- Stripped development launcher sizes are approximately 18.1 MB Linux AMD64,
+  17.6 MB Linux ARM64, 18.2 MB macOS AMD64 and 17.7 MB macOS ARM64. These are
+  complete development executables, not qualified release archives/packages.
+
+Public wiring and prepared packaging no longer remain missing. Remaining work
+includes concurrent initial indexing, compatible prefix extension/promotion,
+uncatchable-interruption recovery, broader writer/runtime qualification, actual
+Docker transfers and cancellation, real native platform/package/image acceptance,
+and the demonstrated myCodex transition. No user conversation or workstation was
+migrated, no image/release was published, and the full goal remains incomplete.

@@ -22,6 +22,9 @@ import (
 )
 
 func runOperational(cfg config.Config, workspace identity.Workspace, streams Streams, runner command.Runner) int {
+	if commandName(cfg.Command) == "session" {
+		return runSessionCommand(cfg, workspace, streams, runner)
+	}
 	ctx := context.Background()
 	docker := containerruntime.NewDocker(runner).WithStreams(streams.Out, streams.Err)
 	containers, dockerErr := docker.ListContainers(ctx)

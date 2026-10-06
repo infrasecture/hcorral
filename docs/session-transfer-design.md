@@ -1,8 +1,9 @@
 # Session transfer implementation decisions
 
 Design reference: myCodex `.proposals/hcorral-go-successor.md`, phase 5, and
-`.proposals/codex-session-transfer.md`. This is an implementation record, not
-a claim that `hcorral session` is available yet.
+`.proposals/codex-session-transfer.md`. This is an implementation record. Public
+commands are now wired on the development branch; unresolved consistency and
+runtime qualification gates below still prevent claiming release readiness.
 
 ## Source format
 
@@ -52,9 +53,9 @@ rollout I/O, but this is not an atomic filesystem snapshot against arbitrary
 same-user file replacement. Qualify that boundary before destination writes.
 
 The inspection API requires the effective SQLite home explicitly, allowing a
-separate state directory. Endpoint code still needs to resolve Codex's actual
-configuration/environment precedence or reject unsupported overrides clearly.
-It must not infer that state always lives under `CODEX_HOME`.
+separate state directory. Endpoint code now supplies the file/env resolution or
+an explicit user selection described below; it does not infer that state always
+lives under `CODEX_HOME`.
 
 Ambiguous rollout IDs without authoritative selection fail. Plain/compressed
 representations can be deduplicated only when their decoded selected bytes
@@ -66,8 +67,8 @@ Plans contain SHA-256 hashes, decoded sizes, modification times, native
 metadata and required files in prerequisite-first order. Compressed logs are
 decoded to byte-identical JSONL. The parser does not have Scanner's small
 default line limit. Explicit resource limits currently default to 256 MiB per
-record, 64 GiB per decoded file and 4,096 lineage files; the transport must
-expose an intentional way to raise these for valid larger data.
+record, 64 GiB per decoded file and 4,096 lineage files. Public transfer flags
+allow these limits, and the 8 MiB manifest limit, to be raised for larger data.
 
 ## Writer coordination
 
@@ -187,7 +188,7 @@ limit. It sets a private umask and handles cancellation of blocked stdio pipes;
 signal tests exercise the command entrypoint in real subprocesses. No credentials,
 shell startup, Codex execution, Docker access or network is part of this helper.
 The build now prepares Linux payloads for selection by actual container image
-architecture, as described below. Public launcher integration remains pending.
+architecture, as described below, and the public launcher uses that bundle.
 
 ## Endpoint transport and bundled helpers
 
@@ -226,8 +227,9 @@ and again before execution. Cancellation closes the local pipe and separately
 stops the helper under a fresh bounded cleanup context. A random name and exact
 operation token restrict cleanup to this helper; neither the workstation nor
 its volumes is removed. A lost create reply is handled by inspecting that exact
-name/token. Project locking in the public command is still needed. Docker CLI
-preflight is not an atomic reservation against another actor deleting the
+name/token. The public command holds its local project lock throughout discovery
+and transfer; waiting for that lock is cancellable. Docker CLI preflight is not
+an atomic reservation against another actor deleting the
 original container and volume between inspection and helper creation; qualify
 and retain this boundary rather than claiming the CLI cannot create a missing
 volume under every external race.
@@ -255,23 +257,71 @@ from the image would miss such container-local changes. Only a single bounded
 regular member is accepted and nothing is extracted into host storage. A missing
 file is distinguished from a missing container, access failure or failed Docker
 connection, followed by an identity recheck before treating a layer as absent.
-The configuration resolver itself is not wired yet; it must inspect only relevant
-config files, avoid credentials and avoid including configuration contents in
-parse diagnostics. It must resolve or explicitly reject ambiguous managed,
-project/profile and runtime overrides rather than assume the default database.
+The configuration resolver reads only relevant config files and redacts parser
+diagnostics that might echo their contents. Local host reads allow intentional
+config symlinks, reject special files before reading, and enforce the same size
+bound. Neither endpoint loads authentication data to discover configuration.
 
 `build.sh` builds both Linux helpers first, validates their ELF linkage and
 architecture, and deterministically compresses them into generated embed assets.
 The decoder rejects missing, empty, corrupted, truncated or concatenated payloads.
 The bundle test runs the native architecture's actual executable and inspects the
 other one. Ordinary source-only builds can compile without generated helpers,
-but transfer then reports the missing payload. The launcher still needs public
-command integration to make this package and its embedded bytes reachable; final
-artifact inclusion, size and native platform behavior remain release gates.
+but transfer then reports the missing payload. Public command integration makes
+the package and its embed data reachable. A final-executable gate additionally
+requires both exact validated compressed payloads to appear in each launcher;
+prepared assets alone cannot satisfy it. Native platform and final release-package
+qualification remain outstanding.
 
 Docker contracts checked against the primary sources: [volume population and
 subdirectories](https://docs.docker.com/engine/storage/volumes/) and
 [Engine mount types](https://github.com/moby/moby/blob/master/api/types/mount/mount.go).
+
+## Public commands and configuration boundary
+
+The command interface is `hcorral session export/import <UUID> [host-codex-home]`.
+The optional path is a Codex home root, with precedence over the captured host
+`CODEX_HOME` and then `$HOME/.codex`. Host-relative paths use the caller's working
+directory; the host remains the Docker client machine when using a remote daemon.
+Transfer flags can appear before or after the ID/path. `session --help` needs
+neither Docker nor an existing workspace.
+
+SQLite selection has its own `--host-sqlite-home` and `--container-sqlite-home`
+options. An explicit host SQLite path can be relative to the caller; the container
+option must be absolute. Explicit selection bypasses config discovery. Otherwise
+the resolver follows the researched Unix base-file contract: default Codex home,
+trimmed `CODEX_SQLITE_HOME`, system config, user config, system requirements, and
+legacy managed config, with the last applicable value winning. Relative config
+paths resolve against their file's directory; relative environment paths use
+the current host caller directory or the deployed container workdir.
+
+Project configuration can override this value only when enabled by Codex's trust
+and project-root rules. The resolver detects ancestor `.codex/config.toml` files
+declaring `sqlite_home` and requires explicit selection rather than guessing those
+rules. It may conservatively require a path for a candidate outside the active
+project root. A local requirement that fixes the final SQLite home takes priority
+over these project candidates. A missing layer is distinct from permission or
+parse failures; those errors do not silently select the default database.
+
+The resolver deliberately does not fetch cloud policy, consult macOS managed
+preferences, infer a CLI-selected profile-v2 file or inspect another process's
+runtime flags/environment. If such settings change SQLite location, the caller
+must provide its effective path explicitly. The same applies to a relative
+database path selected from a different working directory when the conversation
+was created. This is a documented input boundary, not a claim of full Codex
+configuration-engine compatibility. Native 0.160.0/0.160.1 tests verify the default,
+relative environment, and user-config-over-environment cases; local managed-file
+precedence has source inspection and controlled tests.
+
+The command verifies ownership and explicit state selections before configuration
+reads, then transfer rechecks the deployed identity and mounts. It dispatches
+before Compose rendering, GUI preparation or normal workstation lifecycle paths.
+Human and JSON reports include the resolved SQLite locations and confirmed result.
+Human paths are quoted; both modes explain that workspace files, credentials,
+configuration, external resources and database-only names/metadata are excluded.
+No saved execution policy is automatically run, and archived sessions remain
+archived. A nonzero exit may accompany a confirmed publication when finalization
+fails; absence of a result does not prove nothing was written.
 
 ## Remaining consistency questions
 
@@ -296,13 +346,12 @@ above; real shared-volume/remote endpoint qualification remains outstanding.
 1. Resolve concurrent initial backfill, compatible prefix extension/promotion
    and recovery after an uncatchable interruption. Keep database selection and
    prerequisite visibility explicit.
-2. Resolve effective endpoint paths and SQLite configuration, qualify storage aliases,
-   source/destination identity, and result reporting including saved policy and
-   optional metadata/resource limitations.
-3. Wire the prepared helper bundle into the public launcher and qualify the
-   implemented Docker streaming/cancellation against actual containers, deployed
-   home/mount/identity and architecture inspection.
-4. Wire public `session export/import`; qualify running/stopped and remote-Docker
+2. Qualify endpoint paths, configuration boundaries, storage aliases and
+   source/destination identity against actual deployed environments. Extend
+   metadata support where it can be preserved without copying unrelated state.
+3. Qualify the bundled launcher's Docker streaming/cancellation against actual
+   containers, deployed home/mount/identity and architecture inspection.
+4. Exercise public `session export/import` on running/stopped and remote-Docker
    paths without workstation pull/start/recreate/attach side effects.
 5. Extend native fixtures, runtime writer qualification and platform coverage,
    then execute the full endpoint and source/destination acceptance matrix.
