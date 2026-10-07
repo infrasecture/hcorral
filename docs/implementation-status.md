@@ -9,7 +9,7 @@ development testing.
 
 The user subsequently required copying conversations while they remain open,
 including running turns, and supplied `ssh isec` for build/test execution.
-The current working change replaces source writer exclusion with a saved-history
+Commit `176673e` replaces source writer exclusion with a saved-history
 snapshot. Destination publication still refuses conflicting or busy history.
 See the live-copy entry at the end for current evidence; earlier lock-refusal
 entries below describe the superseded implementation.
@@ -1258,7 +1258,11 @@ expected source writer refusal and have been corrected to the new requirement;
 they are not evidence of an export failure. The corrected public Docker suite passed, including read-only source export,
 read-only destination refusal, live source ownership, destination exclusion,
 shared-storage behavior and actual running-turn copies in both version directions.
-The final complete source-check script is running separately on `isec`.
+The full `scripts/ci-source.sh` also passed on `isec`: formatting, module
+consistency, vet/unit/race/fuzz checks, shell and tmux tests, provenance/licenses,
+release/image contracts, workflow validation and the vulnerability gate.
+The live-copy candidate is submitted in [draft PR #20](https://github.com/infrasecture/hcorral/pull/20);
+its updated cross-platform CI is running.
 
 A baseline comparison confirmed all pre-existing containers retain their exact
 IDs, image IDs, running state and lifecycle timestamps. All pre-existing images
