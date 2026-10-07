@@ -328,7 +328,11 @@ func (f *dockerSession) helperIDs() []string {
 }
 
 func (f *dockerSession) state() string {
-	return string(f.docker("inspect", "--format", `{{.Id}}|{{.Image}}|{{.State.Status}}|{{.State.StartedAt}}|{{.State.FinishedAt}}|{{json .Mounts}}`, f.container))
+	output := f.docker("inspect", "--format", `{{.Id}}|{{.Image}}|{{.State.Status}}|{{.State.StartedAt}}|{{.State.FinishedAt}}{{println}}{{range .Mounts}}{{json .}}{{println}}{{end}}`, f.container)
+	// Older daemons expose mount-map iteration order, not a stable array.
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
 }
 
 func (f *dockerSession) assertPreserved(before, volumes string) {

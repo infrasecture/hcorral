@@ -24,6 +24,7 @@ if runtime_uid:
         raise SystemExit("HCORRAL_TEST_TMUX_UID must be numeric")
     tmux_command.extend(["gosu", runtime_uid])
 tmux_command.append("tmux")
+expected_text = os.environ.get("HCORRAL_TEST_ATTACH_TEXT", "").encode()
 
 pid, fd = pty.fork()
 if pid == 0:
@@ -61,7 +62,8 @@ try:
                 tmux_command + ["list-clients", "-F", "#{session_name}"],
                 capture_output=True, timeout=5, check=False,
             )
-            if clients.returncode == 0 and b"hcorral" in clients.stdout.splitlines():
+            if (clients.returncode == 0 and b"hcorral" in clients.stdout.splitlines()
+                    and (not expected_text or expected_text in output)):
                 subprocess.run(
                     tmux_command + ["detach-client", "-s", "hcorral"],
                     capture_output=True, timeout=5, check=True,

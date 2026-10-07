@@ -150,7 +150,7 @@ jobs:
         include:
           - runner: macos-15
             arch: arm64
-            colima: false
+            colima: true
           - runner: macos-15-intel
             arch: amd64
             colima: true
@@ -194,10 +194,12 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          brew install colima coreutils docker docker-compose
+          brew install colima coreutils docker docker-compose qemu
           mkdir -p "$HOME/.docker/cli-plugins"
           ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
-          colima start --cpu 2 --memory 4 --disk 10
+          colima_args=(--cpu 2 --memory 4 --disk 10)
+          if [[ "$ARCH" == arm64 ]]; then colima_args+=(--arch x86_64 --vm-type qemu); fi
+          colima start "${colima_args[@]}"
           trap 'colima stop' EXIT
           export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
           mkdir -p "$TEST_TMPDIR"

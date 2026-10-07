@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Qualify actual old/new artifacts, with no publication or user-state adoption.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Mixed-version assertion failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=tests/qualification/container-state.sh
+source "$root/tests/qualification/container-state.sh"
 arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 binary="${HCORRAL_TEST_BINARY:-$root/dist/bin/hcorral-linux-$arch}"
 [[ "$(uname -s)" == Linux && -x "$binary" ]]
@@ -78,7 +81,7 @@ for launcher_generation in old new; do
     if [[ "$ready" != 1 ]]; then docker logs "$project" >&2; exit 1; fi
     expected_image="$(docker image inspect --format '{{.Id}}' "$image")"
     [[ "$(docker inspect --format '{{.Image}}' "$project")" == "$expected_image" ]]
-    before="$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")"
+    before="$(container_snapshot "$project")"
     panes="$(tmux_in_container list-panes -t hcorral -F '#{session_id}:#{pane_id}')"
     # shellcheck disable=SC2016 # Expanded by the runtime user's container shell.
     "$launcher" exec bash -c 'printf "persistent state\n" >"$HOME/compatibility-sentinel"'
@@ -88,11 +91,12 @@ for launcher_generation in old new; do
     [[ "$(tmux_in_container show-options -qv -t hcorral @hcorral-gui)" == GUI:off ]]
     tmux_in_container show-options -qv -t hcorral @hcorral-notices | grep -Fq 'GUI access disabled'
     tmux_in_container set-option -t hcorral @hcorral-notices 'Retained startup report on a mixed-version workstation'
-    python3 "$root/tests/integration/attach-probe.py" "$project" "$binary" notices
+    HCORRAL_TEST_ATTACH_TEXT='Retained startup report on a mixed-version workstation' \
+      python3 "$root/tests/integration/attach-probe.py" "$project" "$binary" notices
     [[ "$(tmux_in_container show-options -qv -t hcorral @hcorral-notices)" == 'Retained startup report on a mixed-version workstation' ]]
     [[ "$(tmux_in_container list-panes -t hcorral -F '#{session_id}:#{pane_id}')" == "$panes" ]]
     [[ "$(docker exec "$project" sha256sum /home/compatibility/compatibility-sentinel)" == "$marker" ]]
-    [[ "$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")" == "$before" ]]
+    assert_container_snapshot "$project" "$before"
     "$launcher" down
     docker volume inspect "$volume" >/dev/null
     docker volume rm "$volume" >/dev/null

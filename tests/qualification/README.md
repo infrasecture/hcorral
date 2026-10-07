@@ -24,8 +24,14 @@ service are required. This is native filesystem/runtime qualification; real
 Docker endpoint tests live in `tests/integration`.
 
 CI runs the native session suite on Linux/macOS AMD64/ARM64 and real Colima
-integration on macOS Intel. The hosted macOS ARM64 job runs native core and
-launcher checks but does not establish a local Docker/VM acceptance result.
+integration on both macOS targets. On ARM64, Colima uses an x86_64 QEMU guest
+to avoid depending on nested hardware virtualization. The launcher and session
+test executable still run natively as ARM64 macOS programs, selecting the
+embedded AMD64 helper for the actual Linux container. This also exercises
+different host/container architectures. It is not a native ARM64 guest-VM test;
+the Linux ARM64 jobs separately execute that container/helper architecture.
+See Colima's documented [architecture selection](https://colima.run/docs/configuration/).
+This added hosted ARM64 Docker gate still requires a successful run.
 The release workflow uses the same session gates before publication can proceed.
 Running the ordinary CI workflow never publishes a launcher or image.
 

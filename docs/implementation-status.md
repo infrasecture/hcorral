@@ -528,3 +528,28 @@ ShellCheck, Bash syntax, workflow lint and release-contract checks pass locally.
 Native server/container execution remains pending CI. The servers use software
 rendering on a disposable runner; this is not physical desktop, GPU or every
 compositor's clipboard acceptance, and existing stable desktop gates remain.
+
+## Platform results and diagnostic follow-up: 2026-10-07
+
+At `63563cd`, CI run 37556175953 passed the native Codex suite on both macOS
+architectures as well as both Linux architectures. The Intel Colima step was
+still running when this checkpoint was recorded. Mixed-version shared homes
+passed at all identities, and several actual launcher/image combinations passed
+attachment/report/state checks. A later bare assertion failed in each mixed
+job, before transition execution; the failing invariant was not printed, so the
+root cause is not established by those logs.
+
+Qualification scripts now report the failing assertion and canonicalize Docker
+mount snapshots without dropping any fields. Older Docker inspection code
+iterates a mount map without sorting; ordering alone cannot establish a changed
+mount. The reopen probe now waits to see the retained report text in the PTY
+before detaching, providing actual display evidence. These follow-ups require
+another Docker run, not a claim that the unknown assertion failure is solved.
+
+The macOS ARM64 Docker gate is also wired through Colima's x86_64 QEMU guest
+mode: native ARM64 launcher/test binaries select the embedded AMD64 Linux helper.
+This avoids relying on nested hardware virtualization and exercises differing
+client/container architectures. It is a qualification attempt requiring actual
+execution, not a native ARM64 guest result or a predeclared platform pass.
+Local shell/workflow and release-contract checks pass; Go integration package
+compilation passes with Docker cases skipped in this Docker-less local environment.

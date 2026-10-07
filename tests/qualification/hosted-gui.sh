@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Native protocol servers on a disposable runner, using the production runtime.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "GUI server qualification failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 base="${1:?usage: hosted-gui.sh QUALIFIED_HCORRAL_CODEX_IMAGE}"
 test_root="$(mktemp -d /tmp/hcorral-display.XXXXXX)"

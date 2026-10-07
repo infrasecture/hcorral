@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Exercise the documented manual transition on disposable, synthetic state.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "Transition assertion failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=tests/qualification/container-state.sh
+source "$root/tests/qualification/container-state.sh"
 image="${1:?usage: mycodex-transition.sh QUALIFIED_HCORRAL_CODEX_IMAGE}"
 arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 binary="${HCORRAL_TEST_BINARY:-$root/dist/bin/hcorral-linux-$arch}"
@@ -104,9 +107,9 @@ public_round_trip() {
   if [[ "$ready" != 1 ]]; then docker logs "$receiver" >&2; exit 1; fi
   docker exec -i --user "$uid:$gid" "$receiver" sh -c 'cat >/home/transition/.codex/config.toml' <"$host_home/config.toml"
   "$binary" --project-name "$receiver" --state-volume "$receiver_volume" stop
-  stopped="$(docker inspect --format '{{.Id}}|{{.State.Status}}|{{.State.StartedAt}}|{{json .Mounts}}' "$receiver")"
+  stopped="$(container_snapshot "$receiver")"
   "$binary" --project-name "$receiver" --state-volume "$receiver_volume" session import "$thread" "$host_home"
-  [[ "$(docker inspect --format '{{.Id}}|{{.State.Status}}|{{.State.StartedAt}}|{{json .Mounts}}' "$receiver")" == "$stopped" ]]
+  assert_container_snapshot "$receiver" "$stopped"
   "$binary" --project-name "$receiver" --state-volume "$receiver_volume" start
   # The existing runtime account/home survives container restart; wait for the
   # actual tmux session rather than interpreting Docker's running flag as ready.
@@ -164,10 +167,10 @@ EOF
   visible "$legacy_container"
   before="$(manifest "$source_volume")"
   source_labels="$(docker volume inspect --format '{{json .Labels}}' "$source_volume")"
-  legacy_identity="$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$legacy_container")"
+  legacy_identity="$(container_snapshot "$legacy_container")"
   refused
   [[ "$(manifest "$source_volume")" == "$before" ]]
-  [[ "$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$legacy_container")" == "$legacy_identity" ]]
+  assert_container_snapshot "$legacy_container" "$legacy_identity"
   legacy stop
   refused
   [[ "$(manifest "$source_volume")" == "$before" ]]

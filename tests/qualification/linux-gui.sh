@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "GUI assertion failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 mode="${1:-}"
 case "${mode}" in x11|wayland) ;; *) echo 'usage: linux-gui.sh x11|wayland' >&2; exit 2 ;; esac
@@ -7,6 +8,8 @@ case "${mode}" in x11|wayland) ;; *) echo 'usage: linux-gui.sh x11|wayland' >&2;
 if [[ "$mode" == x11 ]]; then unset WAYLAND_DISPLAY; fi
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=tests/qualification/container-state.sh
+source "$repo_root/tests/qualification/container-state.sh"
 binary="${HCORRAL_TEST_BINARY:-${repo_root}/dist/bin/hcorral-linux-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')}"
 [[ -x "${binary}" ]] || { echo "missing test binary: ${binary}" >&2; exit 2; }
 
@@ -70,7 +73,7 @@ if docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$
   exit 1
 fi
 
-before="$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")"
+before="$(container_snapshot "$project")"
 # Change discovery inputs while attaching: the existing deployment stays in its
 # original GUI mode, and its session-scoped badge must remain visible.
 XDG_CACHE_HOME="$test_root/cache" HCORRAL_WORKSPACE="$workspace" HCORRAL_IMAGE="$image" \
@@ -82,14 +85,14 @@ tmux_command+=(tmux)
 badge=GUI:X11
 [[ "$mode" != wayland ]] || badge=GUI:WL
 [[ "$("${tmux_command[@]}" show-options -qv -t hcorral @hcorral-gui)" == "$badge" ]]
-[[ "$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")" == "$before" ]]
+assert_container_snapshot "$project" "$before"
 
 # A failed explicit request cannot silently recreate this container headless.
 if DISPLAY='' WAYLAND_DISPLAY='' run_hcorral --gui="$mode" up -d >"$test_root/missing-display.log" 2>&1; then
   echo 'explicit GUI request without its display unexpectedly succeeded' >&2
   exit 1
 fi
-[[ "$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")" == "$before" ]]
+assert_container_snapshot "$project" "$before"
 
 run_hcorral --gui="${mode}" down -v >/dev/null
 project=""
