@@ -4,6 +4,13 @@
 Docker. Each harness gets an independent container in the same physical
 workspace, while the workspace and an optional persisted home can be shared.
 
+The installation commands below select the published `v0.1.0` preview. Automatic
+GUI discovery, inactive image refresh, retained notices and session transfer
+described here are development changes after that release. Shared shell defaults
+also require an updated workstation image. See the
+[implementation ledger](docs/implementation-status.md) for qualification results;
+updating a source checkout does not update an installed launcher or running image.
+
 ## Install
 
 Hcorral requires Docker and Docker Compose v2, installed separately.

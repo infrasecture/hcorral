@@ -1060,3 +1060,26 @@ cancelled: both previous runs were terminal before dispatch. Their evidence is
 recorded above, and the completed temporary qualification branch
 `agent/qualify-go-successor-4cb9129` has been removed. The repository still has
 no registered self-hosted runner for the separate physical-desktop gate.
+
+## Linux storage and Compose regression results: 2026-10-07
+
+At `973bfb1`, [Linux AMD64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111188)
+and [Linux ARM64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111233)
+both passed the complete native/Docker suite. This includes shared-storage alias
+preservation, host/container writer exclusion, the new nested writer-lock mount,
+and public export/native resume/completed-turn/stopped import/re-export/peer
+resume in both pinned Codex version directions. These native Linux fixtures
+exercise the supported-storage path, not the Colima refusal path.
+
+Both pinned Compose jobs also passed. The
+[AMD64 wrapper regression](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111196)
+now completes successfully with the corrected rendering budget. This closes the
+recorded failed case; it does not imply that required rendering is unbounded.
+The source, four-target build, all six image and both Linux package jobs passed.
+Both macOS Homebrew and native Codex steps passed with the filesystem checks;
+their Colima steps and both mixed-version jobs were still running when inspected.
+The aggregate run is therefore not yet qualified.
+
+The published release list still contains only preview `v0.1.0`. README now
+distinguishes those installation examples from this branch's unreleased
+behavior, including the separate image update needed for shell initialization.
