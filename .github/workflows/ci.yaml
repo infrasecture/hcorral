@@ -260,6 +260,11 @@ jobs:
             echo 'macOS GUI request unexpectedly succeeded' >&2
             exit 1
           fi
+      - name: Qualify unpublished Homebrew package
+        env:
+          VERSION: v0.0.0
+          ARCH: ${{ matrix.arch }}
+        run: ./tests/qualification/homebrew.sh
       - run: |
           chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
           ./tests/qualification/codex-sessions.sh

@@ -68,6 +68,17 @@ This added hosted ARM64 Docker gate still requires a successful run.
 The release workflow uses the same session gates before publication can proceed.
 Running the ordinary CI workflow never publishes a launcher or image.
 
+`homebrew.sh` runs the same package gate in ordinary CI and release qualification
+on both macOS architectures. The full nonpublishing release build generates the
+formula from its two Darwin archives; partial target builds do not combine a new
+archive with a stale archive from another build. The gate verifies checksums,
+audits the release URL in a local tap, then substitutes only the selected URL
+with the local unpublished archive. Homebrew verifies its original SHA-256,
+installs it, and runs the formula test. The installed executable must also match
+the build's binary exactly. The gate removes its package and tap and refuses an
+already installed hcorral or existing qualification tap. Generation/source checks
+alone do not establish that Homebrew installation passed on either architecture.
+
 `mixed-versions.sh` qualifies the actual published v0.1.0 launcher against the
 new launcher artifact, each with an image built from the pre-parity recipe at
 `18fb3944f9b04758b920b1e9415fd017eff8cf51` and the current recipe. Both images

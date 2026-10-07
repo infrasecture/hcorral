@@ -162,32 +162,11 @@ jobs:
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
-      - env:
+      - name: Qualify unpublished Homebrew package
+        env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
-        run: |
-          (cd dist && shasum -a 256 -c SHA256SUMS)
-          pkg_version="${VERSION#v}"
-          tar -xzf "dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/hcorral" version
-          ruby -c dist/Formula/hcorral.rb
-          qualification_tap=hcorral/qualification
-          qualified_formula="${qualification_tap}/hcorral"
-          brew tap-new --no-git "$qualification_tap"
-          formula="$(brew --repository "$qualification_tap")/Formula/hcorral.rb"
-          cp dist/Formula/hcorral.rb "$formula"
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --strict "$qualified_formula"
-          archive="$PWD/dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz"
-          # shellcheck disable=SC2016 # Ruby, not the shell, expands $_.
-          ARCHIVE="$archive" ARCH="$ARCH" ruby -pi -e '
-            if $_.include?("darwin_#{ENV.fetch("ARCH")}.tar.gz\"")
-              $_ = "    url \"file://#{ENV.fetch("ARCHIVE")}\"\n"
-            end
-          ' "$formula"
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew install "$qualified_formula"
-          hcorral version
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew test "$qualified_formula"
-          brew uninstall hcorral
+        run: ./tests/qualification/homebrew.sh
       - run: |
           chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
           ./tests/qualification/codex-sessions.sh

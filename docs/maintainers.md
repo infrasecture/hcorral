@@ -7,6 +7,15 @@ Run the source, package, shell, contract, race, and vulnerability gates with:
 ./build.sh --release --cli-version v0.1.0 --packages
 ```
 
+Building both Darwin release targets also generates `dist/Formula/hcorral.rb`
+from those exact archives. On a clean native macOS qualification runner, use
+`VERSION=v0.1.0 ARCH=arm64 ./tests/qualification/homebrew.sh` (or `ARCH=amd64`).
+The same script runs in ordinary CI and before release publication: it audits
+the release formula in a temporary local tap, installs the unpublished archive,
+checks the installed binary against the build, runs the formula test, and removes
+its installation and tap. It refuses to replace an existing hcorral installation.
+This check publishes nothing and requires no GitHub release or tap update.
+
 `CI` uses hosted Linux amd64/arm64 and macOS Intel/Apple Silicon runners. The
 release workflow prepares one artifact set, qualifies deb/rpm/Arch packages,
 both Darwin archives and Homebrew formulae, and headless Colima on both macOS

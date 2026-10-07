@@ -780,3 +780,24 @@ through its supplementary group, then verifies access is denied when that group
 permission is removed. This checks actual permissions as well as `id` output
 for Codex, Claude and Pi. ShellCheck, Bash syntax and release-contract checks
 pass; the actual image/platform matrix must run these new assertions.
+
+## Nonpublishing Homebrew qualification: 2026-10-07
+
+The package audit found that ordinary CI exercised macOS archives but left
+Homebrew audit/installation solely in the publishing release workflow. Formula
+generation now belongs to the shared release build: it hashes the two archives
+from that build and emits the same formula used for publication. A partial
+target build cannot generate a formula by borrowing a stale archive. Publication
+still consumes its recorded prepared artifacts and retains its existing gates.
+
+Both CI and release qualification now call one native macOS Homebrew fixture.
+It audits the actual release formula, installs the selected unpublished archive
+through a local tap, compares the installed executable with the build artifact,
+and runs the formula test. It refuses an existing hcorral installation or fixture
+tap and cleans up its own installation/tap. This requires no release publication.
+
+ShellCheck, Bash syntax, workflow lint and the release-contract checks pass.
+The contract fixture renders from actual test inputs, verifies both URL/digest
+pairs, and rejects invalid versions or a missing archive without changing prior
+output. Actual Homebrew execution remains pending the next native platform run;
+the live `f10c95c` CI run predates this addition and has not been canceled.
