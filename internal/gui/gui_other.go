@@ -12,3 +12,5 @@ import (
 func (r Resolver) resolvePlatform(_ context.Context, mode string, _ identity.Workspace, _ compose.AssetPaths) (Selection, error) {
 	return unsupported(mode)
 }
+
+func (r Resolver) Prepare(_ context.Context, _ Selection) error { return nil }

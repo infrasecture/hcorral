@@ -3,12 +3,36 @@
 package identity
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
 )
+
+func TestProjectLockWaitIsCancellableWithoutReleasingTheOwner(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	first, err := AcquireLock("hcorral-cancel-ccccccc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	if second, err := AcquireLockContext(ctx, "hcorral-cancel-ccccccc"); !errors.Is(err, context.DeadlineExceeded) || second != nil {
+		t.Fatalf("cancelled lock wait: %v %v", second, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := AcquireLock("hcorral-cancel-ccccccc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry.Close()
+}
 
 func TestAcquireLockSerializesAndProtectsFile(t *testing.T) {
 	root := t.TempDir()

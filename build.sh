@@ -3,6 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "${script_dir}"
+# shellcheck source=scripts/lib/release-versioning.sh
+source "${script_dir}/scripts/lib/release-versioning.sh"
 
 builder_image="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c60731c8ba49088448b91f63e2aed97ca9d1a9791622a05946}"
 nfpm_image="${HCORRAL_NFPM_IMAGE:-ghcr.io/goreleaser/nfpm:v2.47.0@sha256:a662cb167d7b6d3a83920c83d76b12d02b8ac5dd2c13e5c62c15270b23f6df0c}"
@@ -15,8 +17,9 @@ usage() {
 Usage: ./build.sh [--release --cli-version vX.Y.Z [--packages]]
 
 Without --release, build the native hcorral binary. Release mode builds static
-Linux and Darwin amd64/arm64 archives. --packages additionally creates deb,
+Linux and self-contained Darwin amd64/arm64 archives. --packages additionally creates deb,
 rpm, and Arch Linux packages for both Linux architectures. Nothing is published.
+Building both Darwin release targets also writes dist/Formula/hcorral.rb.
 EOF
 }
 
@@ -51,8 +54,10 @@ source_date_epoch="${SOURCE_DATE_EPOCH:-315532800}"
 pkg_version="${cli_version#v}"
 gomod_cache_volume=hcorral-build-gomod-v1
 gobuild_cache_volume=hcorral-build-gocache-v1
-mkdir -p dist/bin dist/package-config
+mkdir -p dist/bin dist/package-config dist/tests
 artifacts=()
+darwin_amd64_built=false
+darwin_arm64_built=false
 
 ensure_build_cache() {
   local name="$1" kind="$2" actual
@@ -73,6 +78,24 @@ docker run --rm --user root \
   --volume "${gobuild_cache_volume}:/tmp/go-build" \
   "${builder_image}" sh -c 'chown -R "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
 
+# Every launcher can target either Linux architecture, regardless of its host.
+# Build helpers first, then validate and embed their exact compressed bytes.
+for helper_arch in amd64 arm64; do
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS=linux --env "GOARCH=${helper_arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go build -buildvcs=false -trimpath -ldflags '-s -w' -o "/src/dist/bin/hcorral-session-linux-${helper_arch}" ./cmd/hcorral-session
+done
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+  go run ./cmd/hcorral-pack helpers -amd64 /src/dist/bin/hcorral-session-linux-amd64 -arm64 /src/dist/bin/hcorral-session-linux-arm64 -output /src/internal/sessiontransport/helpers
+docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+  --env CGO_ENABLED=0 --env HCORRAL_TEST_BUNDLED_HELPERS=1 \
+  --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+  go test -count=1 -run '^TestBundledHelpers$' ./internal/sessiontransport
+
 for target in ${targets}; do
   os="${target%/*}"; arch="${target#*/}"
   output="dist/bin/hcorral-${os}-${arch}"
@@ -92,12 +115,41 @@ for target in ${targets}; do
     "${builder_image}" \
     go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/infrasecture/hcorral/internal/app.Version=${cli_version} -X github.com/infrasecture/hcorral/internal/app.Commit=${commit}" -o "/src/${output}" ./cmd/hcorral
   chmod 0755 "${output}"
+  # Acceptance executables travel in the CI artifact, not user archives or
+  # packages. Native runners exercise the exact launcher without installing Go.
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS="${os}" --env GOARCH="${arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go test -c -buildvcs=false -trimpath -o "/src/dist/tests/session-transfer-${os}-${arch}" ./tests/integration
+  chmod 0755 "dist/tests/session-transfer-${os}-${arch}"
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS="${os}" --env GOARCH="${arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go test -c -buildvcs=false -trimpath -o "/src/dist/tests/session-core-${os}-${arch}" ./internal/session
+  chmod 0755 "dist/tests/session-core-${os}-${arch}"
+  docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+    --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+    go run ./cmd/hcorral-pack linkage -os "${os}" -arch "${arch}" "/src/${output}"
+  docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
+    --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
+    go run ./cmd/hcorral-pack bundled-helpers -directory /src/internal/sessiontransport/helpers "/src/${output}"
   archive="dist/hcorral_${pkg_version}_${os}_${arch}.tar.gz"
   docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
     --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
-    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md -file /src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md
+    go run ./cmd/hcorral-pack archive -output "/src/${archive}" -mtime "${source_date_epoch}" -file "/src/${output}=hcorral" -file /src/LICENSE=LICENSE -file /src/README.md=README.md -file /src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md -file /src/THIRD_PARTY_GO_LICENSES.txt=THIRD_PARTY_GO_LICENSES.txt
   artifacts+=("${archive}")
+  [[ "${target}" != darwin/amd64 ]] || darwin_amd64_built=true
+  [[ "${target}" != darwin/arm64 ]] || darwin_arm64_built=true
 done
+
+# A partial target build must not combine its new archive with a stale one.
+if [[ "${release}" == true && "${darwin_amd64_built}" == true && "${darwin_arm64_built}" == true ]]; then
+  hcorral_write_homebrew_formula "${cli_version}" dist
+fi
 
 if [[ "${packages}" == true ]]; then
   for arch in amd64 arm64; do
@@ -129,6 +181,8 @@ contents:
     dst: /usr/share/doc/hcorral/README.md
   - src: /src/THIRD_PARTY_LICENSES.md
     dst: /usr/share/doc/hcorral/THIRD_PARTY_LICENSES.md
+  - src: /src/THIRD_PARTY_GO_LICENSES.txt
+    dst: /usr/share/doc/hcorral/THIRD_PARTY_GO_LICENSES.txt
 EOF
     rpm_arch="${arch}"; arch_arch="${arch}"
     [[ "${arch}" == amd64 ]] && { rpm_arch=x86_64; arch_arch=x86_64; }

@@ -52,6 +52,7 @@ type Config struct {
 	ContainerHome          string
 	Workdir                string
 	UpdateCheck            bool
+	AutoPull               bool
 	WaitTimeoutSeconds     int
 	ProgressIntervalSecond int
 	Session                string
@@ -80,7 +81,7 @@ var knownEnvironment = map[string]bool{
 	"HCORRAL_GUI": true, "HCORRAL_COMPOSE_COMMAND": true, "HCORRAL_COMPOSE_FILES": true,
 	"HCORRAL_CONTAINER_HOME": true, "HCORRAL_WORKDIR": true, "HCORRAL_UPDATE_CHECK": true,
 	"HCORRAL_WAIT_TIMEOUT_SECONDS": true, "HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS": true,
-	"HCORRAL_BYOBU_SESSION": true, "HCORRAL_AUTO_ATTACH": true,
+	"HCORRAL_BYOBU_SESSION": true, "HCORRAL_AUTO_ATTACH": true, "HCORRAL_AUTO_PULL": true,
 }
 
 func Parse(args []string, options ParseOptions) (Config, error) {
@@ -114,7 +115,7 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 		ProjectName: options.Getenv("HCORRAL_PROJECT_NAME"), Harness: selectedHarness, ConfigFile: path,
 		StateMode: StateShared, StateVolumeName: options.Getenv("HCORRAL_STATE_VOLUME_NAME"),
 		ComposeCommand: []string{"docker", "compose"}, ContainerHome: valueOr(options.Getenv("HCORRAL_CONTAINER_HOME"), options.HomeDir),
-		Workdir: options.Getenv("HCORRAL_WORKDIR"), UpdateCheck: true, WaitTimeoutSeconds: 30,
+		Workdir: options.Getenv("HCORRAL_WORKDIR"), UpdateCheck: true, AutoPull: true, WaitTimeoutSeconds: 30,
 		ProgressIntervalSecond: 2, Session: valueOr(options.Getenv("HCORRAL_BYOBU_SESSION"), "hcorral"), Platform: options.Platform,
 		Sources: map[string]string{
 			"workspace": source(options.Getenv("HCORRAL_WORKSPACE") != ""), "project_name": source(options.Getenv("HCORRAL_PROJECT_NAME") != ""),
@@ -122,6 +123,7 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 			"compose_command": source(options.Getenv("HCORRAL_COMPOSE_COMMAND") != ""), "compose_files": source(options.Getenv("HCORRAL_COMPOSE_FILES") != ""),
 			"extra_volumes": "default", "container_home": source(options.Getenv("HCORRAL_CONTAINER_HOME") != ""), "workdir": source(options.Getenv("HCORRAL_WORKDIR") != ""),
 			"update_check": source(options.Getenv("HCORRAL_UPDATE_CHECK") != ""), "wait_timeout": source(options.Getenv("HCORRAL_WAIT_TIMEOUT_SECONDS") != ""),
+			"auto_pull":         source(options.Getenv("HCORRAL_AUTO_PULL") != ""),
 			"progress_interval": source(options.Getenv("HCORRAL_STARTUP_PROGRESS_INTERVAL_SECONDS") != ""),
 			"session":           source(options.Getenv("HCORRAL_BYOBU_SESSION") != ""), "auto_attach": source(options.Getenv("HCORRAL_AUTO_ATTACH") != ""),
 		},
@@ -164,6 +166,12 @@ func Parse(args []string, options ParseOptions) (Config, error) {
 	}
 	if raw := options.Getenv("HCORRAL_UPDATE_CHECK"); raw != "" {
 		cfg.UpdateCheck, err = parseBool("HCORRAL_UPDATE_CHECK", raw)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+	if raw := options.Getenv("HCORRAL_AUTO_PULL"); raw != "" {
+		cfg.AutoPull, err = parseBool("HCORRAL_AUTO_PULL", raw)
 		if err != nil {
 			return Config{}, err
 		}

@@ -50,6 +50,16 @@ func Run(args []string, streams Streams) int {
 		fmt.Fprintf(streams.Out, "hcorral %s (%s)\n", Version, Commit)
 		return 0
 	}
+	if len(cfg.Command) > 0 && cfg.Command[0] == "session" {
+		request, err := parseSession(cfg.Command[1:])
+		if err != nil {
+			return fail(streams.Err, 2, "%v", err)
+		}
+		if request.help {
+			fmt.Fprint(streams.Out, SessionUsage)
+			return 0
+		}
+	}
 
 	workspace, err := identity.Resolve(cfg.CallerDir, cfg.Workspace, cfg.Harness, cfg.ProjectName)
 	if err != nil {
@@ -121,6 +131,8 @@ func childExitCode(err error) int {
 const Usage = `Usage:
   hcorral [options]                  Start if needed, then attach
   hcorral [options] attach           Attach to the workstation session
+  hcorral [options] notices          Reopen its retained startup/update report
+  hcorral [options] session export|import <id> [host-codex-home] [transfer-options]
   hcorral [options] info [--format=human|json]
   hcorral [options] state rm --scope global|workspace
   hcorral [options] ps|start|stop|restart|pull|up|create|down [args...]

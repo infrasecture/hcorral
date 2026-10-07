@@ -7,3 +7,5 @@ scripts/build-harness-image.sh
 scripts/lib/hcorral-image.sh
 scripts/check-third-party.sh
 tests/image/entrypoint-matrix.sh
+tests/image/runtime-home.sh
+tests/image/runtime-home-probe.sh

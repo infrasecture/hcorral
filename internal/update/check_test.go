@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/config"
@@ -48,6 +49,30 @@ func (installedVersionRunner) Replace([]string, []string) error {
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestNotifyExplainsAnAlreadyRefreshedWorkstationImage(t *testing.T) {
+	for _, refreshed := range []bool{false, true} {
+		container := &containerruntime.Container{ID: "fixture", ImageID: "sha256:fixture"}
+		container.Config.Env = []string{"HCORRAL_HOST_UID=1000"}
+		container.State.Running = true
+		var out bytes.Buffer
+		checker := Checker{Docker: containerruntime.NewDocker(installedVersionRunner{}), Out: &out, ImageRefreshed: refreshed,
+			RegistryURL: "https://registry.invalid/latest", Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"version":"1.4.0","tag_name":"v0.1.0"}`))}, nil
+			})}}
+		checker.Notify(context.Background(), config.Config{Harness: "codex", Image: "registry.invalid/image:latest", UpdateCheck: true}, container)
+		if !strings.Contains(out.String(), "1.4.0 is available upstream") {
+			t.Fatalf("missing upstream report: %s", &out)
+		}
+		if refreshed {
+			if !strings.Contains(out.String(), "was just pulled") || strings.Contains(out.String(), "run `hcorral pull`") {
+				t.Fatalf("misleading refresh advice: %s", &out)
+			}
+		} else if !strings.Contains(out.String(), "run `hcorral pull`") {
+			t.Fatalf("missing explicit refresh advice: %s", &out)
+		}
+	}
+}
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
@@ -101,12 +126,55 @@ func TestInspectPrefersRunningInstalledVersionOverImageLabel(t *testing.T) {
 	t.Parallel()
 	container := &containerruntime.Container{Name: "/hcorral-demo-aaaaaaa"}
 	container.Config.Image = "example.invalid/hcorral-codex:1.2.3"
+	container.ImageID = "sha256:deployed"
 	container.Config.Env = []string{"HCORRAL_HOST_UID=1000"}
 	container.State.Running = true
 	checker := Checker{Docker: containerruntime.NewDocker(installedVersionRunner{})}
 	facts := checker.Inspect(context.Background(), config.Config{Harness: "codex", Image: container.Config.Image, UpdateCheck: false}, container)
-	if facts.Current != "1.3.0" || facts.Selected != "1.2.3" {
+	if facts.Current != "1.3.0" || facts.Selected != "1.2.3" || facts.Bundled != "1.2.3" || facts.Installed != "1.3.0" {
 		t.Fatalf("version facts = %#v", facts)
+	}
+}
+
+type movedTagRunner struct{ installedVersionRunner }
+
+func (movedTagRunner) Capture(ctx context.Context, argv, _ []string) (command.Result, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return command.Result{}, errors.New("missing probe deadline")
+	}
+	version := "2.0.0"
+	if argv[len(argv)-1] == "sha256:old" {
+		version = "1.0.0"
+	}
+	return command.Result{Stdout: []byte(`[{"Config":{"Labels":{"ai.infrasecture.hcorral.harness.version":"` + version + `"}}}]`)}, nil
+}
+
+func TestStoppedVersionUsesImmutableDeployedImage(t *testing.T) {
+	t.Parallel()
+	container := &containerruntime.Container{ImageID: "sha256:old"}
+	container.Config.Image = "example/codex:latest"
+	facts := (Checker{Docker: containerruntime.NewDocker(movedTagRunner{})}).Inspect(context.Background(), config.Config{Harness: "codex", Image: container.Config.Image}, container)
+	if facts.Current != "1.0.0" || facts.Selected != "2.0.0" || !facts.SelectedNewer || facts.Installed != "" {
+		t.Fatalf("mutable tag changed deployed facts: %#v", facts)
+	}
+}
+
+type stalledProbeRunner struct{ installedVersionRunner }
+
+func (stalledProbeRunner) Capture(ctx context.Context, _, _ []string) (command.Result, error) {
+	<-ctx.Done()
+	return command.Result{}, ctx.Err()
+}
+
+func TestVersionInspectionHonorsCallerDeadline(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	container := &containerruntime.Container{ImageID: "sha256:old"}
+	(Checker{Docker: containerruntime.NewDocker(stalledProbeRunner{})}).Inspect(ctx, config.Config{Image: "example/codex:latest"}, container)
+	if time.Since(start) > time.Second {
+		t.Fatal("inspection ignored caller deadline")
 	}
 }
 

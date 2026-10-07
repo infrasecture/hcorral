@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/compose"
@@ -70,6 +69,7 @@ type snapshotConfig struct {
 	ContainerHome    string            `json:"container_home"`
 	Workdir          string            `json:"workdir"`
 	UpdateCheck      bool              `json:"update_check"`
+	AutoPull         bool              `json:"auto_pull"`
 	WaitTimeout      int               `json:"wait_timeout_seconds"`
 	ProgressInterval int               `json:"startup_progress_interval_seconds"`
 	Session          string            `json:"session"`
@@ -140,6 +140,7 @@ type snapshotGUI struct {
 	Requested config.GUIIntent `json:"requested"`
 	Effective string           `json:"effective"`
 	Deployed  string           `json:"deployed"`
+	Reason    string           `json:"reason"`
 }
 
 type snapshotCompose struct {
@@ -195,6 +196,7 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 			ContainerHome:    cfg.ContainerHome,
 			Workdir:          cfg.Workdir,
 			UpdateCheck:      cfg.UpdateCheck,
+			AutoPull:         cfg.AutoPull,
 			WaitTimeout:      cfg.WaitTimeoutSeconds,
 			ProgressInterval: cfg.ProgressIntervalSecond,
 			Session:          cfg.Session,
@@ -215,7 +217,7 @@ func printSnapshot(ctx context.Context, streams Streams, cfg config.Config, work
 		GUI:     snapshotGUI{Requested: cfg.GUI, Effective: effectiveGUI(cfg, candidate), Deployed: deployedGUI(candidate)},
 		Compose: snapshotCompose{Command: commandSummary, Files: nonNilStrings(cfg.ComposeFiles), Services: []string{}, DesiredHashes: map[string]string{}, DeployedHashes: map[string]string{}, Drift: "unknown"},
 		Session: snapshotSession{Name: cfg.Session, Status: "absent"},
-		Update:  update.Facts{Enabled: cfg.UpdateCheck, Pinned: !strings.HasSuffix(cfg.Image, ":latest"), LookupStatus: "unavailable", LookupErrorKind: "docker"},
+		Update:  update.Facts{Enabled: cfg.UpdateCheck, Pinned: !containerruntime.IsLatest(cfg.Image), LookupStatus: "unavailable", LookupErrorKind: "docker"},
 		Docker:  snapshotDocker{Available: dockerErr == nil},
 	}
 	if legacy != nil {
@@ -274,15 +276,18 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		}
 		s.Container = snapshotContainer{Status: candidate.State.Status, ID: candidate.ID, StartedAt: candidate.State.Started, Image: candidate.Config.Image}
 		s.Image.DeployedReference = candidate.Config.Image
-		if image, err := docker.InspectImage(ctx, candidate.Config.Image); err == nil && image != nil {
-			s.Image.DeployedID = image.ID
-			s.Image.DeployedDigests = nonNilStrings(image.RepoDigests)
+		s.Image.DeployedID = candidate.ImageID
+		if candidate.ImageID != "" {
+			if image, err := docker.InspectImage(ctx, candidate.ImageID); err == nil && image != nil {
+				s.Image.DeployedDigests = nonNilStrings(image.RepoDigests)
+			}
 		}
 		for _, mount := range candidate.Mounts {
 			s.Mounts = append(s.Mounts, snapshotMount{Type: mount.Type, Name: mount.Name, Source: mount.Source, Destination: mount.Destination, ReadWrite: mount.RW})
 		}
 		if ownershipErr == nil && candidate.State.Running {
-			if sessionReady(ctx, docker, cfg, workspace.Project) {
+			s.Session.Name = deployedSettings(cfg, candidate).Session
+			if sessionReady(ctx, docker, cfg, candidate) {
 				s.Session.Status = "present"
 			} else {
 				s.Session.Status = "missing"
@@ -311,6 +316,7 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		s.Compose.Error = "project preparation failed"
 	} else {
 		s.GUI.Effective = selection.Mode
+		s.GUI.Reason = selection.Reason
 		s.Compose.Files = append([]string{assets.Base}, cfg.ComposeFiles...)
 		if selection.File != "" {
 			s.Compose.Files = append([]string{assets.Base, selection.File}, cfg.ComposeFiles...)
@@ -345,7 +351,9 @@ func populateDockerSnapshot(ctx context.Context, s *snapshot, cfg config.Config,
 		}
 	}
 
-	s.Update = update.Checker{Docker: docker, LauncherVersion: Version}.Inspect(ctx, cfg, managed)
+	updateConfig := cfg
+	updateConfig.Image = s.Image.RenderedReference
+	s.Update = update.Checker{Docker: docker, LauncherVersion: Version}.Inspect(ctx, updateConfig, managed)
 }
 
 func removalSnapshot(ctx context.Context, docker containerruntime.Docker, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container, exists bool) snapshotRemoval {

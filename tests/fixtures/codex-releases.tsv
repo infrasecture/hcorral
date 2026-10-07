@@ -1,0 +1,10 @@
+# version platform archive sha256
+# Official openai/codex release asset digests, verified on 2026-10-07.
+0.160.0 linux-amd64 codex-x86_64-unknown-linux-musl.tar.gz 306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13
+0.160.0 linux-arm64 codex-aarch64-unknown-linux-musl.tar.gz 883620139925f677e5a12c95ba87a1d7f421388ebb797b1c10aba42a04ede9d7
+0.160.0 darwin-amd64 codex-x86_64-apple-darwin.tar.gz a50c10606e4e81b8dd2f7b6bab635595aabc773c84cf2071773fbaf067825fbf
+0.160.0 darwin-arm64 codex-aarch64-apple-darwin.tar.gz 07c3c7ca376a8f791115342f53138dda37e97cfa29b8125d0652d93784894b5d
+0.160.1 linux-amd64 codex-x86_64-unknown-linux-musl.tar.gz 9226581be592d18f7e7f740a352fdb63aa61e45e39f7eb9b09d3888c84bba33f
+0.160.1 linux-arm64 codex-aarch64-unknown-linux-musl.tar.gz f54dc5852042445bf41da3aa31156f3cb02f52c5a1a04074de73dc5598f7e1f7
+0.160.1 darwin-amd64 codex-x86_64-apple-darwin.tar.gz 8d938ddb93c4424b1d45f1606984ed514c5aa70e463302a6a2227fba7af02db7
+0.160.1 darwin-arm64 codex-aarch64-apple-darwin.tar.gz 670af2b049d9c95afb74d7da385f30c5033d13a07175001dd8958c51944984d0

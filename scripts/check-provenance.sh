@@ -9,7 +9,7 @@ fail() {
   exit 1
 }
 
-mycodex_commit=cf3ee24af2b077996ac176ffffd1e34e892df061
+mycodex_commit=ebc930ac00adea662789d6c2f43666ec1003eca0
 vaka_commit=409ee53a8072282a2660f3e73ab1f204be17b4a9
 tap_start_commit=e39fd9dff3b0d91f277d7c02a598b348e2f10a9a
 
@@ -19,7 +19,7 @@ done
 grep -Fq -- 'discussioncomment-18127443' docs/provenance.md || fail 'Discussion 15 decision URL is missing'
 grep -Fq -- "${mycodex_commit}" tests/contract/feature-parity.yaml || fail 'feature parity baseline differs from provenance'
 
-for path in image/Dockerfile image/entrypoint.sh image/session-init.sh scripts/build-harness-image.sh scripts/lib/hcorral-image.sh; do
+for path in image/Dockerfile image/entrypoint.sh image/session-init.sh scripts/build-harness-image.sh scripts/lib/hcorral-image.sh internal/app/assets/tmux-notices.sh tests/tmux-notices_test.py tests/image/runtime-home.sh tests/image/runtime-home-probe.sh; do
   grep -Fq -- "\`$path\`" docs/provenance.md || fail "copied/adapted inventory is missing ${path}"
 done
 

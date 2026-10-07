@@ -14,6 +14,8 @@ grep -Fq -- "-fuzztime=25000x" scripts/ci-source.sh || fail 'fuzz qualification 
 grep -Fq 'lacks exact hcorral ownership labels' build.sh || fail 'build cache collision refusal is missing'
 grep -Fq 'buildhost: hcorral-build' build.sh || fail 'fixed RPM build host is missing'
 grep -Fq '/src/THIRD_PARTY_LICENSES.md=THIRD_PARTY_LICENSES.md' build.sh || fail 'raw archives omit the dependency-license inventory'
+grep -Fq '/src/THIRD_PARTY_GO_LICENSES.txt=THIRD_PARTY_GO_LICENSES.txt' build.sh || fail 'raw archives omit Go dependency license texts'
+grep -Fq '/usr/share/doc/hcorral/THIRD_PARTY_GO_LICENSES.txt' build.sh || fail 'Linux packages omit Go dependency license texts'
 # shellcheck disable=SC2016 # Match the literal token expansion.
 grep -Fq 'Authorization: Bearer ${token}' scripts/build-harness-image.sh || fail 'GitHub API image resolution does not support authenticated CI requests'
 if grep -Fq 'find dist -maxdepth 1' build.sh release.sh; then fail 'release artifacts are discovered from stale dist contents'; fi
@@ -23,11 +25,6 @@ grep -Fq 'dist/hcorral-${package_version}-1-aarch64.pkg.tar.zst' release.sh || f
 release_help="$(./release.sh --help)"
 grep -Fq -- '--prepare-only' <<<"${release_help}" || fail 'release help lacks prepare-only'
 grep -Fq -- '--publish-prepared' <<<"${release_help}" || fail 'release help lacks publish-prepared'
-grep -Fq 'AGPL-3.0-or-later' release.sh || fail 'formula license missing'
-grep -Fq 'depends_on :macos' release.sh || fail 'formula is not constrained to macOS'
-grep -Fq 'if Hardware::CPU.arm?' release.sh || fail 'formula lacks supported architecture selection'
-if grep -A3 -F 'on_arm do' release.sh | grep -Fq 'url '; then fail 'formula uses unsupported URL inside on_arm'; fi
-grep -Fq 'bin.install "hcorral"' release.sh || fail 'formula install contract missing'
 grep -Fq 'publish-prepared' release.sh || fail 'publish phase missing'
 grep -Fq 'verify_qualifications' release.sh || fail 'publish phase does not enforce qualification records'
 grep -Fq 'publication-ledger.tsv' release.sh || fail 'publication ledger is missing'
@@ -43,7 +40,11 @@ grep -A24 -F 'name: release/publish' .github/workflows/release.yaml | grep -Fq '
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
-grep -Fq 'brew audit --strict "$qualified_formula"' .github/workflows/release.yaml || fail 'prepublication formula audit is missing'
+grep -Fq 'brew audit --strict "$qualified_formula"' tests/qualification/homebrew.sh || fail 'prepublication formula audit is missing'
+for workflow in .github/workflows/ci.yaml .github/workflows/release.yaml; do
+  grep -Fq './tests/qualification/homebrew.sh' "$workflow" || fail "$workflow omits the shared Homebrew gate"
+done
+grep -Fq 'hcorral_write_homebrew_formula' build.sh || fail 'nonpublishing build omits Homebrew formula generation'
 grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
 grep -Fq 'if: matrix.colima' .github/workflows/release.yaml || fail 'Colima qualification is not isolated to its supported macOS runner'
 grep -Fq 'fail-fast: false' .github/workflows/release.yaml || fail 'Darwin architecture qualification can cancel independent evidence'
@@ -59,9 +60,9 @@ grep -Fq 'tmux list-clients -t hcorral' tests/integration/real-docker.sh || fail
 if grep -R -E '(^|[[:space:]])(mapfile|readarray)([[:space:]]|$)' tests/integration; then fail 'integration tests require Bash features newer than macOS Bash 3.2'; fi
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
 grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
-if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' .github/workflows/release.yaml; then fail 'Homebrew qualification audits a disabled formula path'; fi
+if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' tests/qualification/homebrew.sh; then fail 'Homebrew qualification audits a disabled formula path'; fi
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
-grep -Fq 'brew tap-new --no-git "$qualification_tap"' .github/workflows/release.yaml || fail 'Homebrew qualification does not use an isolated local tap'
+grep -Fq 'brew tap-new --no-git "$qualification_tap"' tests/qualification/homebrew.sh || fail 'Homebrew qualification does not use an isolated local tap'
 grep -Fq "grep -Fxq 'arch = aarch64'" .github/workflows/release.yaml || fail 'arm64 Arch package metadata qualification is missing'
 grep -Fq 'pacman -U --noconfirm' .github/workflows/release.yaml || fail 'amd64 Arch package installation qualification is missing'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
@@ -69,6 +70,31 @@ grep -Fq 'HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral"' .github/wor
 
 qualification_dir="$(mktemp -d "${TMPDIR:-/tmp}/hcorral-qualification.XXXXXX")"
 trap 'rm -rf -- "${qualification_dir}"' EXIT
+
+# Formula generation uses real archive bytes, validates both inputs before
+# replacing output, and shares the same version contract as release publication.
+# shellcheck source=scripts/lib/release-versioning.sh
+source scripts/lib/release-versioning.sh
+formula_dir="${qualification_dir}/formula fixture"
+mkdir -p "$formula_dir"
+printf amd64 >"${formula_dir}/hcorral_1.2.3_darwin_amd64.tar.gz"
+printf arm64 >"${formula_dir}/hcorral_1.2.3_darwin_arm64.tar.gz"
+hcorral_write_homebrew_formula v1.2.3 "$formula_dir"
+formula="${formula_dir}/Formula/hcorral.rb"
+grep -Fq 'AGPL-3.0-or-later' "$formula" || fail 'formula license missing'
+grep -Fq 'depends_on :macos' "$formula" || fail 'formula is not constrained to macOS'
+grep -Fq 'if Hardware::CPU.arm?' "$formula" || fail 'formula lacks supported architecture selection'
+grep -Fq 'bin.install "hcorral"' "$formula" || fail 'formula install contract missing'
+for arch in amd64 arm64; do
+  grep -Fq "releases/download/v1.2.3/hcorral_1.2.3_darwin_${arch}.tar.gz" "$formula" || fail 'formula archive URL mismatch'
+  grep -Fq "sha256 \"$(hcorral_sha256_file "${formula_dir}/hcorral_1.2.3_darwin_${arch}.tar.gz")\"" "$formula" || fail 'formula archive checksum mismatch'
+done
+formula_sha="$(hcorral_sha256_file "$formula")"
+if hcorral_write_homebrew_formula v1.2 "$formula_dir" >/dev/null 2>&1; then fail 'invalid formula version accepted'; fi
+rm "${formula_dir}/hcorral_1.2.3_darwin_arm64.tar.gz"
+if hcorral_write_homebrew_formula v1.2.3 "$formula_dir" >/dev/null 2>&1; then fail 'formula accepted missing architecture'; fi
+[[ "$(hcorral_sha256_file "$formula")" == "$formula_sha" ]] || fail 'invalid formula request changed prior output'
+
 qualification_file="${qualification_dir}/linux-amd64.env"
 scripts/release-qualification.sh \
   --version v1.2.3 \

@@ -1,9 +1,7 @@
 package compose
 
 import (
-	"fmt"
 	"os"
-	"os/user"
 	"strconv"
 	"strings"
 
@@ -28,33 +26,9 @@ func NewInvocation(cfg config.Config, workspace identity.Workspace, paths AssetP
 			stateVolume = "hcorral_state"
 		}
 	}
-	current, err := user.Current()
+	current, err := identity.CurrentHost()
 	if err != nil {
-		return Invocation{}, fmt.Errorf("resolve host user: %w", err)
-	}
-	uid, err := strconv.Atoi(current.Uid)
-	if err != nil {
-		return Invocation{}, fmt.Errorf("parse host UID: %w", err)
-	}
-	gid, err := strconv.Atoi(current.Gid)
-	if err != nil {
-		return Invocation{}, fmt.Errorf("parse host GID: %w", err)
-	}
-	groups, err := current.GroupIds()
-	if err != nil {
-		return Invocation{}, fmt.Errorf("resolve supplementary groups: %w", err)
-	}
-	groupSpecs := make([]string, 0, len(groups))
-	for _, groupID := range groups {
-		groupName := "group-" + groupID
-		if group, lookupErr := user.LookupGroupId(groupID); lookupErr == nil {
-			groupName = group.Name
-		}
-		groupSpecs = append(groupSpecs, groupID+":"+groupName)
-	}
-	primaryGroup := "group-" + current.Gid
-	if group, lookupErr := user.LookupGroupId(current.Gid); lookupErr == nil {
-		primaryGroup = group.Name
+		return Invocation{}, err
 	}
 
 	env := map[string]string{
@@ -66,11 +40,11 @@ func NewInvocation(cfg config.Config, workspace identity.Workspace, paths AssetP
 		"HCORRAL_CONTAINER_NAME":      workspace.Project,
 		"HCORRAL_IMAGE":               cfg.Image,
 		"HCORRAL_STATE_VOLUME_NAME":   stateVolume,
-		"HCORRAL_HOST_UID":            strconv.Itoa(uid),
-		"HCORRAL_HOST_GID":            strconv.Itoa(gid),
-		"HCORRAL_HOST_USER":           current.Username,
-		"HCORRAL_HOST_GROUP":          primaryGroup,
-		"HCORRAL_HOST_GROUPS":         strings.Join(groupSpecs, ","),
+		"HCORRAL_HOST_UID":            current.UID,
+		"HCORRAL_HOST_GID":            current.GID,
+		"HCORRAL_HOST_USER":           current.User,
+		"HCORRAL_HOST_GROUP":          current.Group,
+		"HCORRAL_HOST_GROUPS":         strings.Join(current.Groups, ","),
 		"HCORRAL_CONTAINER_HOME":      cfg.ContainerHome,
 		"HCORRAL_WORKDIR":             cfg.Workdir,
 		"HCORRAL_BYOBU_SESSION":       cfg.Session,

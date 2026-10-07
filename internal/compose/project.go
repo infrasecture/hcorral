@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 )
@@ -39,6 +40,11 @@ type RenderedService struct {
 }
 
 func (p Project) Capture(ctx context.Context, args ...string) (command.Result, error) {
+	// Required configuration rendering can include cold plugin startup or a
+	// user-supplied policy wrapper. Keep it bounded without imposing the short
+	// Docker inspection budget; a tighter caller deadline still takes priority.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	argv := p.Invocation.Args(args...)
 	result, err := p.Runner.Capture(ctx, argv, p.Invocation.Env)
 	if err != nil {

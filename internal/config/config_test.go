@@ -17,13 +17,23 @@ func TestParseDefaults(t *testing.T) {
 	if cfg.Workspace != "/work/current" || cfg.Harness != "codex" || cfg.Image != "ghcr.io/infrasecture/hcorral-codex:latest" {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
-	if cfg.StateMode != StateShared || cfg.GUI.Specified || !reflect.DeepEqual(cfg.ComposeCommand, []string{"docker", "compose"}) {
+	if cfg.StateMode != StateShared || cfg.GUI.Specified || !cfg.AutoPull || !reflect.DeepEqual(cfg.ComposeCommand, []string{"docker", "compose"}) {
 		t.Fatalf("unexpected typed defaults: %#v", cfg)
 	}
 	for _, key := range []string{"workspace", "project_name", "harness", "image", "state", "gui", "compose_command", "compose_files", "extra_volumes", "container_home", "workdir", "update_check", "wait_timeout", "progress_interval", "session", "auto_attach"} {
 		if cfg.Sources[key] != "default" {
 			t.Errorf("source %s = %q, want default", key, cfg.Sources[key])
 		}
+	}
+}
+
+func TestAutoPullIsAnIndependentBoolean(t *testing.T) {
+	cfg, err := Parse(nil, options(map[string]string{"HCORRAL_AUTO_PULL": "false", "HCORRAL_UPDATE_CHECK": "true"}))
+	if err != nil || cfg.AutoPull || !cfg.UpdateCheck || cfg.Sources["auto_pull"] != "environment" {
+		t.Fatalf("auto-pull configuration = %#v, %v", cfg, err)
+	}
+	if _, err := Parse(nil, options(map[string]string{"HCORRAL_AUTO_PULL": "maybe"})); err == nil {
+		t.Fatal("invalid auto-pull value was accepted")
 	}
 }
 

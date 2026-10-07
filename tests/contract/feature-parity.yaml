@@ -1,9 +1,13 @@
 {
   "schema": 1,
+  "qualification": {
+    "status": "in-progress",
+    "ledger": "docs/implementation-status.md"
+  },
   "baseline": {
     "project": "myCodex",
-    "commit": "cf3ee24af2b077996ac176ffffd1e34e892df061",
-    "inspected": "2026-08-23",
+    "commit": "ebc930ac00adea662789d6c2f43666ec1003eca0",
+    "inspected": "2026-10-06",
     "provenance": "docs/provenance.md"
   },
   "features": [
@@ -33,9 +37,9 @@
       "id": "IMAGE-USER-001",
       "requirement": "UID, account, groups, sudo/gosu, home initialization, workdir ownership, and safe missing-only defaults",
       "baseline_evidence": "myCodex entrypoint account and home initialization at the recorded baseline",
-      "implementation_change": "Shared entrypoint with harness-specific missing-only Codex, Claude, or Pi initialization",
+      "implementation_change": "Process numeric identity/groups, shared /etc/hcorral/bashrc, atomic missing-file initialization in new and persisted homes, harness-specific defaults",
       "platforms": ["linux/amd64", "linux/arm64"],
-      "automated_evidence": ["image/entrypoint.sh", "image/session-init.sh", "tests/image/entrypoint-matrix.sh", "tests/integration/real-docker.sh"],
+      "automated_evidence": ["internal/identity/host_test.go", "image/entrypoint.sh", "image/session-init.sh", "tests/image/entrypoint-matrix.sh", "tests/image/runtime-home.sh", "tests/image/runtime-home-probe.sh", "tests/integration/real-docker.sh"],
       "manual_evidence": ["release image canary exercises the native architecture and runtime account matrix"],
       "status": "implemented",
       "intentional_delta": "Hcorral creates only hcorral state markers and configuration"
@@ -64,22 +68,22 @@
     },
     {
       "id": "LIFE-001",
-      "requirement": "Attach-first lifecycle, explicit pull/reconcile, waits, progress, logs, PTY, signals, and process fidelity",
+      "requirement": "Running attach without pull, inactive latest refresh, hash-guarded stopped replacement, offline preservation, explicit pull/start/up, and bounded readiness",
       "baseline_evidence": "myCodex attach and lifecycle commands at the recorded baseline",
       "implementation_change": "Ownership-gated state machine with advisory mutation locks and process replacement",
       "platforms": ["linux", "darwin"],
-      "automated_evidence": ["internal/app/launch_test.go", "tests/integration/real-docker.sh", "tests/integration/runtime-contracts.sh"],
+      "automated_evidence": ["internal/app/launch_test.go", "internal/app/startup_test.go", "tests/integration/real-docker.sh", "tests/integration/runtime-contracts.sh"],
       "manual_evidence": ["release qualification uses the supported macOS Colima headless workflow"],
       "status": "implemented",
-      "intentional_delta": "Bare attach never pulls or reconciles and stopped drift requires explicit up"
+      "intentional_delta": "Running attach never pulls; automatic replacement checks all deployed services and does not restart sidecars"
     },
     {
       "id": "SESSION-001",
       "requirement": "All-service drift, tmux readiness, idempotent recovery, status progress, and bounded failure logs",
       "baseline_evidence": "myCodex Byobu entrypoint and issues 9 and 10 at the recorded baseline",
-      "implementation_change": "One session helper shared by entrypoint and in-place launcher recovery",
+      "implementation_change": "Image session recovery plus launcher-supplied GUI badge and retained, reopenable reports",
       "platforms": ["linux", "darwin"],
-      "automated_evidence": ["image/session-init.sh", "internal/app/launch_test.go", "tests/integration/real-docker.sh"],
+      "automated_evidence": ["image/session-init.sh", "internal/app/launch_test.go", "internal/app/attach_test.go", "tests/tmux-notices_test.py", "tests/integration/real-docker.sh"],
       "manual_evidence": [],
       "status": "implemented",
       "intentional_delta": "Session absence is independent of container state and recovery never recreates"
@@ -99,7 +103,7 @@
       "id": "GUI-001",
       "requirement": "Narrow Linux X11 and Wayland allowlists and unconditional Darwin GUI rejection",
       "baseline_evidence": "myCodex Linux GUI forwarding behavior at the recorded baseline",
-      "implementation_change": "Explicit tri-state GUI resolver with one socket and owner-only Xauthority",
+      "implementation_change": "Automatic local discovery with headless fallback, explicit override, daemon/context verification, and separately installed owner-only Xauthority",
       "platforms": ["linux", "darwin"],
       "automated_evidence": ["internal/gui/gui_linux_test.go", "internal/config/config_test.go"],
       "manual_evidence": ["release workflow requires native X11, native Wayland, XWayland, and Darwin rejection qualification records"],

@@ -18,6 +18,41 @@ hcorral_sha256_file() {
   return 1
 }
 
+# Render from the exact two archives produced by this build. Keep formula
+# generation independent of publication so ordinary CI qualifies the same bytes.
+hcorral_write_homebrew_formula() {
+  local version="$1" directory="$2" pkg_version="${1#v}" amd_sha arm_sha
+  hcorral_require_stable_version "${version}" || return
+  amd_sha="$(hcorral_sha256_file "${directory}/hcorral_${pkg_version}_darwin_amd64.tar.gz")" || return
+  arm_sha="$(hcorral_sha256_file "${directory}/hcorral_${pkg_version}_darwin_arm64.tar.gz")" || return
+  mkdir -p "${directory}/Formula"
+  cat >"${directory}/Formula/hcorral.rb" <<EOF
+class Hcorral < Formula
+  desc "Persistent AI development workstations in Docker"
+  homepage "https://github.com/infrasecture/hcorral"
+  license "AGPL-3.0-or-later"
+  depends_on :macos
+
+  if Hardware::CPU.arm?
+    url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_arm64.tar.gz"
+    sha256 "${arm_sha}"
+  else
+    url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_amd64.tar.gz"
+    sha256 "${amd_sha}"
+  end
+
+  def install
+    bin.install "hcorral"
+  end
+
+  test do
+    output = shell_output("#{bin}/hcorral version")
+    assert_match "hcorral ${version}", output
+  end
+end
+EOF
+}
+
 hcorral_state_value() {
   local file="$1" key="$2"
   [[ "${key}" =~ ^[A-Z][A-Z0-9_]*$ ]] || return 2

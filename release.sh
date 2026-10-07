@@ -56,37 +56,6 @@ require_clean_source() {
   [[ -z "$(git status --porcelain --untracked-files=normal)" ]] || { echo 'ERROR: working tree must be clean' >&2; exit 1; }
 }
 
-write_formula() {
-  local amd_sha="$1" arm_sha="$2" output="$3" pkg_version="${version#v}"
-  mkdir -p "$(dirname "${output}")"
-  cat >"${output}" <<EOF
-class Hcorral < Formula
-  desc "Persistent AI development workstations in Docker"
-  homepage "https://github.com/infrasecture/hcorral"
-  version "${pkg_version}"
-  license "AGPL-3.0-or-later"
-  depends_on :macos
-
-  if Hardware::CPU.arm?
-    url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_arm64.tar.gz"
-    sha256 "${arm_sha}"
-  else
-    url "https://github.com/infrasecture/hcorral/releases/download/${version}/hcorral_${pkg_version}_darwin_amd64.tar.gz"
-    sha256 "${amd_sha}"
-  end
-
-  def install
-    bin.install "hcorral"
-  end
-
-  test do
-    output = shell_output("#{bin}/hcorral version")
-    assert_match "hcorral ${version}", output
-  end
-end
-EOF
-}
-
 prepare() {
 	require_command docker
   [[ "${source_commit}" == "${current_commit}" ]] || { echo 'ERROR: preparation source must be the checked-out commit' >&2; exit 1; }
@@ -107,11 +76,7 @@ prepare() {
   ./build.sh --release --cli-version "${version}" --packages
   cp LICENSE dist/LICENSE
   cp THIRD_PARTY_LICENSES.md dist/THIRD_PARTY_LICENSES.md
-  mkdir -p dist/Formula
-  write_formula \
-    "$(hcorral_sha256_file "dist/hcorral_${version#v}_darwin_amd64.tar.gz")" \
-    "$(hcorral_sha256_file "dist/hcorral_${version#v}_darwin_arm64.tar.gz")" \
-    dist/Formula/hcorral.rb
+  test -s dist/Formula/hcorral.rb
 
   package_version="${version#v}"
   artifacts=(

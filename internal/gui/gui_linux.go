@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/compose"
@@ -22,13 +23,8 @@ var x11DisplayPattern = regexp.MustCompile(`^(?:(?:unix|unix/)?):([0-9]+)(?:\.[0
 
 func (r Resolver) resolvePlatform(ctx context.Context, mode string, workspace identity.Workspace, assets compose.AssetPaths) (Selection, error) {
 	if r.Runner != nil {
-		result, err := r.Runner.Capture(ctx, []string{"docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"}, command.EnvironmentWithoutCompose(os.Environ()))
-		if err != nil {
-			return Selection{}, fmt.Errorf("inspect Docker context for GUI forwarding: %w", err)
-		}
-		host := strings.TrimSpace(string(result.Stdout))
-		if !strings.HasPrefix(host, "unix://") {
-			return Selection{}, fmt.Errorf("GUI forwarding requires a local Unix-socket Docker daemon, selected endpoint is %q", host)
+		if err := r.requireLocalEngine(ctx); err != nil {
+			return Selection{}, err
 		}
 	}
 	switch mode {
@@ -46,6 +42,37 @@ func (r Resolver) resolvePlatform(ctx context.Context, mode string, workspace id
 	}
 }
 
+func (r Resolver) requireLocalEngine(ctx context.Context) error {
+	// Docker's explicit context overrides DOCKER_HOST. Otherwise DOCKER_HOST
+	// overrides the stored current context, including when that context is local.
+	host := r.Environ("DOCKER_HOST")
+	selectedContext := r.Environ("DOCKER_CONTEXT")
+	if selectedContext != "" || host == "" {
+		argv := []string{"docker", "context", "inspect"}
+		if selectedContext != "" {
+			argv = append(argv, selectedContext)
+		}
+		argv = append(argv, "--format", "{{.Endpoints.docker.Host}}")
+		result, err := r.Runner.Capture(ctx, argv, command.EnvironmentWithoutCompose(os.Environ()))
+		if err != nil {
+			return fmt.Errorf("inspect Docker context for GUI forwarding: %w", err)
+		}
+		host = strings.TrimSpace(string(result.Stdout))
+	}
+	if !strings.HasPrefix(host, "unix:///") {
+		return fmt.Errorf("GUI forwarding requires a local Unix-socket Docker daemon, selected endpoint is %q", host)
+	}
+	result, err := r.Runner.Capture(ctx, []string{"docker", "info", "--format", "{{.OperatingSystem}}"}, command.EnvironmentWithoutCompose(os.Environ()))
+	if err != nil {
+		return fmt.Errorf("verify native Docker Engine for GUI forwarding: %w", err)
+	}
+	daemonOS := strings.TrimSpace(string(result.Stdout))
+	if daemonOS == "" || strings.Contains(strings.ToLower(daemonOS), "docker desktop") {
+		return errors.New("GUI forwarding requires a verified native local Docker Engine; Docker Desktop is unsupported")
+	}
+	return nil
+}
+
 func (r Resolver) x11(ctx context.Context, workspace identity.Workspace, assets compose.AssetPaths) (Selection, error) {
 	display := r.Environ("DISPLAY")
 	match := x11DisplayPattern.FindStringSubmatch(display)
@@ -56,13 +83,13 @@ func (r Resolver) x11(ctx context.Context, workspace identity.Workspace, assets 
 	if err := requireSocket(socket); err != nil {
 		return Selection{}, fmt.Errorf("selected X11 socket: %w", err)
 	}
-	authority, err := r.copyXAuthority(ctx, workspace, display)
+	stateHome, authority, err := r.xAuthority(ctx, display)
 	if err != nil {
 		return Selection{}, err
 	}
-	return Selection{Mode: "x11", File: assets.X11, Env: map[string]string{
+	return Selection{Mode: "x11", File: assets.X11, authority: authority, stateHome: stateHome, project: workspace.Project, Env: map[string]string{
 		"HCORRAL_GUI_MODE": "x11", "HCORRAL_X11_DISPLAY": display,
-		"HCORRAL_X11_SOCKET": socket, "HCORRAL_X11_AUTHORITY": authority,
+		"HCORRAL_X11_SOCKET": socket, "HCORRAL_X11_AUTHORITY": filepath.Join(stateHome, "hcorral", "gui", workspace.Project, "xauthority"),
 	}}, nil
 }
 
@@ -92,67 +119,78 @@ func (r Resolver) wayland(assets compose.AssetPaths) (Selection, error) {
 	}}, nil
 }
 
-func (r Resolver) copyXAuthority(ctx context.Context, workspace identity.Workspace, display string) (string, error) {
+func (r Resolver) xAuthority(ctx context.Context, display string) (string, []byte, error) {
 	stateHome := r.Environ("XDG_STATE_HOME")
 	if stateHome == "" {
 		home := r.Environ("HOME")
 		if home == "" {
-			return "", errors.New("--gui=x11 requires HOME or XDG_STATE_HOME")
+			return "", nil, errors.New("--gui=x11 requires HOME or XDG_STATE_HOME")
 		}
 		stateHome = filepath.Join(home, ".local", "state")
 	}
 	if !filepath.IsAbs(stateHome) {
-		return "", errors.New("XDG_STATE_HOME must be absolute")
-	}
-	directory := filepath.Join(stateHome, "hcorral", "gui", workspace.Project)
-	if err := secureStateDirectory(stateHome, "hcorral", "gui", workspace.Project); err != nil {
-		return "", fmt.Errorf("create X11 credential directory: %w", err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return "", err
+		return "", nil, errors.New("XDG_STATE_HOME must be absolute")
 	}
 	result, err := r.Runner.Capture(ctx, []string{"xauth", "nlist", display}, command.EnvironmentWithoutCompose(os.Environ()))
 	if err != nil || len(strings.TrimSpace(string(result.Stdout))) == 0 {
-		return "", fmt.Errorf("could not read X11 credentials for DISPLAY=%s", display)
+		return "", nil, fmt.Errorf("could not read X11 credentials for DISPLAY=%s", display)
 	}
 	lines := strings.Split(strings.TrimSpace(string(result.Stdout)), "\n")
 	for index := range lines {
 		if len(lines[index]) < 4 {
-			return "", errors.New("xauth returned malformed credential data")
+			return "", nil, errors.New("xauth returned malformed credential data")
 		}
 		lines[index] = "ffff" + lines[index][4:]
 	}
+	return stateHome, []byte(strings.Join(lines, "\n") + "\n"), nil
+}
+
+// Prepare is used only when applying a GUI configuration. Discovery and attach
+// never replace the credential file mounted by an existing container.
+func (r Resolver) Prepare(ctx context.Context, selection Selection) error {
+	if selection.Mode != "x11" || len(selection.authority) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	directory := filepath.Join(selection.stateHome, "hcorral", "gui", selection.project)
+	if err := secureStateDirectory(selection.stateHome, "hcorral", "gui", selection.project); err != nil {
+		return fmt.Errorf("create X11 credential directory: %w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return err
+	}
 	temporary, err := os.CreateTemp(directory, "xauthority.*")
 	if err != nil {
-		return "", err
+		return err
 	}
 	temporaryPath := temporary.Name()
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
 		os.Remove(temporaryPath)
-		return "", err
+		return err
 	}
 	if err := temporary.Close(); err != nil {
 		os.Remove(temporaryPath)
-		return "", err
+		return err
 	}
 	defer os.Remove(temporaryPath)
-	input := strings.NewReader(strings.Join(lines, "\n") + "\n")
+	input := strings.NewReader(string(selection.authority))
 	if err := r.Runner.Run(ctx, []string{"xauth", "-f", temporaryPath, "nmerge", "-"}, command.EnvironmentWithoutCompose(os.Environ()), input, os.Stderr, os.Stderr); err != nil {
-		return "", fmt.Errorf("write copied X11 credentials: %w", err)
+		return fmt.Errorf("write copied X11 credentials: %w", err)
 	}
 	info, err := os.Stat(temporaryPath)
 	if err != nil || info.Size() == 0 {
-		return "", errors.New("copied X11 credential is empty")
+		return errors.New("copied X11 credential is empty")
 	}
 	target := filepath.Join(directory, "xauthority")
 	if err := os.Rename(temporaryPath, target); err != nil {
-		return "", fmt.Errorf("install copied X11 credential: %w", err)
+		return fmt.Errorf("install copied X11 credential: %w", err)
 	}
 	if err := os.Chmod(target, 0o600); err != nil {
-		return "", err
+		return err
 	}
-	return target, nil
+	return nil
 }
 
 func secureStateDirectory(root string, components ...string) error {
@@ -193,6 +231,9 @@ func requireSocket(path string) error {
 	}
 	if info.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("not a Unix socket: %s", path)
+	}
+	if err := syscall.Access(path, 2); err != nil { // W_OK: connecting requires socket write access.
+		return fmt.Errorf("Unix socket is not writable: %s: %w", path, err)
 	}
 	return nil
 }

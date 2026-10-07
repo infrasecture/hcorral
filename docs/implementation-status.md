@@ -1,0 +1,1270 @@
+# Go successor implementation
+
+Implementation of the accepted 2026-10-05 proposal in myCodex
+`.proposals/hcorral-go-successor.md`, based on hcorral `18fb394` and myCodex
+`ebc930a`. This is a working acceptance ledger, not a declaration that the
+proposal is complete. All five phases, including session transfer, remain in
+scope. No image publication or migration of existing user state is part of
+development testing.
+
+The user subsequently required copying conversations while they remain open,
+including running turns, and supplied `ssh isec` for build/test execution.
+Commit `176673e` replaces source writer exclusion with a saved-history
+snapshot. Destination publication still refuses conflicting or busy history.
+See the live-copy entry at the end for current evidence; earlier lock-refusal
+entries below describe the superseded implementation.
+
+The last complete four-platform CI matrix before this change was `2b41cc7`:
+all 22 jobs in [run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
+passed. Physical-desktop GUI evidence remains outstanding. The supplied `isec`
+host is a headless Linux ARM64 VM, so its real Docker tests qualify the headless
+runtime and transfer paths, not a physical desktop.
+
+## Acceptance ledger
+
+| Requirement | State | Evidence / remaining work |
+| --- | --- | --- |
+| Updated behavior, ADRs and parity baseline | Updated | Runtime/configuration docs, ADR 0004, provenance and manifest now reference #17/#18; Go contract tests pass |
+| Shared shell defaults and preserved existing homes | Native image and shared-home canaries passed | Codex/Claude/Pi AMD64/ARM64 entrypoint/home tests and three UID/GID pairs pass; `43df6a4` also passes concurrent old/new image shared homes |
+| GUI badge and retained/reopenable tmux reports | Native Linux image matrix passed | Launcher-embedded helper, deployed identity/home/session, `notices`; actual four-combination PTY/state checks pass at `43df6a4`, plus local scrolling/handshake tests |
+| Automatic GUI with headless, SSH and remote fallback | Native Linux protocol matrix passed | Resolver tests and hosted Xvfb/Weston/XWayland production-UID tests pass at `2b41cc7`; the physical gate now uses that same production runtime, but physical desktop execution remains outstanding |
+| Inactive `latest` refresh and guarded stopped replacement | Linux and macOS Docker matrices passed | `973bfb1` passes lifecycle/refresh/runtime integration on both Linux architectures with current and 2.24.6 Compose and both Colima hosts, including guarded preservation and the corrected wrapper deadline |
+| Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
+| Numeric process identity and groups | Native Linux and macOS launcher checks passed | `9a71bca` compares packaged UID/GID/groups on both Linux architectures; `4cb9129` passes the corrected POSIX process-group comparison on both Macs; all six Linux images pass group-based file access and denial; static unknown-account cases also pass |
+| Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
+| Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
+| Static binaries and packages on four targets | Development artifact/package/runtime matrix passed | `973bfb1` builds all four targets with both Linux helpers, passes Linux package jobs, both macOS Homebrew audit/version/install/exact-binary checks and all endpoint jobs; a final versioned release must qualify its own exact artifacts |
+| Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
+| Mixed launcher/image versions | Native Linux matrix passed | At `f10c95c`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition evidence is recorded separately |
+| State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
+| Session format discovery and dependencies | Qualified format matrix passed on four platforms | `973bfb1` passes rooted inspection, legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes against native 0.160.0/0.160.1, including completed-turn re-export |
+| Session consistency and conflicts | Native ARM64 and public Docker live-copy suites passed | No source writer lock or close-first prerequisite. Native ARM64 0.160.0/0.160.1 running-turn tests passed in both directions, including public import/re-export; destination conflict/lock, prefix promotion and recovery protections remain |
+| Session endpoints and helper distribution | Development platform matrix passed | `973bfb1` passes public commands, host path defaults, inspected storage/identity, streaming, numeric ownership and cancellation on both Linux architectures and both Macs; every launcher contains both helper payloads; ARM Mac selects the AMD64 helper for its QEMU guest |
+| Session transfer lifecycle | Supported storage and explicit VM-share refusal passed | `973bfb1` passes native writer exclusion, aliases, connection faults/retry and nested-lock tests on Linux; both Colima jobs verify explicit FUSE refusal while busy and idle without publishing history, plus full daemon-local endpoint composition |
+| Actual Codex resume acceptance | Public Docker matrix passed on four platforms | `973bfb1` passes export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and both Colima hosts; live-copy changes require updated qualification |
+
+## Execution environment
+
+Initial local checkout has no Go installation or Docker CLI/daemon. A verified
+Go 1.25.13 toolchain was downloaded outside the repository for local Go tests.
+User namespaces are unavailable (`unshare --user` is denied). Local tmux is
+available. Container and native macOS gates must be run in suitable execution
+environments; source inspection or mocks do not substitute for those gates.
+
+## Local checkpoint: 2026-10-06
+
+- `go test ./...`, `go vet ./...`, and `go test -race ./...` passed with the
+  temporary verified Go 1.25.13 toolchain.
+- SemVer fuzzing passed its 25,000-iteration budget.
+- ShellCheck and Bash syntax checks passed for the source/test scripts.
+- Provenance, dependency-license, image-versioning and launcher-release
+  command-contract checks passed.
+- `go mod tidy -diff` was clean and the pinned vulnerability scan found no
+  vulnerabilities. Workflow lint exposed two preexisting ShellCheck false
+  positives (environment variable naming and quoted Ruby); after two scoped
+  annotations the workflow lint and release-contract checks passed.
+- `tests/tmux-notices_test.py` passed on real local tmux 3.4/PTYS, including
+  report scrolling/reopening, multiple clients, narrow terminals and delayed
+  popup dismissal without terminal response leakage.
+- Linux AMD64/ARM64 and Darwin AMD64/ARM64 launchers cross-compiled with
+  `CGO_ENABLED=0`. The executable verifier accepted both static Linux binaries
+  and both Darwin binaries using only system libraries. It rejected a dynamic
+  system executable and an architecture mismatch. The local Linux AMD64 binary
+  ran `version` and `--help`; other targets were inspected, not executed.
+
+These results are development checkpoints, not release qualification. Re-run
+the relevant gates against final artifacts, especially after adding the session
+transfer dependencies and embedded Linux helpers. No Docker image was built or
+published and no real conversation was transferred by this checkpoint.
+
+## Session resolver checkpoint
+
+`internal/session` now implements native history inspection and scoped writer
+guards. Tests exercise committed SQLite WAL selection after revert, relocated
+state, legacy schemas and copied metadata, compressed/archived files, nested
+exact prefixes, malformed boundaries, conflicts, symlinks/special files,
+cancellation and actual local flock ownership. The open publication and
+runtime-compatibility questions are recorded in `session-transfer-design.md`.
+The user-facing transfer commands are not implemented yet.
+
+Verification for this checkpoint:
+
+- The full Go suite and vet passed; session tests and optional native tests
+  passed under the race detector. The vulnerability scan reported no findings.
+- Native Codex 0.160.1 resumed synthetic legacy/paginated/fork/revert histories
+  and sent their expected saved context to a loopback mock provider. Native
+  picker selection and writer exclusion were checked. Archived resume required
+  an explicit unarchive; the test then resumed the correct reverted rollout.
+- Session test executables cross-built with cgo disabled for all four targets
+  and passed executable linkage inspection. The Linux AMD64 static executable
+  ran its tests. Other target binaries were inspected, not executed; these
+  development test binaries are not qualified release artifacts.
+- Dependency notices are bundled for archives/packages, and the license and
+  release-command checks pass. ShellCheck with the repository's `-x` setting
+  passes for the changed shell scripts and release script they source.
+
+These checks used only disposable synthetic conversations. No user session,
+credential, workstation container or image was migrated or published.
+
+## Session publication and helper checkpoint
+
+The transfer core now streams a versioned tar envelope, validates it in private
+destination staging, checks all existing rollout identities, and publishes with
+exclusive hard links. Exact existing content is reused, including full ancestors
+that satisfy a required prefix. Conflicts, truncation and invalid members cannot
+overwrite existing history. Handled publication failures remove only the links
+created by that attempt; a retry can use the verified staging data.
+
+`cmd/hcorral-session` exposes the internal export/import protocol on stdio with
+explicit Codex/SQLite homes and session IDs. It is not yet bundled or wired to
+the user-facing launcher commands. It runs without a shell or Codex process and
+handles signals while blocked on input. The original signal test exposed a
+blocking inherited-pipe issue; pollable duplicates resolved it, and repeated
+SIGINT/SIGTERM cleanup tests pass.
+
+Verification at this checkpoint:
+
+- The full Go suite and vet pass. The changed session, helper and command tests
+  pass under the race detector, including the native 0.160.1-to-0.160.0 matrix.
+- Native tests use the actual export/receive/publish pipeline for legacy,
+  paginated, inherited, reverted and archived histories. Both fresh and already
+  initialized homes are covered. After a completed native turn and clean app
+  server shutdown, the written history is re-exported to the other Codex version
+  and resumed. Saved user/assistant context survives; private parent continuation
+  and unrelated conversations do not leak. Both version directions pass.
+- The 0.160.0 Linux executable came from the official `rust-v0.160.0` release;
+  its archive matched the release asset SHA-256
+  `306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13`.
+- Session test executables cross-build with cgo disabled for Linux/macOS
+  AMD64/ARM64 and pass the linkage gate. Static Linux AMD64 publication tests
+  pass as UID/GID 1000:1000, 501:20 and 12345:23456. Other platforms remain
+  inspected rather than natively executed.
+- Linux AMD64/ARM64 helper builds pass static-linkage inspection. Their stripped
+  executable sizes are approximately 7.5 MB and 7.3 MB before compression. These
+  are development builds, not qualified release artifacts or bundled launchers.
+
+Open work includes concurrent initial backfill, handling a longer required
+prefix or a full parent after an earlier partial import, source/destination
+alias detection, effective SQLite-home discovery, result/policy reporting,
+helper bundling, and running/stopped/remote Docker integration. These are still
+requirements to resolve, not waived acceptance gates.
+
+## Transport and helper-packaging checkpoint
+
+`internal/sessiontransport` now inspects the deployed numeric identity, image
+ID, runtime home and storage rather than invoking Compose preparation. A
+disposable helper serves both running and stopped workstations. Only selected
+state and metadata mounts are attached; a separately mounted SQLite directory
+is read-only and narrowed to its required subdirectory. Existing volume subpaths
+are preserved. Image healthchecks, entrypoint, network access and automatic image
+pulls are disabled. Cleanup verifies an operation-specific ownership token and
+only stops/removes that helper, without removing its volumes.
+
+The streaming controller uses the native Go implementation on the host and the
+supplied Linux helper remotely. Source inspection completes before destination
+initialization. Source writer locks are released before EOF permits destination
+publication, so shared-storage aliases can reuse identical data without locking
+themselves out. A validated completion result survives a subsequent remote cleanup
+error; missing acknowledgements are not reported as proof of no destination
+changes. Bounded configuration reads use the actual workstation's filesystem,
+including its writable layer, without starting it or extracting files locally.
+
+`build.sh` now prepares and validates both Linux helper payloads before building
+launchers. Both compressed helpers total approximately 6.5 MB. The generated
+payload files are ignored by Git. Native helper protocol and transfer tests run
+against the embedded payloads as a build step. **The app does not yet reference
+the transport package: this is prepared packaging, not evidence that the current
+launcher binary already contains or exposes the feature.** Public command wiring
+must make the package reachable and final launcher artifacts must be checked.
+
+Local verification for this checkpoint:
+
+- Go unit tests and vet pass; the changed transport/runtime/packager packages
+  pass race checks. ShellCheck, Bash syntax and release-contract checks pass.
+- Controlled Docker tests cover running/stopped storage selection, non-default
+  IDs/groups, image-ID architecture selection, volume subpaths, unused image
+  volumes, missing resources, replacement races, cancellation and cleanup.
+- Both helper payloads pass static ELF architecture/linkage inspection. The
+  embedded AMD64 executable runs its protocol and transfers synthetic histories
+  in both directions, including source/destination symlink aliases. ARM64 payload
+  inspection is not native execution.
+- Transport test executables cross-build with cgo disabled for Linux/macOS
+  AMD64/ARM64 and pass the linkage gate. These are development test binaries,
+  not final launcher archives or packages.
+- The static Linux AMD64 transport tests and its embedded native helper pass
+  as UID/GID 1000:1000, 501:20 and 12345:23456, with supplementary group 44444.
+  Tests verify destination ownership and 0600 file permissions. This is local
+  subprocess evidence, not a Docker mount/entrypoint test.
+- Stream tests cover early source failure, cancellation, lost acknowledgements,
+  confirmed publication followed by remote failure, and bounded result handling.
+  Config-read tests distinguish missing files from failed container inspection,
+  reject extra/special/truncated archive members and enforce output bounds.
+
+Docker is still unavailable locally. The Dockerized build step, running/stopped
+helper containers, remote daemons, real mount permissions and independent remote
+process cleanup remain unexecuted. Effective SQLite config discovery, public
+commands/result reporting and the remaining consistency gates above are next;
+this checkpoint does not complete phase 5 or the full proposal.
+
+## Public session-command checkpoint
+
+`hcorral session export/import <UUID> [host-codex-home]` now dispatches before
+ordinary lifecycle/Compose/GUI preparation. It captures the host environment,
+honors explicit path / `CODEX_HOME` / `~/.codex` precedence, verifies the selected
+existing corral under a cancellable project lock, and refuses an explicit state
+selection that disagrees with its deployed home. Human and JSON output preserve
+a confirmed publication result even if later remote cleanup fails.
+
+`internal/sessionconfig` resolves Unix system/user base TOML, local requirements,
+legacy managed TOML and `CODEX_SQLITE_HOME`. Config paths are relative to their
+file, while relative environment paths use the endpoint working directory. A
+project config declaring `sqlite_home` requires an explicit endpoint path rather
+than approximating Codex's trust rules. CLI-selected profile-v2 files, per-process
+runtime overrides, cloud policy and macOS managed preferences are not discoverable
+from these base files; database overrides from those sources require explicit
+`--host-sqlite-home` / `--container-sqlite-home`. This boundary is documented in
+help and README. Parse failures do not echo configuration contents.
+
+Evidence at this checkpoint:
+
+- Controlled public-command tests exercise both directions and running/stopped
+  corrals, all host-path defaults, relocated authoritative SQLite selection,
+  excluded credentials, ownership/state refusal and publication acknowledgement
+  followed by cleanup failure. They run the actual transfer core through an
+  injectable Docker runner, not a real daemon.
+- Native Codex 0.160.0 and 0.160.1 created their databases at the locations chosen
+  by discovery for default, relative environment and overriding relative user
+  config cases. These tests use disposable homes and no account credentials.
+- Both Linux and both macOS launchers cross-build with cgo disabled and pass
+  linkage inspection. A new final-executable gate verifies the exact AMD64 and
+  ARM64 helper payload bytes are present in every launcher; it rejects a changed
+  expected payload. Native Linux AMD64 runs the public session help command.
+- Stripped development launcher sizes are approximately 18.1 MB Linux AMD64,
+  17.6 MB Linux ARM64, 18.2 MB macOS AMD64 and 17.7 MB macOS ARM64. These are
+  complete development executables, not qualified release archives/packages.
+
+Public wiring and prepared packaging no longer remain missing. Remaining work
+includes concurrent initial indexing, compatible prefix extension/promotion,
+uncatchable-interruption recovery, broader writer/runtime qualification, actual
+Docker transfers and cancellation, real native platform/package/image acceptance,
+and the demonstrated myCodex transition. No user conversation or workstation was
+migrated, no image/release was published, and the full goal remains incomplete.
+
+## Compatible inherited-prefix extension checkpoint
+
+A second fork with a longer inherited prefix now succeeds after an earlier
+shorter import. Every existing managed representation is checked before writes;
+only a complete byte-for-byte extension may atomically replace a prerequisite.
+Regular conversation files are never extended or replaced. Repeated shorter
+imports do not truncate history, and handled later failures retain a valid
+extension with explicit retry information. Human/JSON results report extensions.
+
+Core tests cover plain, compressed and duplicate representations, preserved open
+readers, unchanged dependent files, divergence, later main conflicts, a replaced
+prerequisite and publication failure followed by retry. Native Codex 0.160.0 and
+0.160.1 both resume the old and new children after extension, with plain and
+compressed prerequisites. Requests to the loopback fixture provider contain
+exactly each child's inherited range and exclude the parent's private tail.
+
+Final local checks for this checkpoint:
+
+- The full Go suite and vet pass; session, transport and app race checks pass.
+- The existing native 0.160.0/0.160.1 transfer/resume/completed-turn round-trip
+  matrix still passes in both directions, along with configuration discovery
+  and the new extension cases.
+- Static Linux AMD64 extension tests pass as 1000:1000, 501:20 and 12345:23456
+  with supplementary group 44444, including preservation of an existing file's
+  non-primary group and Unix mode bits.
+- Both Linux helpers were rebuilt. The actual embedded AMD64 helper imports
+  shorter/longer forks, reports the extension and re-exports the longer child;
+  ARM64 is inspected, not executed locally. Compressed payloads total 6,730,498
+  bytes.
+- All four final development launchers cross-build, pass linkage inspection
+  and contain both exact helper payloads. Their sizes are 18,596,024 bytes
+  (Linux AMD64), 18,022,584 (Linux ARM64), 18,685,280 (macOS AMD64) and
+  18,190,770 (macOS ARM64). Native Linux AMD64 runs the public session help.
+  These remain development artifacts, not qualified release archives/packages.
+
+This resolves compatible growth, not complete-parent promotion or simultaneous
+initial indexing. Those cases, uncatchable-interruption recovery, actual Docker
+transport and the remaining image/platform/transition matrix stay open.
+
+## Parent promotion and native indexing checkpoint: 2026-10-07
+
+An explicitly imported complete parent can now replace its classification as a
+partial prerequisite without changing existing children's inherited boundaries.
+Managed plain/compressed representations grow only after their full existing
+bytes have been validated. The complete parent is installed at its ordinary
+native location; a subsequent native fork can inherit its full continuation.
+
+When destination indexing selects a prerequisite, the importer repairs only the
+requested thread's path/archive fields under an existing, qualified SQLite
+schema and a write reservation. It waits for overlapping initial indexing while
+retaining native writer guards. Names and unrelated metadata are preserved;
+unknown layouts/triggers are refused. Separately mounted destination metadata
+retains its deployed access for import; export remains read-only. No read-only
+mount is made writable.
+
+Fully validated live files now remain after failed publication, because native
+indexing may already have recorded their paths. Retrying verifies/reuses those
+files and completes selection repair. Private unpublished staging is cleaned on
+handled failures. This supersedes the earlier reverse-unlink cleanup policy.
+Uncatchable-interruption cleanup of abandoned private staging remains open.
+
+Local evidence for this checkpoint:
+
+- The full Go suite and vet pass. Session, transport and app race checks pass,
+  including the native 0.160.1-to-0.160.0 completed-turn round-trip matrix.
+- Native 0.160.0 and 0.160.1 both pass complete-parent promotion with active and
+  archived parents, plain/compressed prerequisites, original-child resume and
+  a new native fork after promotion. Native indexing between prerequisite and
+  main publication, and an interrupted attempt followed by retry, both select
+  and resume the complete requested revert without its private parent tail.
+  The existing transfer/resume matrix still passes in both version directions.
+- Controlled tests cover running-index waits/cancellation with writer guards
+  retained, schema/checksum/trigger refusal, divergent/shorter histories,
+  preserved names/unrelated rows, interrupted metadata commit and repeat imports.
+  Docker mount tests verify import/export access and deployed read-only settings.
+- Static Linux AMD64 promotion, selection-repair and ownership tests pass as
+  1000:1000, 501:20 and 12345:23456, with supplementary group 44444. No host account
+  setup or user-home changes are involved.
+- Both Linux helpers were rebuilt and pass static-linkage validation. The
+  embedded AMD64 helper extends prerequisites, promotes/re-exports a complete
+  parent and transfers in both directions. ARM64 is inspected, not executed.
+  The compressed payloads total 6,786,478 bytes.
+- All four development launchers and session test executables cross-build with
+  cgo disabled and pass linkage checks. Each launcher contains both exact helper
+  payloads. Launcher sizes are 18,698,424 bytes (Linux AMD64), 18,153,656 (Linux
+  ARM64), 18,788,240 (macOS AMD64) and 18,290,402 (macOS ARM64). Native Linux AMD64
+  runs the public help command. These are not qualified release packages.
+
+The proposal remains incomplete. Abandoned staging recovery, broader writer and
+metadata-operation qualification, actual Docker/remote transfers and cancellation,
+native platform/image/package acceptance, mixed launcher/image compatibility and
+the demonstrated myCodex transition remain required. No image or release was
+published and no real user conversation or workstation was migrated.
+
+## Abandoned staging recovery checkpoint: 2026-10-07
+
+Transfers now use versioned private staging with a kernel-held lease and a short
+creation/recovery/close coordinator. A subsequent import can discard a recognized
+abandoned staging directory after process death, without using its age or a PID
+as evidence. Active transfers, other owners, unfamiliar layouts and published
+history are preserved. Creation and cleanup sync ordering keeps an empty
+lease-free directory recoverable across interruption. The full protocol and
+filesystem assumptions are recorded in `session-transfer-design.md`.
+
+Local verification:
+
+- Real subprocesses are killed with SIGKILL during directory creation, after
+  complete staging, after prerequisite publication and after full publication.
+  Concurrent receives preserve live staging even with an old mtime; retry after
+  confirmed death removes the orphan and preserves published inodes and bytes.
+- Tests preserve old/future staging namespaces, unknown files, symlinks, FIFOs,
+  nested directories, missing/changed/hard-linked leases, foreign owners and
+  inaccessible directories. Multi-batch enumeration and cancellation of a wait
+  for the creation coordinator are exercised.
+- The full Go suite and vet pass. Changed session/helper/transport/app packages
+  pass race checks. The native Codex 0.160.1-to-0.160.0 transfer/resume/re-export
+  matrix, parent promotion/new fork, index overlap and configuration tests pass.
+- The static Linux AMD64 recovery suite passes as UID/GID 1000:1000, 501:20 and
+  12345:23456, each with supplementary group 44444. A root-only fixture verifies
+  preservation of another UID's private staging directory.
+- Rebuilt embedded Linux AMD64 helpers pass a killed-import/retry test and the
+  existing transfer/extension/promotion matrix. ARM64 is statically inspected,
+  not executed locally. Compressed helper payloads total 6,799,367 bytes.
+- Session test executables and launchers cross-build for Linux/macOS AMD64/ARM64
+  and pass linkage checks. Each final development launcher contains both exact
+  helpers. Launcher sizes are 18,723,000 bytes, 18,219,192 bytes, 18,816,944 bytes
+  and 18,323,474 bytes respectively. These are development builds, not release
+  packages or native macOS/ARM64 runtime qualification.
+
+Power failure was not simulated; sync ordering and actual process-crash recovery
+are distinct evidence. Broader writer/filesystem and metadata-operation
+qualification, actual Docker/remote execution and cancellation, native image and
+platform/package checks, mixed launcher/image compatibility and the demonstrated
+myCodex transition remain required. No publication or user-state migration was
+performed at this checkpoint.
+
+## Docker acceptance wiring checkpoint: 2026-10-07
+
+The integration suite now invokes the final launcher and its embedded helper
+against real Docker volumes through a standalone Go test executable. Both Linux
+architectures are wired into CI with current and pinned Compose. The release
+Colima suite also receives its native acceptance executable. Test binaries travel
+in the CI artifact, but are excluded from user archives/packages.
+
+Cases cover running/stopped workstations, three numeric UID/GID pairs, explicit,
+environment and default host homes, exact history bytes, private file ownership,
+repeat/conflicting transfers, excluded state, read-only storage, a separate
+container holding a writer lock, and cancellation/retry with an actual helper
+blocked on destination coordination. Workstation IDs, lifecycle timestamps,
+mounts, existing credentials/configuration/history and volume inventory are
+checked for preservation. No fixture Codex or image-installed helper is used.
+
+The full local Go suite and vet, ShellCheck and release-contract checks pass.
+Acceptance executables cross-build for all four targets and pass linkage
+inspection; workflow lint passes.
+Ordinary Go tests skip these explicit Docker cases without their fixture/image
+environment. The Docker assertions themselves still require execution. This suite is transport
+evidence, not native Codex resume or production-image shell acceptance. Remote
+disconnects, unusual mount semantics and the broader runtime/platform/transition
+matrix remain separate gates.
+
+## First Docker CI results and transport corrections: 2026-10-07
+
+[CI run 37553065955](https://github.com/infrasecture/hcorral/actions/runs/37553065955)
+tested pushed commit `fb16f6b88323e9f6a85c7b53992df27f64406018`. It is a failed
+run, not a completed qualification:
+
+- All six Codex/Claude/Pi image jobs passed on native AMD64/ARM64. The build
+  script invokes the entrypoint and persisted-home canaries, including the three
+  UID/GID pairs and fresh/old-marker/custom/empty/symlink/login-file cases.
+- Source checks, the four-target artifact build, Linux package jobs, and native
+  macOS AMD64/ARM64 launcher version/help checks passed. ARM64 Arch coverage
+  extracts and executes the package; it is not a native package-manager install.
+- Both ARM64 Docker jobs passed lifecycle, refresh, runtime contracts, session
+  import/export at all numeric identities, repeated/conflicting copies,
+  read-only refusal and external-writer refusal. Cancellation exposed a real
+  error-classification bug: a killed Docker client lost `context.Canceled`,
+  producing exit 1 instead of 130. The AMD64 integration jobs were cancelled by
+  matrix fail-fast; they do not count as passes.
+
+The command runner now retains the cancellation cause alongside the child exit
+error. Session exit classification uses the caller's context so internal peer
+cancellation after a conflict does not disguise that conflict as a user abort.
+Real local child-process tests cover cancellation/output retention; success and
+ordinary failure remain distinct. CI matrix fail-fast is disabled for these
+integration jobs to retain independent architecture evidence.
+
+Storage inspection now preserves bind propagation and recursive settings,
+rejects unqualified consistency/relabel modes, and refuses unsafe narrowing of a
+nonrecursive metadata bind. Tests cover inspection/argument mapping, changed
+settings after helper copy, and actual Docker bind/volume-subpath transfers.
+The Docker cases and corrected cancellation must pass a subsequent run before
+being marked qualified. No images, releases or real user state were published
+or migrated by this development workflow.
+
+## Native platform qualification wiring: 2026-10-07
+
+The build now emits a native session-core test executable for every launcher
+target. CI and release qualification invoke it against pinned, checksum-verified
+official Codex 0.160.0/0.160.1 assets in both directions. It runs the existing
+core/native resume, completed-turn round-trip, promotion, indexing, configuration
+and process-crash tests with synthetic homes and a loopback-only provider.
+The new runner passed locally on Linux AMD64 against both downloaded releases;
+the other native platforms still require their CI results.
+
+The ordinary CI macOS Intel job now also runs the existing Colima lifecycle
+suite and the packaged session endpoint tests. This uses the previously defined
+release-platform setup and does not publish anything. The macOS ARM64 hosted
+runner still establishes native core/launcher behavior only, not a local Docker
+acceptance result. Checksums and support boundaries are documented under
+`tests/qualification/`; these test executables are excluded from user packages.
+
+[CI run 37553861532](https://github.com/infrasecture/hcorral/actions/runs/37553861532)
+tested `401c391`. Both architecture/Compose variants completed instead of
+cancelling peers. Transfers, ordinary/nonrecursive binds, volume subpaths,
+cancellation with remote cleanup/retry and writer refusal passed. The remaining
+failure was setup of the explicit-private bind fixture: Docker prohibits that
+propagation beneath its own data root. The fixture now allocates an ordinary
+unique daemon-side temporary directory, preserving the private-bind case and
+the remote-client path boundary. This correction and the new native platform
+runner require the next CI result; neither failed run is presented as green.
+
+## Linux endpoint results and mixed-version qualification: 2026-10-07
+
+[CI run 37554555815](https://github.com/infrasecture/hcorral/actions/runs/37554555815)
+tested `c28f31d`. Source, all six production-image jobs, four-target builds,
+Linux packages and all four architecture/Compose integration jobs passed.
+The corrected private-bind fixture now passes with the other storage cases.
+Both Linux architectures also ran the native Codex 0.160.0/0.160.1 core suite
+in both directions. This joins existing native resume and Docker transport
+results; it still does not prove public Docker transfer followed by native resume.
+
+Both macOS jobs failed before the native suite: the runner's non-GNU sha256sum
+rejects GNU long options. The checksum runner now uses the supported short `-c`
+option, retaining pinned digest verification. Release artifact verification on
+macOS uses the same portable option. Native macOS results and Intel Colima
+integration require another run; the failed jobs are not counted as passes.
+
+Actual old/new launcher/image qualification is now wired into CI and release
+Linux gates on both architectures. The test verifies a published v0.1.0 launcher,
+builds a pinned historical image recipe and the current recipe without pushing,
+and checks all four combinations, retained tmux reports and unchanged state.
+It also tests startup files shared with an older running image at three UID/GID
+pairs. Shell/workflow checks and release command-contract checks pass locally;
+the mixed-version runtime suite requires real CI execution.
+
+## Original myCodex transition and native endpoint qualification: 2026-10-07
+
+[CI run 37555406831](https://github.com/infrasecture/hcorral/actions/runs/37555406831)
+tested `6d17691`. Existing source, image, package and Linux integration/native
+checks passed again. Both mixed-version jobs passed the concurrent old/new
+image shared-home cases at all three UID/GID pairs. They then failed because
+the fixture queried tmux immediately after detached creation, before entrypoint
+readiness. The fixture now waits for actual startup readiness. The macOS
+checksum compatibility command also rejected the short stdin-check invocation;
+macOS now explicitly uses its `shasum -a 256 -c` implementation. These corrections
+need a new run; neither failed matrix is qualified.
+
+The transition guide now records inventory, quiescence, daemon-side home copy,
+explicit volume selection, startup verification and recovery. The integration
+fixture fetches the original pinned myCodex source and builds its real recipe,
+uses its launcher for creation/removal, and exercises copy and explicit reuse
+with hcorral. It checks synthetic credential/configuration/history preservation,
+file ownership/modes/symlinks, legacy refusal, native picker/resume and return
+through the original launcher. No legacy-container adoption code is introduced.
+
+The copy scenario additionally composes public Docker session export with host
+native resume, then public import into a stopped separate workstation followed
+by container-native resume. This is a simple indexed-history endpoint fixture;
+it does not replace the richer core/native history matrix. The test-only Python
+app-server probe and exact synthetic seed pass locally with native Codex 0.160.0
+and 0.160.1. ShellCheck, Bash syntax, workflow lint and release-contract checks
+pass. Actual transition/endpoint execution remains pending CI. No real user
+state, credentials, image publication or release is involved.
+
+## Native GUI protocol qualification wiring: 2026-10-07
+
+The repository currently has no registered self-hosted runners. CI and Linux
+release qualification now provision real Xvfb, Weston and XWayland servers on
+the native hosted runners instead of treating resolver unit tests as desktop
+execution. The probe image derives from the newly built production Codex image,
+adding diagnostic clients while retaining actual entrypoint and UID behavior.
+Tests cover automatic selection (including Wayland preference), authenticated
+X11/XWayland and Wayland protocol connections, narrow read-only mounts, deployed
+tmux badges and unchanged attachment after display variables disappear. An
+unusable explicit GUI request must leave the deployed container unchanged.
+
+ShellCheck, Bash syntax, workflow lint and release-contract checks pass locally.
+Native server/container execution remains pending CI. The servers use software
+rendering on a disposable runner; this is not physical desktop, GPU or every
+compositor's clipboard acceptance, and existing stable desktop gates remain.
+
+## Platform results and diagnostic follow-up: 2026-10-07
+
+At `63563cd`, CI run 37556175953 passed the native Codex suite on both macOS
+architectures as well as both Linux architectures. The Intel Colima step was
+still running when this checkpoint was recorded. Mixed-version shared homes
+passed at all identities, and several actual launcher/image combinations passed
+attachment/report/state checks. A later bare assertion failed in each mixed
+job, before transition execution; the failing invariant was not printed, so the
+root cause is not established by those logs.
+
+Qualification scripts now report the failing assertion and canonicalize Docker
+mount snapshots without dropping any fields. Older Docker inspection code
+iterates a mount map without sorting; ordering alone cannot establish a changed
+mount. The reopen probe now waits to see the retained report text in the PTY
+before detaching, providing actual display evidence. These follow-ups require
+another Docker run, not a claim that the unknown assertion failure is solved.
+
+The macOS ARM64 Docker gate is also wired through Colima's x86_64 QEMU guest
+mode: native ARM64 launcher/test binaries select the embedded AMD64 Linux helper.
+This avoids relying on nested hardware virtualization and exercises differing
+client/container architectures. It is a qualification attempt requiring actual
+execution, not a native ARM64 guest result or a predeclared platform pass.
+Local shell/workflow and release-contract checks pass; Go integration package
+compilation passes with Docker cases skipped in this Docker-less local environment.
+
+## Colima result and connection-fault qualification: 2026-10-07
+
+[CI run 37556175953](https://github.com/infrasecture/hcorral/actions/runs/37556175953)
+has completed with failure. Intel Colima ran the real lifecycle, refresh,
+runtime, storage-mount, cancellation/retry and writer-refusal cases successfully.
+The session export subtests stopped at their destination assertion: macOS's
+`/var` temporary pathname resolves through `/private/var`, and the launcher
+correctly reports its physical destination. The assertion now compares against
+an independently resolved destination. The assertions after that failure still
+need a successful run; this is not a qualified macOS endpoint result.
+
+The Docker integration suite now also interrupts a real upgraded attach
+connection while publication is blocked by a separate kernel-lock owner. It
+requires bounded failure, helper removal, preservation of that unrelated owner,
+and a successful retry. Another case drops the reply after the helper publishes:
+independent Docker inspection must find the complete private history, the caller
+must report an unconfirmed result, and retry must reuse the existing content.
+A loopback TCP proxy forwards the real Engine API to its original Unix socket;
+it changes only the selected connection, not daemon/helper responses. These
+cases model connection resets and lost replies, not prolonged daemon outages
+or SSH/TLS-specific failures.
+
+A shared-storage case mounts an actual client-visible directory into the
+workstation and transfers in both directions through a host symlink to it.
+It requires unchanged history inode/bytes/permissions and no self-deadlock.
+The disposable bind lives beneath the host home for Colima sharing; a marker
+check establishes actual daemon visibility before history is seeded.
+
+Local Go tests and vet pass. The proxy's upgrade, input half-close and reply-loss
+plumbing passed repeated race tests. Acceptance executables cross-build with
+cgo disabled and pass linkage verification on all four targets. These local
+checks do not execute the new Docker cases; their real results, the corrected
+macOS assertion, mixed-version diagnostics, GUI servers and transition fixture
+remain pending the next CI run. No release or image was published.
+
+## Public native-history composition gate: 2026-10-07
+
+The native legacy/paginated/fork/revert/archive suite now has an explicit Docker
+mode. It uses the packaged CLI to export independently seeded synthetic history
+from a real container, then retains the existing native picker/resume and
+loopback-provider context assertions. After the real Codex completes a turn,
+public import writes its persisted history into another stopped container;
+public export returns it to the peer native Codex for resume. Both 0.160.0 and
+0.160.1 directions and fresh/already indexed host destinations are exercised.
+Every public call must retain workstation identity/state/mounts and leave no
+helper. The fixture copies only disposable synthetic setup data; it does not
+change the public transfer's exclusion of databases or configuration.
+
+The integration runner wires this composition gate on both Linux architectures,
+both Compose variants, and the Colima platforms. Native fixture homes now use
+the runtime `.codex` layout, and synthetic source databases are closed before
+fixture seeding. The ordinary core tests keep using their in-process pipeline.
+Local core/native tests pass after these fixture changes, including the reverse
+version direction under the race detector. All four native test executables
+cross-build with cgo disabled and pass linkage inspection; Go vet, ShellCheck,
+workflow lint and release-contract checks pass. Actual Docker composition remains
+pending execution; the simple transition/native probe is a separate gate.
+
+At `43df6a4`, the ARM macOS CI job passed its native tests but could not start
+the x86_64 Colima guest: Homebrew's base Lima installation omits that guest
+agent. The CI and release setup now explicitly install
+`lima-additional-guestagents` on ARM before Colima startup. That correction
+requires another run; no ARM Docker result is claimed.
+
+That same run passed Linux AMD64/ARM64 integration with current and pinned
+Compose. The actual job logs explicitly show the connection-reset,
+lost-completion/retry and shared-storage-alias cases passing on both native
+architectures. This is real daemon/helper evidence for those new cases, not
+merely a successful proxy unit test. Intel Colima and the mixed-version jobs
+were still running at this checkpoint; the run is not a successful full matrix.
+
+## Native lifecycle guards and ARM qualification results: 2026-10-07
+
+The native writer-guard fixture now exercises archive, unarchive, resume and delete
+against both legacy and paginated histories. While Go holds the selected
+conversation's snapshot lock, native Codex must reject the operation as busy
+without changing history bytes or authoritative selection. After release, the
+same operation must succeed. All eight cases pass locally with 0.160.1 and with
+0.160.0 under the race detector. Go tests/vet pass. The new cases join the
+existing native platform runner, but other platforms require their next result;
+older runtimes and other metadata/maintenance operations remain separate gates.
+
+Both native Linux mixed-version jobs at `43df6a4` passed all four actual launcher/image
+combinations, retained/reopened PTY reports, and the hosted Xvfb/Weston/XWayland
+protocol suite as UID 1001. They then reached the myCodex transition for the first
+time. Legacy refusal, copied-state preservation, shell customization and native
+resume passed, as did public export followed by native host resume. Both receiver
+fixtures failed before import because a fresh home does not yet contain `.codex`.
+The fixture now creates its private configuration directory as the receiving
+runtime UID before writing test configuration. Its stopped import, subsequent
+resume, return to myCodex and reuse scenario still require execution. ShellCheck
+and Bash syntax pass for that correction; the failed job is not full transition
+qualification.
+
+## Production version-probe cleanup gate: 2026-10-07
+
+The mixed-version runner now also checks the version deadline against its real
+new Codex image. The fixture verifies healthy native discovery, then separately
+blocks a runtime user's login profile and user-prefix executable. Both ignore
+TERM and spawn a child, requiring the existing container-side timeout to use
+its kill deadline. Public `info` must return with the image's bundled version
+and no invented installed version. All three recorded PIDs (timeout monitor,
+shell and child) must be reaped, and the workstation's identity/image/mounts
+must be unchanged. Normal discovery must recover after restoring fixture files.
+
+ShellCheck and Bash syntax checks pass. Real Docker execution is pending; this
+addition closes missing test coverage, not the acceptance gate itself. The
+existing live Intel Colima job is retained while its result is still pending.
+
+CI and release qualification now explicitly select Colima's VZ driver on Intel
+macOS, matching the driver observed in the earlier actual integration log.
+QEMU and additional Lima guest agents are installed only for the ARM host's
+cross-architecture guest. Homebrew's current QEMU formula has no Intel macOS
+bottle, so installing that unused emulator can introduce a source build.
+This is a dependency correction, not a diagnosis of the still-running job:
+its combined install/start/test step does not expose which operation is active.
+
+## Native revert and selected-history transfer: 2026-10-07
+
+A new native fixture completes two real turns, reverts before the second, and
+exports/imports/resumes the native-created replacement. Its assertions cover
+changed authoritative rollout with stable thread identity, exclusion of the
+removed private continuation from the transfer stream and model context, and
+busy snapshot refusal while the native writer is loaded before and after
+revert. This extends the earlier hand-built revert fixtures with actual native
+mutation. App-server revert requires a loaded thread, so an unloaded request's
+`thread not found` result is not counted as a locking result.
+
+The case passes locally on Codex 0.160.1 and in five race-enabled runs on
+0.160.0. Full Go tests and vet pass. It joins the four-platform native runner;
+these local results do not qualify the other platforms or the public Docker
+composition. No image/release publication or real user-state migration occurred.
+
+## Intel Colima endpoint result: 2026-10-07
+
+The Intel macOS job [112590315045](https://github.com/infrasecture/hcorral/actions/runs/37558298578/job/112590315045)
+at `43df6a4` completed successfully. Its real VZ/Colima run passed lifecycle,
+refresh/configuration preservation, numeric transfer ownership at all three
+UID/GID pairs, running/stopped endpoints and all host-path default variants,
+bind/private/nonrecursive/subpath storage, shared-storage aliases, read-only
+refusal, connection reset, lost-completion retry, cancellation/helper cleanup
+and active-writer refusal. The prior macOS canonical-path assertion no longer
+fails. This establishes those Intel endpoint cases; the newer native public
+Docker composition and production-image probe tests were not in that revision.
+
+The combined job step had installed QEMU 11.1.0 from a cached Sonoma bottle,
+then used VZ and spent most of its time running tests. Its duration was not
+evidence of a stalled source build. Removing the unused dependency remains an
+appropriate correction but is not presented as fixing that completed run.
+
+The run failed overall because the ARM Colima guest-agent and Linux transition
+receiver fixtures failed as described above. After it became terminal, ordinary
+nonpublishing CI was dispatched at `f10c95c` as
+[run 37560678376](https://github.com/infrasecture/hcorral/actions/runs/37560678376),
+covering those corrections, the production probe, native public Docker
+composition and native lifecycle/revert checks. No earlier live job was canceled.
+
+## Native metadata and maintenance qualification: 2026-10-07
+
+Actual native Git metadata operations now verify both legacy rollout mutation
+and paginated SQLite-only updates. Legacy mutation refuses a held transfer
+guard without partially updating the database. Paginated metadata may change,
+but the selected path and guarded rollout bytes must not. Retry after release
+must succeed, and the resulting conversation must still transfer.
+
+Compression and background legacy-to-paginated migration now run through actual
+Codex workers in disposable homes. Unrelated eligible conversations must be
+processed while the guarded one stays byte-identical; the selected conversation
+must then process successfully after release. Compression requires its output
+plus the released maintenance lock. Migration records a busy skip and clears it
+on the next startup. The migrated/compressed native history must remain valid
+and selectively transferable. This covers concrete metadata and maintenance
+operations, not older nonparticipating writers or every filesystem.
+
+These cases pass locally on 0.160.1 and in three race-enabled repetitions on
+0.160.0. Session package tests and vet pass. They were added after the currently
+running CI revision and still require their four-platform native results.
+
+Meanwhile, `f10c95c` passed all four Linux integration jobs (both architectures,
+current and 2.24.6 Compose). The completed AMD64/ARM64 logs confirm all ten
+public Docker/native-history subcases in both version directions: legacy,
+paginated, compressed inherited history, revert and archived revert, each with
+fresh and already indexed destinations. Native follow-up and peer-resume context
+assertions run after real public export/import/re-export. This closes the Linux
+composition gap; macOS composition and the production transition/probe jobs
+were still pending at this checkpoint.
+
+## Production probe and complete transition results: 2026-10-07
+
+Both mixed-version jobs at `f10c95c` completed successfully:
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570554)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570556).
+Their completed logs confirm bounded blocked-login and blocked-executable
+version checks, runtime UID, reaping of monitor/shell/child, correct bundled
+fallback and restored healthy discovery, with workstation identity and mounts
+unchanged. All four old/new launcher-image combinations, three shared-home UID
+pairs, retained PTY reports and hosted display protocols pass again.
+
+The full original-myCodex transition now passes both deliberate home copying
+and explicit reuse, native picker/resume and return through the original
+launcher. The copied-home case also passes public Docker export, host native
+resume, import into a stopped receiver and native resume there. Source/destination
+home metadata, volume labels and selected container identity checks remain in
+the fixture. This qualifies those tested Linux layouts, not a real user migration
+or arbitrary additional mounts/UID changes.
+
+Both macOS jobs in that run remain active. The repository currently has zero
+registered self-hosted runners, confirmed through the Actions API. A physical
+Linux desktop host has been requested for the separate desktop gate; hosted
+protocol success is not substituted for that evidence. The newer metadata and
+maintenance tests at `41da45c` still need their native platform matrix.
+
+## Packaged host identity qualification: 2026-10-07
+
+The common Docker lifecycle fixture now compares the actual container's
+launcher-supplied numeric UID/GID and complete supplementary-group set against
+the invoking host process. It uses the packaged executable on Linux and macOS,
+so unit checks alone cannot satisfy this assertion. The production-image probe
+also verifies that its runtime process receives all host supplementary groups.
+This closes a gap in test coverage between the process-identity implementation
+and the independently tested image account mapping; execution is still pending.
+The non-default image account case now reads and writes a root-owned file
+through its supplementary group, then verifies access is denied when that group
+permission is removed. This checks actual permissions as well as `id` output
+for Codex, Claude and Pi. ShellCheck, Bash syntax and release-contract checks
+pass; the actual image/platform matrix must run these new assertions.
+
+## Nonpublishing Homebrew qualification: 2026-10-07
+
+The package audit found that ordinary CI exercised macOS archives but left
+Homebrew audit/installation solely in the publishing release workflow. Formula
+generation now belongs to the shared release build: it hashes the two archives
+from that build and emits the same formula used for publication. A partial
+target build cannot generate a formula by borrowing a stale archive. Publication
+still consumes its recorded prepared artifacts and retains its existing gates.
+
+Both CI and release qualification now call one native macOS Homebrew fixture.
+It audits the actual release formula, installs the selected unpublished archive
+through a local tap, compares the installed executable with the build artifact,
+and runs the formula test. It refuses an existing hcorral installation or fixture
+tap and cleans up its own installation/tap. This requires no release publication.
+
+ShellCheck, Bash syntax, workflow lint and the release-contract checks pass.
+The contract fixture renders from actual test inputs, verifies both URL/digest
+pairs, and rejects invalid versions or a missing archive without changing prior
+output. Actual Homebrew execution remains pending the next native platform run;
+the live `f10c95c` CI run predates this addition and has not been canceled.
+
+## ARM Colima cleanup result and correction: 2026-10-07
+
+The ARM macOS job [112597570438](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570438)
+at `f10c95c` successfully started its emulated x86_64 Colima guest. It passed
+lifecycle, refresh, runtime safety, all three UID/GID endpoint pairs and path
+defaults, mount variants, transport faults/retry, cancellation and writer refusal.
+The shared client/daemon storage-alias import returned a confirmed identical
+conversation, then failed cleanup with `directory not empty`. The job failed;
+the following public Docker/native-resume composition did not run. Intel was
+still active when this result was inspected.
+
+The cleanup code unlinked its `.lease` while retaining its open descriptor.
+The ARM guest logs show SSHFS setup, and libfuse documents that deleting an open
+file can retain a hidden file until close. That is consistent with the observed
+empty-directory failure; the job did not capture the hidden directory entry.
+Normal close and orphan recovery now close the stage lease while retaining the
+coordinator, before unlinking. Other cooperating cleanup operations remain
+excluded. Unknown staging and published history retain their existing safeguards.
+
+Full Go tests and vet pass, as do three race-enabled repetitions of the focused
+recovery/publication tests, including actual SIGKILL boundaries. A local syscall
+trace confirms lease descriptors close before unlink in both recovery and normal
+close. The real ARM Colima regression still requires the next run; this is not
+yet a successful macOS endpoint or general shared-filesystem qualification.
+
+The audit also identified that the previous storage-alias test verified only
+identical-file reuse. A new actual endpoint case holds a native host writer lock
+and requires container-side export refusal, then holds the lock in a container
+and requires host-side source refusal during import. Each retries after release.
+It qualifies cross-kernel lock behavior of the selected VM sharing driver,
+independently of the cleanup correction. Local compilation/tests cannot establish
+this property; real Linux and Colima execution is required before claiming it.
+The endpoint package tests and vet pass, and its acceptance executable builds
+with cgo disabled for all four launcher platforms. The actual new lock case has
+not yet run against Docker or Colima.
+
+## Updated platform matrix and Homebrew audit: 2026-10-07
+
+The original `f10c95c` run is terminal. Its Intel job
+[112597570541](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570541)
+passed all lifecycle and endpoint cases, including storage aliases, faults,
+cancellation and writer refusal. It then failed resolving `github.com` while
+downloading Codex again for public Docker/native-resume composition. That suite
+did not execute; successful preceding endpoint tests are not a composition pass.
+
+Nonpublishing [CI run 37563361356](https://github.com/infrasecture/hcorral/actions/runs/37563361356)
+tests `9a71bca` on temporary branch `agent/qualify-go-successor-9a71bca`, preserving
+the then-active older Intel job. All six native image jobs passed, covering the
+new actual supplementary-group read/write and denied-access assertions for Codex,
+Claude and Pi on AMD64/ARM64. The source and release-build jobs also passed.
+
+The new ARM Homebrew gate reached real strict audit and rejected the formula's
+explicit `version`, which is redundant with the release archive URL. Formula
+generation now omits that field and retains versioned URLs, archive hashes and
+the executable-version assertion. Local shell and release-contract checks pass;
+native Homebrew audit/install still needs another run. No release was published.
+
+## Reuse verified native qualification assets: 2026-10-07
+
+To avoid the repeated-download DNS failure observed in the Intel job, the native
+qualification runner now retains checksum-keyed public Codex archives within a
+CI job. Both native and Docker composition invocations verify the pinned digest
+before extracting fresh binaries. Downloaded bytes enter the cache only after
+verification; failed downloads are cleaned up. Local runs use temporary storage
+unless `HCORRAL_CODEX_TEST_CACHE` explicitly selects a reusable directory. Codex
+homes and extracted executables remain private per invocation.
+
+Both full native version directions pass locally after fetching the two pinned
+archives, then pass again with `curl` replaced by a command that fails every
+download. A corrupted cached artifact is refused before execution. ShellCheck,
+Bash syntax and release-contract checks pass. The private test umask also exposed
+a permission fixture that assumed `MkdirAll(0755)` bypasses umask; it now explicitly
+sets its intended preexisting mode before testing that publication preserves it.
+
+These changes address qualification reliability and fixture setup. The macOS
+public Docker/native-resume composition, the staging cleanup correction and
+cross-host shared-storage writer exclusion still require actual platform results.
+
+## Native Linux follow-up and next candidate: 2026-10-07
+
+Completed `9a71bca` Linux jobs
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37563361356/job/112606232617)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37563361356/job/112606232567)
+confirm that the newer Git-metadata, compression and background-migration cases
+pass against both pinned Codex versions. Both also pass the new actual shared
+host/container writer exclusion in both directions, plus public Docker transfer
+and native resume. The two pinned-Compose jobs and Linux package jobs passed.
+The exact packaged process UID/GID/group comparison runs in the successful
+lifecycle fixture. These results close those Linux gaps, not the macOS ones.
+
+Both `9a71bca` macOS jobs stopped at the same redundant-version Homebrew audit.
+They did not run the newer native metadata/maintenance, Colima cleanup or
+cross-kernel writer tests. Nonpublishing
+[CI run 37563991174](https://github.com/infrasecture/hcorral/actions/runs/37563991174)
+now tests candidate `4cf6303` on `agent/go-successor`, containing the formula and
+verified-asset-cache corrections. The older temporary qualification ref/run is
+retained while its independent mixed-version jobs finish; remove that temporary
+ref during final repository cleanup after its evidence has been recorded.
+
+## Native macOS qualification corrections: 2026-10-07
+
+[Run 37563991174](https://github.com/infrasecture/hcorral/actions/runs/37563991174)
+at `4cf6303` completed with both macOS jobs failing. All Linux, mixed-version,
+package, image, source and four-target build jobs passed. Both macOS jobs passed
+the Homebrew audit/install/exact-binary gate. ARM also passed the native Codex
+core suite; its later endpoint checks stopped at the process-group identity
+assertion, before the Colima cleanup/shared-storage regression cases.
+
+The ARM identity test compared Go's POSIX process groups with modern Python's
+macOS account-access group list. The latter included group 400, absent from
+the former. These are different interfaces, as documented by
+[Python](https://docs.python.org/3/library/os.html#os.getgroups); the pinned Go
+toolchain imports the plain `getgroups` symbol. The fixture now calls that POSIX
+symbol directly through ctypes on macOS and still requires exact numeric group
+equality. Launcher identity handling is unchanged; the new assertion requires
+an actual macOS rerun.
+
+Intel's second native version direction completed the failing subtest's resume
+assertions, then failed temporary-directory cleanup while a background plugin
+Git clone was still writing. Native history fixtures now disable unrelated
+plugin startup and own a separate process group. Timeout/cleanup terminates
+that group, including remaining children after a graceful app-server exit.
+Graceful completed-turn shutdown remains required by the resume fixture. A
+regression test uses a real background child retaining a pipe to verify cleanup
+after both cancellation and normal parent exit.
+
+Homebrew's temporary local archive URL also caused its inferred package version
+to become `64`, despite installing the right executable. Qualification now
+checks the version inferred from the real release URL, then preserves that
+version explicitly only in the temporary local formula and checks it again.
+The published formula still derives its version from the release URL. Cleanup
+also consumes the complete formula listing instead of closing its pipe early.
+
+The full Go suite and vet pass. Both native Codex 0.160.0/0.160.1 directions pass
+locally with the revised process lifecycle; ten race-enabled repetitions of
+the background-child regression pass. Native test executables cross-compile
+for both macOS architectures. ShellCheck, Bash syntax, release-contract checks
+and workflow lint pass. These are local checks, not macOS runtime acceptance;
+the final Colima and public Docker/native-resume gates remain outstanding.
+
+Nonpublishing [CI run 37565661591](https://github.com/infrasecture/hcorral/actions/runs/37565661591)
+tests these corrections at `df30f26`. Its source, build and image jobs were
+observed running after dispatch. The previous run is terminal and has not been
+restarted or replaced while active. README/help now make the exit-or-unload
+prerequisite and qualified writer versions explicit; that guidance does not
+claim automatic detection of every process sharing a home or close the remaining
+runtime/storage boundary requirement.
+
+## Idempotent native process cleanup: 2026-10-07
+
+At `df30f26`, both macOS Homebrew gates passed with the intended `0.0.0`
+package version. Intel passed the full native Codex suite and entered its Colima
+step. ARM's native conversation cases passed, but the newly added child-cleanup
+regression failed after cancellation: its second process-group kill returned
+`EPERM`. The ARM job failed and did not reach Colima; the Intel job was still
+running when inspected.
+
+Darwin's [process-group signaling implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+filters zombie members and can return `EPERM` when no signalable member remains.
+Cancellation and post-Wait cleanup now share one idempotent kill operation,
+retaining its original result. This avoids signaling the already-terminated
+group again without treating arbitrary permission errors as success. The
+regression still requires the background child's inherited pipe to close.
+
+One hundred race-enabled repetitions of the child-cleanup cases pass locally.
+Session tests and vet pass, and both full native Codex version directions pass
+with the revised cleanup. Native macOS execution of this correction remains
+required; the successful Linux checks do not substitute for it.
+
+## Native macOS cleanup correction verified: 2026-10-07
+
+Nonpublishing [run 37566300381](https://github.com/infrasecture/hcorral/actions/runs/37566300381)
+tests `4cb9129` on temporary branch `agent/qualify-go-successor-4cb9129`, preserving
+the earlier Intel Colima job. The new
+[ARM64 job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213388)
+and [AMD64 job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213345)
+both passed native archive execution, Homebrew audit/version/install/exact-binary
+checks and the complete native Codex suite. This verifies the idempotent cleanup
+correction on both macOS architectures. Both subsequently entered their Colima
+steps; endpoint and public Docker/native-resume completion were not yet known.
+
+The earlier `df30f26` run completed every Linux, image, package, source and build
+job successfully. Its Intel Colima job remains active; its ARM job failed as
+recorded above. Neither run is qualified overall from these partial results.
+Remove the temporary qualification branch only after its run has finished and
+the resulting evidence has been recorded.
+
+## Required Compose rendering versus attach diagnostics: 2026-10-07
+
+The `4cb9129` [AMD64 low-end Compose job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213337)
+failed when the generic Compose-wrapper case exceeded the five-second capture
+deadline during configuration rendering. This fixture deliberately replaces the
+pinned command with a wrapper delegating to the runner's `docker compose`; the
+failure is not evidence of a particular Compose 2.24.6 parsing defect. Other
+Linux jobs passed. The log establishes deadline expiry, not why that rendering
+invocation took longer than five seconds.
+
+Required configuration rendering now has a 30-second per-call bound. Optional
+pre-attach drift/image discovery instead owns a five-second overall context,
+so a stalled diagnostic still permits attachment with an unknown-drift report.
+Docker inspection and optional update deadlines are unchanged, and a shorter
+caller deadline takes precedence over the longer render limit.
+
+A real six-second shell renderer reproduces the old failure and passes with
+the new limit, retaining both rendered image and hash results. A stalled real
+child respects a shorter caller deadline. A separate controlled launcher test
+uses a real stalled renderer and confirms timely attachment to the existing
+container, an unknown-drift report and no reconciliation. Race-enabled compose,
+app, runtime and update tests pass, along with the full Go suite and vet. These checks
+do not replace rerunning the actual failed Docker/Compose qualification case.
+
+## Colima shared locks and explicit storage refusal: 2026-10-07
+
+Both `37565661591` and `37566300381` are now terminal failures. At `4cb9129`,
+the [Intel](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213345)
+and [ARM](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213388)
+jobs passed packaged process UID/GID/groups, lifecycle, refresh/fallback,
+runtime/mount/wrapper checks, disconnect/lost-reply recovery, all running/stopped
+UID/path endpoint cases, daemon-local mount variants, cancellation and guest
+writer refusal. Both also passed the alias transfer, verifying the earlier ARM
+close-before-unlink cleanup correction on its actual sharing driver.
+
+Both failed `TestDockerSessionSharedStorageWriterRefused`: export succeeded
+while the native Mac held the required writer lock on the same shared files.
+The older Intel `df30f26` job failed identically. Successful alias copying and
+same-guest locking had not established host/guest exclusion. The subsequent
+public Docker/native-resume composition did not run; these jobs are not passes.
+
+The transfer core now rejects recognized VM-shared and network filesystem
+classes rather than trusting a successful kernel-local flock. It checks opened
+roots and descendants, so a nested writer-lock or history mount cannot inherit
+the parent's storage decision. There is no bypass or automatic migration.
+Native host homes and daemon-local container volumes remain the intended
+transfer endpoints. `session-transfer-design.md` records exact platform rules
+and the remaining limits: this does not establish absence of older writers or
+qualify arbitrary layered/exported storage.
+
+Real endpoint regressions now independently inspect the guest filesystem.
+Native storage must still exclude writers and succeed after release; FUSE/9p
+shares must return the explicit unsupported-storage error while busy and idle,
+preserve existing history and refuse an import of previously absent history.
+A new fixture puts only the lock directory on shared storage under a local home.
+These are required real Docker checks, not skipped platform cases.
+
+The full Go suite and vet pass. Session/helper/transport race checks and both
+full native Codex 0.160.0/0.160.1 directions pass locally. Core test executables
+cross-compile for both Macs; endpoint executables cross-compile for both Macs
+and Linux ARM64. These local results do not qualify the new refusal on Colima.
+The next CI run must execute it and the outstanding public composition, together
+with the earlier required-render/optional-diagnostic timeout correction.
+
+Nonpublishing [CI run 37569071931](https://github.com/infrasecture/hcorral/actions/runs/37569071931)
+tests candidate `973bfb1` on `agent/go-successor`. Its source, four-target build
+and six image jobs were verified running after dispatch. No older run was
+cancelled: both previous runs were terminal before dispatch. Their evidence is
+recorded above, and the completed temporary qualification branch
+`agent/qualify-go-successor-4cb9129` has been removed. The repository still has
+no registered self-hosted runner for the separate physical-desktop gate.
+
+## Linux storage and Compose regression results: 2026-10-07
+
+At `973bfb1`, [Linux AMD64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111188)
+and [Linux ARM64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111233)
+both passed the complete native/Docker suite. This includes shared-storage alias
+preservation, host/container writer exclusion, the new nested writer-lock mount,
+and public export/native resume/completed-turn/stopped import/re-export/peer
+resume in both pinned Codex version directions. These native Linux fixtures
+exercise the supported-storage path, not the Colima refusal path.
+
+Both pinned Compose jobs also passed. The
+[AMD64 wrapper regression](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111196)
+now completes successfully with the corrected rendering budget. This closes the
+recorded failed case; it does not imply that required rendering is unbounded.
+The source, four-target build, all six image and both Linux package jobs passed.
+Both macOS Homebrew and native Codex steps passed with the filesystem checks;
+their Colima steps and both mixed-version jobs were still running when inspected.
+The aggregate run is therefore not yet qualified.
+
+The published release list still contains only preview `v0.1.0`. README now
+distinguishes those installation examples from this branch's unreleased
+behavior, including the separate image update needed for shell initialization.
+
+## Intel Colima composition verified: 2026-10-07
+
+The [Intel macOS job](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111111)
+at `973bfb1` completed successfully. Its real shared-storage fixtures observed
+filesystem magic `0x65735546` and verified explicit refusal for aliases, active
+writers and nested writer locks, including refusal while idle and preservation
+of existing history. All supported named-volume and daemon-local bind endpoint,
+ownership, lifecycle, cancellation and connection-fault cases passed.
+
+The subsequent public Docker/native-resume composition also passed all ten
+history/destination cases in each Codex version direction. The actual workflow
+exports container history, resumes and completes a turn on native macOS,
+imports into a stopped receiver, exports again and resumes with the peer
+version. Legacy, paginated, compressed inherited, reverted and archived-reverted
+histories passed with fresh and already indexed destinations. This closes the
+previously unexecuted Intel composition gate; the ARM Colima job remains live.
+
+Both [AMD64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111281)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111073)
+mixed-version jobs also completed successfully. Their logs confirm all four
+old/new launcher-image combinations, bounded production-image probes, hosted
+X11/Wayland/XWayland protocols and both copied/reused-state myCodex transitions,
+including native resume and return through the original launcher. Hosted GUI
+protocol results still do not establish physical-desktop acceptance. The
+supported writer/runtime boundary and exact final release gates remain open.
+
+## Full development CI matrix passed: 2026-10-07
+
+[Run 37569071931](https://github.com/infrasecture/hcorral/actions/runs/37569071931)
+completed successfully at `973bfb1ede71f71e965c751578be1d33c7920776`.
+The final [ARM macOS job](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111209)
+passed the same explicit FUSE refusal and nested-lock assertions as Intel,
+then all ten public Docker/native-resume cases in each pinned version direction.
+Its host executable is native ARM64 and its QEMU guest/helper is Linux AMD64;
+Linux ARM64 helper execution is established by the separate native Linux jobs.
+All source, build, image, package, mixed-version and platform jobs are green.
+
+The proposal audit still leaves these boundaries open:
+
+- Physical Linux X11/Wayland desktop acceptance: hosted Xvfb/Weston/XWayland
+  passed, but no physical desktop test host has been supplied and the repository
+  has no registered self-hosted runner. The request for a suitable host remains
+  unanswered; software-rendered protocol evidence is not substituted for it.
+- Writers outside the supported lock contract: native 0.160.0/0.160.1 guards
+  and explicit known shared-filesystem refusal are qualified. Neither can prove
+  that an older/nonparticipating process or another storage client is absent.
+  The pending policy choice is an explicit operator prerequisite to stop such
+  writers versus an enforceable maintenance boundary. Guidance already in help
+  and README does not resolve that unaccepted policy decision.
+- Final release artifacts: the CI candidate uses version `v0.0.0`. A release
+  with its actual chosen version must qualify and publish its own exact bytes
+  through the existing separate launcher/image workflows. No release workflow,
+  image publication or real-state migration has been performed by this work.
+
+No remaining CI failure is being hidden behind these boundaries. The complete
+development matrix passed; the first two requirements still need external input
+before the full proposal can be declared complete. Existing historical entries
+describe their own revisions and are superseded by this checkpoint where stated.
+
+## Physical desktop gate uses the production runtime: 2026-10-07
+
+The completion audit found that the separate stable-release desktop gate still
+called `linux-gui.sh` without an image override. That default built the minimal
+fixture, whose `gosu` stub leaves commands running as root. The already-passing
+hosted GUI tests used the real production image, but that did not correct the
+physical gate's weaker runtime/permission coverage.
+
+`linux-gui.sh` now requires an already-qualified production Codex image. It owns
+the disposable derived image containing diagnostic clients, asserts the actual
+invoking UID, and inspects that user's tmux server. Both hosted and physical
+qualification call this same path. The release gate builds the current recipe
+with pinned Codex and runs the normal image canaries first; it does not publish
+that image. Ambient project/volume/overlay settings cannot select an existing
+workstation during the desktop fixture. The qualification README now contains
+a nonpublishing manual procedure retaining the real desktop environment and
+recording exact launcher/image identity.
+
+ShellCheck, Bash syntax, actionlint and release-contract checks pass locally.
+Calling the desktop script without its required image fails before setup.
+The changed shared procedure still needs a real hosted Docker regression run;
+the earlier complete CI result qualifies `973bfb1`, not this subsequent change.
+A physical desktop host and the unqualified-writer policy decision remain
+unavailable. No physical desktop acceptance or release publication is claimed.
+
+## Shared production GUI procedure verified: 2026-10-07
+
+Nonpublishing [run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
+tests `2b41cc77adc0f40ffbff1416f58786ccd15ac20b`. Its
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492193)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492206)
+mixed-version jobs both passed. Their logs confirm the revised `linux-gui.sh`
+procedure against the production-derived image as UID 1001: X11, Wayland,
+Wayland preference with both displays, and XWayland-only forwarding. Each
+checks narrow mounts, real PTY attachment, the deployed badge and preservation
+after unusable explicit GUI requests. All four old/new launcher-image pairings,
+bounded probes and copied/reused-state myCodex transitions also passed.
+
+Source checks, the four-target build, all six image jobs, both Linux package
+jobs, and the full Linux integration suite with both current and pinned Compose
+passed. The completed logs confirm shared-writer/nested-lock handling and public
+Docker transfer/native resume in both pinned Codex version directions. Both
+macOS native/Homebrew steps passed; their Colima steps remain active at this
+checkpoint, so the aggregate run is not yet qualified.
+
+These hosted protocol results qualify the shared test procedure on both Linux
+architectures. They do not qualify a physical desktop or resolve the outstanding
+unqualified-writer policy. The stable-release desktop workflow has not run.
+
+## Final development matrix after desktop gate correction: 2026-10-07
+
+[Run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
+completed successfully at `2b41cc77adc0f40ffbff1416f58786ccd15ac20b` with all
+22 jobs passing. Both the
+[Intel](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492273)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492220)
+macOS logs confirm the complete supported-storage endpoint matrix, cancellation
+cleanup, explicit FUSE refusal for aliases/writers/nested locks, and all ten
+public transfer/native-resume cases in each Codex version direction. ARM64 uses
+a native host executable and the Linux AMD64 helper in an emulated guest.
+
+The worktree and implementation comparison were rechecked: subsequent changes
+are documentation only. No CI job remains active or failed in this run. The
+completion audit still finds no supplied physical Linux qualification host or
+registered self-hosted runner, and the choice between an operator prerequisite
+and enforced maintenance for unqualified writers has not been answered. A local
+X11 socket alone does not establish a usable physical-desktop Docker test host.
+Those two requirements remain open; final versioned release qualification and
+publication remain separate from this development result.
+
+
+## Live conversation snapshots and supplied ARM64 host (2026-10-07)
+
+The user explicitly rejected closing conversations before copying and supplied
+`ssh isec` for builds/tests. That resolves the old source-writer policy question;
+there is no maintenance-mode or close-first requirement. Source capture now pins
+read-only file descriptors, finds complete saved records within an initial size,
+validates exact inherited boundaries, rechecks authoritative SQLite selection,
+and verifies hashes before publication. Appends and atomic path replacements do
+not redirect or extend the captured snapshot. Pending writes and future records
+remain in the original. Destination locks and non-overwriting conflict rules
+remain separate. Read-only source mounts are accepted.
+
+The test workspace is `/home/emsi/hcorral-qualification.T6BM0C` on `isec`,
+Debian 13 ARM64, Docker 29.6.2 and Compose 5.3.1. It is an Apple-hosted headless
+Linux VM with no graphical session. No existing checkout, real conversation,
+credential file or Kubernetes workload was used as a fixture.
+
+Before the live-copy change, the native ARM64 release artifact, pinned
+0.160.0/0.160.1 native suites, production Codex image with three UID/GID home
+canaries, bounded version probes and full real-Docker suite passed. The first
+Docker run overlapped production-image canaries and failed daemon-wide resource
+assertions plus a missing-object operation. The complete serialized rerun passed;
+do not run those daemon-sensitive suites concurrently.
+
+The live-copy native suite subsequently passed both Codex version directions,
+including held running turns, copied-context resume, continued original turns,
+loaded source re-export and native revert. Initial integration assertions still
+expected source writer refusal and have been corrected to the new requirement;
+they are not evidence of an export failure. The corrected public Docker suite passed, including read-only source export,
+read-only destination refusal, live source ownership, destination exclusion,
+shared-storage behavior and actual running-turn copies in both version directions.
+The full `scripts/ci-source.sh` also passed on `isec`: formatting, module
+consistency, vet/unit/race/fuzz checks, shell and tmux tests, provenance/licenses,
+release/image contracts, workflow validation and the vulnerability gate.
+The live-copy candidate is submitted in [draft PR #20](https://github.com/infrasecture/hcorral/pull/20);
+its updated cross-platform CI is running.
+
+A baseline comparison confirmed all pre-existing containers retain their exact
+IDs, image IDs, running state and lifecycle timestamps. All pre-existing images
+and volumes remain. Logs remain under the isolated qualification root. No image
+or release artifact was published.

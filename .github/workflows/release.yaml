@@ -49,6 +49,7 @@ jobs:
         run: |
           created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           expires_at="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+          # shellcheck disable=SC2153 # ARTIFACT_DIGEST is supplied by the step env.
           artifact_digest="$ARTIFACT_DIGEST"
           [[ "$artifact_digest" == sha256:* ]] || artifact_digest="sha256:${artifact_digest}"
           [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid prepared artifact digest' >&2; exit 1; }
@@ -68,6 +69,7 @@ jobs:
     name: release/linux-${{ matrix.arch }}
     needs: prepare
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
@@ -77,12 +79,16 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
+      - run: sudo apt-get update && sudo apt-get install -y xvfb weston xwayland xauth x11-xserver-utils
       - env:
           VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
           pkg_version="${VERSION#v}"
@@ -115,7 +121,13 @@ jobs:
             "${arch_root}/usr/bin/hcorral" version
           fi
           dpkg-deb --extract "dist/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb" "${package_root}/deb"
+          chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
+          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
           HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/integration/run.sh
+          HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/qualification/mixed-versions.sh
+      - run: |
+          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
+          ./tests/qualification/codex-sessions.sh
       - env:
           VERSION: ${{ inputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -139,7 +151,7 @@ jobs:
         include:
           - runner: macos-15
             arch: arm64
-            colima: false
+            colima: true
           - runner: macos-15-intel
             arch: amd64
             colima: true
@@ -150,35 +162,14 @@ jobs:
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
-      - env:
+      - name: Qualify unpublished Homebrew package
+        env:
           VERSION: ${{ inputs.version }}
           ARCH: ${{ matrix.arch }}
-        run: |
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd dist && sha256sum --check SHA256SUMS)
-          else
-            (cd dist && shasum -a 256 --check SHA256SUMS)
-          fi
-          pkg_version="${VERSION#v}"
-          tar -xzf "dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/hcorral" version
-          ruby -c dist/Formula/hcorral.rb
-          qualification_tap=hcorral/qualification
-          qualified_formula="${qualification_tap}/hcorral"
-          brew tap-new --no-git "$qualification_tap"
-          formula="$(brew --repository "$qualification_tap")/Formula/hcorral.rb"
-          cp dist/Formula/hcorral.rb "$formula"
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew audit --strict "$qualified_formula"
-          archive="$PWD/dist/hcorral_${pkg_version}_darwin_${ARCH}.tar.gz"
-          ARCHIVE="$archive" ARCH="$ARCH" ruby -pi -e '
-            if $_.include?("darwin_#{ENV.fetch("ARCH")}.tar.gz\"")
-              $_ = "    url \"file://#{ENV.fetch("ARCHIVE")}\"\n"
-            end
-          ' "$formula"
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew install "$qualified_formula"
-          hcorral version
-          HOMEBREW_NO_INSTALL_FROM_API=1 brew test "$qualified_formula"
-          brew uninstall hcorral
+        run: ./tests/qualification/homebrew.sh
+      - run: |
+          chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
+          ./tests/qualification/codex-sessions.sh
       - if: matrix.colima
         env:
           ARCH: ${{ matrix.arch }}
@@ -186,12 +177,20 @@ jobs:
           brew install colima coreutils docker docker-compose
           mkdir -p "$HOME/.docker/cli-plugins"
           ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
-          colima start --cpu 2 --memory 4 --disk 10
+          colima_args=(--cpu 2 --memory 4 --disk 10)
+          if [[ "$ARCH" == arm64 ]]; then
+            brew install qemu lima-additional-guestagents
+            colima_args+=(--arch x86_64 --vm-type qemu)
+          else
+            colima_args+=(--vm-type vz)
+          fi
+          colima start "${colima_args[@]}"
           trap 'colima stop' EXIT
           export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
           mkdir -p "$TEST_TMPDIR"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
           chmod 0755 "$HCORRAL_TEST_BINARY"
+          chmod 0755 "dist/tests/session-transfer-darwin-${ARCH}"
           ./tests/integration/run.sh
       - env:
           VERSION: ${{ inputs.version }}
@@ -235,11 +234,17 @@ jobs:
           SOURCE_COMMIT: ${{ github.sha }}
           GATE: ${{ matrix.gate }}
           GUI_MODE: ${{ matrix.mode }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${arch}"
           chmod 0755 "$HCORRAL_TEST_BINARY"
-          ./tests/qualification/linux-gui.sh "$GUI_MODE"
+          image_repository="hcorral-desktop-${GATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="${image_repository}:0.160.0-r1-${arch}"
+          trap 'docker image rm "$image" "${image_repository}:0.160.0-r1" >/dev/null 2>&1 || true' EXIT
+          HCORRAL_IMAGE_REPOSITORY="$image_repository" ./scripts/build-harness-image.sh \
+            --harness codex --version 0.160.0 --revision 1 --arch "$arch"
+          ./tests/qualification/linux-gui.sh "$GUI_MODE" "$image"
           state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
           artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
           ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$GATE" --status passed --output "dist/qualification/$GATE.env"

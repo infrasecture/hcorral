@@ -36,11 +36,7 @@ as_runtime_user() {
 	gosu "${runtime_user}" "${runtime_env[@]}" "$@"
 }
 
-# shellcheck disable=SC2016 # Expanded inside the runtime user's shell.
-runtime_shell_cmd='if [[ -f "${HOME}/.bashrc" ]]; then
-  exec bash --login
-fi
-exec bash --rcfile /etc/bash.bashrc -i'
+runtime_shell_cmd='exec /bin/bash --login -i'
 
 as_runtime_user byobu-ctrl-a screen >/dev/null 2>&1 || true
 
@@ -54,7 +50,7 @@ cat /etc/hcorral/session-banner.txt'
     -d \
     -s "${session}" \
     -c "${runtime_workdir}" \
-    bash --login -lc "${startup_cmd}"
+    bash --noprofile --norc -c "${startup_cmd}"
 fi
 
 as_runtime_user byobu-tmux set-option -t "${session}" default-shell /bin/bash >/dev/null

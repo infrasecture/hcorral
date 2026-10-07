@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       dnsutils fd-find fzf g++ gcc gdb gh git git-lfs gosu htop iproute2 iputils-ping jq libtool locales lsof \
       make man-db manpages manpages-dev meson net-tools ninja-build openssh-client p7zip-full rustc \
       pkg-config python-is-python3 python3 python3-dev python3-pip python3-venv ripgrep rsync \
-      shellcheck socat strace sudo tmux tree unzip vim wget xz-utils yq zip zstd \
+      less shellcheck socat strace sudo tmux tree unzip vim wget xz-utils yq zip zstd \
     && locale-gen en_US.UTF-8 \
     && update-locale LANG=en_US.UTF-8 \
     && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
@@ -51,6 +51,8 @@ RUN case "${TARGETARCH}" in \
     && npm config set prefix /usr/local
 
 RUN mkdir -p /etc/hcorral /usr/share/doc/hcorral \
+	&& chmod 0755 /etc/hcorral \
+	&& install -o root -g root -m 0644 /etc/skel/.bashrc /etc/hcorral/bashrc \
     && printf '%s\n' 'export NPM_CONFIG_PREFIX="$HOME/.local/share/npm"' 'export PATH="$HOME/.local/bin:$NPM_CONFIG_PREFIX/bin:$HOME/.cargo/bin:$PATH"' >/etc/profile.d/hcorral-path.sh \
     && chmod 0644 /etc/profile.d/hcorral-path.sh \
     && sed -i '/^#if ! shopt -oq posix; then$/,/^#fi$/ s/^#//' /etc/bash.bashrc

@@ -4,6 +4,13 @@
 Docker. Each harness gets an independent container in the same physical
 workspace, while the workspace and an optional persisted home can be shared.
 
+The installation commands below select the published `v0.1.0` preview. Automatic
+GUI discovery, inactive image refresh, retained notices and session transfer
+described here are development changes after that release. Shared shell defaults
+also require an updated workstation image. See the
+[implementation ledger](docs/implementation-status.md) for qualification results;
+updating a source checkout does not update an installed launcher or running image.
+
 ## Install
 
 Hcorral requires Docker and Docker Compose v2, installed separately.
@@ -132,9 +139,99 @@ reconciles the container. Bare launch attaches to an already-running container
 without pulling or recreating it. Update checks are bounded, informational, and
 disabled with `HCORRAL_UPDATE_CHECK=false`.
 
+For inactive projects, bare launch refreshes `latest` by default. A stopped
+container is replaced only if its image changed and Compose can reproduce its
+deployed configuration; otherwise its original image and mounts are preserved.
+An offline registry also preserves the stopped container. Set
+`HCORRAL_AUTO_PULL=false` to disable automatic refresh. Named tags and digests
+remain pinned. See the complete [runtime policy](docs/runtime-model.md).
+
+Startup and update reports remain available inside tmux. Dismiss the scrollable
+report with `q`, and reopen it later with `hcorral notices`. A session badge
+shows the deployed GUI mode.
+
 Manual in-container updates are allowed and persisted-user paths precede image
 tools. Recreating a container restores the selected image layer while retaining
 mounted state and workspace data.
+
+## Codex session transfer
+
+Session transfer is implemented on the development branch and still undergoing
+Docker/runtime and consistency qualification. See the remaining gates in the
+[implementation ledger](docs/implementation-status.md) before using it with
+important conversations.
+
+```console
+hcorral session export <session-id>
+hcorral session import <session-id> /path/to/host/codex-home
+hcorral session --help
+```
+
+Export copies from the selected Codex corral to the host; import reverses that
+direction. The optional path names the host Codex home itself and defaults to
+host `CODEX_HOME`, then `~/.codex`. Relative paths use the caller's directory.
+The host is the Docker client machine, including when Docker uses a remote daemon.
+An existing running or stopped corral is required; transfer does not pull images,
+start/recreate the workstation, attach to tmux or resume Codex.
+
+The command copies the selected native history and required inherited prefixes.
+It preserves the session ID and reuses identical existing files; divergent
+history is a conflict. A managed inherited prefix can grow when a later fork
+needs more matching history; existing children keep their original boundaries.
+Importing the complete parent later makes that parent independently resumable.
+If Codex indexed a prerequisite, the importer repairs that conversation's selected
+path in a supported destination database while preserving existing names and
+unrelated metadata. This repair currently supports Codex 0.160.0/0.160.1's schema.
+Credentials, configuration, workspace files, database-only names/metadata and
+external resources are excluded. **The source conversation can stay open and keep
+running.** Copying captures the complete records already saved at a fixed boundary;
+it excludes an unfinished final record, pending writes and later messages. The
+original continues independently. The copy keeps its session ID; this is a
+snapshot, not synchronization between two conversations. Existing conversations
+at the destination are never overwritten, and a busy destination is refused.
+Review saved workspace paths and permissions before resuming the copy. Archived
+sessions stay archived.
+
+Native format and destination-lock checks cover Codex 0.160.0/0.160.1. Source
+copying does not acquire Codex's writer lock or require a writable source home.
+Destination publication still requires working locks and a supported database
+layout. Shared filesystems must coordinate those locks across clients. Transfers
+reject FUSE (including virtiofs/SSHFS), 9p, NFS and SMB storage on Linux, and
+non-local or FUSE/virtiofs/9p storage on macOS. In particular, a Mac directory
+bind-mounted into Colima is not supported conversation storage: guest locks
+can succeed while a host writer owns the same lock. Keep the corral's Codex
+home in a daemon-local volume and export/import to the native host home instead.
+This restriction applies to nested history, lock and SQLite storage too; there
+is no bypass flag. Other unqualified storage still requires review. See the
+[remaining consistency boundaries](docs/session-transfer-design.md#remaining-consistency-questions)
+and platform evidence before treating a different runtime/storage combination as
+supported.
+
+SQLite metadata may live outside `CODEX_HOME`. Discovery reads local base config,
+local requirements and `CODEX_SQLITE_HOME` separately at each endpoint. To select
+the effective directory when Codex uses project config, CLI-selected profiles,
+runtime flags, cloud policy or macOS managed preferences, use:
+
+```console
+hcorral session export <session-id> --host-sqlite-home /host/state --container-sqlite-home /container/state
+```
+
+Explicit container paths must be absolute. A separate SQLite directory must
+already exist; container metadata must be in persistent mounted storage.
+`--format=json` returns the confirmed result and resolved database locations.
+A result can accompany a nonzero exit if publication succeeded but later helper
+cleanup failed. A missing result is not proof that the destination was unchanged;
+inspect it or retry, which reuses verified identical history and completes any
+pending selection repair. A failed transfer can retain fully copied prerequisite
+files; finish the import before using the requested conversation. A retry also
+cleans recognized abandoned staging after a killed transfer, while preserving
+active transfers and published history.
+
+Complete builds bundle Linux AMD64 and ARM64 helpers, so users need neither Go
+nor Python installed. Use `build.sh` for a complete source build; plain `go build`
+without generated helper assets cannot perform transfers. Advanced size limits
+and the detailed endpoint behavior are documented in `hcorral session --help` and
+the [transfer design](docs/session-transfer-design.md).
 
 ## GUI and Compose overlays
 
@@ -147,6 +244,11 @@ hcorral --gui=x11
 hcorral --gui=wayland
 hcorral --no-gui
 ```
+
+New Linux environments automatically prefer usable Wayland, then X11, with a
+headless fallback. Automatic forwarding is disabled over SSH and unsupported
+daemons; macOS remains headless. Explicit GUI requests report unavailable access.
+An existing container keeps its mode until explicit reconciliation.
 
 The embedded base Compose file is always first. `-f FILE` overlays and `-v`
 mounts are trusted, unrestricted Docker inputs and may replace any built-in

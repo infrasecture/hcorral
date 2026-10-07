@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 )
@@ -20,10 +21,37 @@ type Mount struct {
 	Source      string `json:"Source"`
 	Destination string `json:"Destination"`
 	RW          bool   `json:"RW"`
+	Mode        string `json:"Mode"`
+	Propagation string `json:"Propagation"`
+	// Subpath is populated from HostConfig.Mounts when a volume uses a subdir.
+	Subpath string `json:"-"`
+	// Bind options missing from Mounts are retained from HostConfig.Mounts.
+	BindOptions BindOptions `json:"-"`
+	Consistency string      `json:"-"`
+}
+
+type BindOptions struct {
+	Propagation            string `json:"Propagation"`
+	NonRecursive           bool   `json:"NonRecursive"`
+	ReadOnlyNonRecursive   bool   `json:"ReadOnlyNonRecursive"`
+	ReadOnlyForceRecursive bool   `json:"ReadOnlyForceRecursive"`
+	CreateMountpoint       bool   `json:"CreateMountpoint"`
+}
+
+type MountDefinition struct {
+	Type          string      `json:"Type"`
+	Source        string      `json:"Source"`
+	Target        string      `json:"Target"`
+	Consistency   string      `json:"Consistency"`
+	BindOptions   BindOptions `json:"BindOptions"`
+	VolumeOptions struct {
+		Subpath string `json:"Subpath"`
+	} `json:"VolumeOptions"`
 }
 
 type Container struct {
 	ID      string `json:"Id"`
+	ImageID string `json:"Image"`
 	Name    string `json:"Name"`
 	Created string `json:"Created"`
 	Config  struct {
@@ -32,11 +60,17 @@ type Container struct {
 		Env    []string          `json:"Env"`
 	} `json:"Config"`
 	State struct {
-		Status  string `json:"Status"`
-		Running bool   `json:"Running"`
-		Started string `json:"StartedAt"`
+		Status     string `json:"Status"`
+		Running    bool   `json:"Running"`
+		Paused     bool   `json:"Paused"`
+		Restarting bool   `json:"Restarting"`
+		ExitCode   int    `json:"ExitCode"`
+		Started    string `json:"StartedAt"`
 	} `json:"State"`
-	Mounts []Mount `json:"Mounts"`
+	Mounts     []Mount `json:"Mounts"`
+	HostConfig struct {
+		Mounts []MountDefinition `json:"Mounts"`
+	} `json:"HostConfig"`
 }
 
 func (c Container) CleanName() string { return strings.TrimPrefix(c.Name, "/") }
@@ -57,10 +91,13 @@ type Network struct {
 }
 
 type Image struct {
-	ID          string   `json:"Id"`
-	RepoDigests []string `json:"RepoDigests"`
-	Config      struct {
-		Labels map[string]string `json:"Labels"`
+	ID           string   `json:"Id"`
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+	RepoDigests  []string `json:"RepoDigests"`
+	Config       struct {
+		Labels  map[string]string   `json:"Labels"`
+		Volumes map[string]struct{} `json:"Volumes"`
 	} `json:"Config"`
 }
 
@@ -214,6 +251,10 @@ func (d Docker) ContainerLogs(ctx context.Context, name string, tail int) (comma
 }
 
 func (d Docker) capture(ctx context.Context, argv []string) (command.Result, error) {
+	// Inspection must not hang indefinitely when a daemon or exec probe stalls.
+	// A caller's shorter readiness/update deadline still takes precedence.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	result, err := d.Runner.Capture(ctx, argv, d.Env)
 	if err != nil {
 		return result, fmt.Errorf("%s: %w: %s", strings.Join(argv[:min(3, len(argv))], " "), err, strings.TrimSpace(string(result.Stderr)))

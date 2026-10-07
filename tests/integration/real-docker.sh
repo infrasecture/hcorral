@@ -18,6 +18,7 @@ export XDG_CACHE_HOME="${test_root}/cache"
 export HCORRAL_WORKSPACE="${workspace}"
 export HCORRAL_PRIVATE_ENV=true
 export HCORRAL_UPDATE_CHECK=false
+export HCORRAL_GUI=none
 
 project=""
 cleanup() {
@@ -69,6 +70,43 @@ started_at="$(docker inspect --format '{{.State.StartedAt}}' "${project}")"
 [[ "$(docker inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.workspace-id-scheme"}}' "${project}")" == v1 ]]
 [[ "$(docker inspect --format '{{.State.Running}}' "${project}")" == true ]]
 
+# Inspect what the packaged launcher actually sent through Compose. Account
+# database memberships are not a substitute for the invoking process's groups,
+# especially in static Linux builds and macOS directory-service environments.
+docker inspect --format '{{json .Config.Env}}' "$project" >"$test_root/identity.json"
+python3 - "$test_root/identity.json" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    environment = dict(entry.split("=", 1) for entry in json.load(stream))
+assert int(environment["HCORRAL_HOST_UID"]) == os.geteuid()
+assert int(environment["HCORRAL_HOST_GID"]) == os.getegid()
+actual = {int(spec.split(":", 1)[0]) for spec in environment["HCORRAL_HOST_GROUPS"].split(",")}
+groups = os.getgroups()
+if sys.platform == "darwin":
+    # Modern Python binds getgroups$DARWIN_EXTSN, which returns account-access
+    # groups instead of the process credentials used by Go's os.Getgroups.
+    # Call the POSIX symbol directly to compare the actual process group list.
+    # https://docs.python.org/3/library/os.html#os.getgroups
+    import ctypes
+    getgroups = ctypes.CDLL(None, use_errno=True).getgroups
+    getgroups.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32)]
+    getgroups.restype = ctypes.c_int
+    count = getgroups(0, None)
+    if count < 0:
+        raise OSError(ctypes.get_errno(), "getgroups size")
+    buffer = (ctypes.c_uint32 * count)()
+    count = getgroups(count, buffer)
+    if count < 0:
+        raise OSError(ctypes.get_errno(), "getgroups values")
+    groups = list(buffer[:count])
+expected = set(groups) | {os.getegid()}
+assert actual == expected, (actual, expected)
+print("PASS: packaged launcher preserves host process UID/GID and supplementary groups")
+PY
+
 # Initial creation had to pull the absent selected image. An explicit pull
 # fetches it again without recreating or restarting the running container.
 docker image inspect "${image}" >/dev/null
@@ -79,7 +117,9 @@ docker image inspect "${image}" >/dev/null
 "${binary}" exec true
 "${binary}" stop
 
-# Bare stopped launch refuses desired/deployed drift; explicit up reconciles it.
+# A pinned stopped project keeps its original container even if desired
+# options differ. This non-PTY invocation starts successfully, then Docker
+# refuses interactive attachment; assert the lifecycle result separately.
 drift_overlay="${test_root}/drift.yaml"
 cat >"${drift_overlay}" <<'EOF'
 services:
@@ -92,7 +132,12 @@ set +e
 drift_status=$?
 set -e
 [[ ${drift_status} -eq 1 ]]
-grep -Fq 'stopped environment has present drift' "${test_root}/drift.err"
+[[ "$(docker inspect --format '{{.Id}}' "${project}")" == "${container_id}" ]]
+[[ "$(docker inspect --format '{{.State.Running}}' "${project}")" == true ]]
+if docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${project}" | grep -q '^TEST_DRIFT='; then
+  echo 'bare startup applied configuration drift to a pinned container' >&2
+  exit 1
+fi
 "${binary}" -f "${drift_overlay}" up -d
 [[ "$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${project}" | grep '^TEST_DRIFT=')" == TEST_DRIFT=reconciled ]]
 container_id="$(docker inspect --format '{{.Id}}' "${project}")"

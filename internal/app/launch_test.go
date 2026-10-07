@@ -9,11 +9,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 	"github.com/infrasecture/hcorral/internal/config"
@@ -141,8 +141,44 @@ func TestRunningContainerAttachesWithoutMutation(t *testing.T) {
 	if len(runner.runs) != 0 {
 		t.Fatalf("unexpected mutation: %v", runner.runs)
 	}
-	if len(runner.replaced) == 0 || runner.replaced[0] != "docker" || !contains(runner.replaced, workspace.Project) {
+	if len(runner.replaced) == 0 || runner.replaced[0] != "docker" || !contains(runner.replaced, container.ID) {
 		t.Fatalf("replace argv=%#v", runner.replaced)
+	}
+}
+
+type stalledComposeRunner struct{ fakeRunner }
+
+func (r *stalledComposeRunner) Capture(ctx context.Context, argv, env []string) (command.Result, error) {
+	if strings.Contains(strings.Join(argv, "\x00"), "config\x00--format\x00json") {
+		return (command.ExecRunner{}).Capture(ctx, []string{"sh", "-c", "exec sleep 60"}, nil)
+	}
+	return r.fakeRunner.Capture(ctx, argv, env)
+}
+
+func TestRunningAttachSurvivesStalledComposeDiagnostic(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	workspacePath := t.TempDir()
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project}
+	container.Config.Labels = ownedLabels(workspace, "none")
+	container.State.Status, container.State.Running = "running", true
+	runner := &stalledComposeRunner{fakeRunner: fakeRunner{containers: []containerruntime.Container{container}, workspace: workspace}}
+	var out, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Second)
+	defer cancel()
+	code := runDefault(ctx, testConfig(workspace), workspace, &container, runner.containers,
+		Streams{Out: &out, Err: &stderr}, runner, containerruntime.NewDocker(runner))
+	if code != 0 || ctx.Err() != nil {
+		t.Fatalf("optional Compose diagnostic prevented timely attach: code=%d context=%v stderr=%s", code, ctx.Err(), &stderr)
+	}
+	if len(runner.runs) != 0 || !contains(runner.replaced, container.ID) {
+		t.Fatalf("did not attach without reconciliation: runs=%v replace=%v", runner.runs, runner.replaced)
+	}
+	if !strings.Contains(stderr.String(), "drift is unknown") {
+		t.Fatalf("failed diagnostic was not reported as unknown: %s", &stderr)
 	}
 }
 
@@ -245,6 +281,26 @@ func TestSanitizedLogLinesAreBoundedAndRedacted(t *testing.T) {
 	}
 }
 
+type stalledReadinessRunner struct{ fakeRunner }
+
+func (r *stalledReadinessRunner) Capture(ctx context.Context, _, _ []string) (command.Result, error) {
+	<-ctx.Done()
+	return command.Result{}, ctx.Err()
+}
+
+func TestReadinessDeadlineInterruptsAnIndividualDockerCall(t *testing.T) {
+	runner := &stalledReadinessRunner{}
+	var out, stderr bytes.Buffer
+	start := time.Now()
+	err := waitReady(context.Background(), containerruntime.NewDocker(runner), config.Config{WaitTimeoutSeconds: 1}, "fixture", Streams{Out: &out, Err: &stderr})
+	if err == nil || !strings.Contains(err.Error(), "readiness phase timed out") {
+		t.Fatalf("readiness result: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("one Docker call escaped readiness deadline: %v", elapsed)
+	}
+}
+
 func TestComposeMutationClassificationFailsSafe(t *testing.T) {
 	t.Parallel()
 	for _, command := range []string{"up", "down", "rm", "kill", "run", "pull", "unknown-future-command"} {
@@ -310,20 +366,18 @@ func TestChildExitCodePreservesComposeStatus(t *testing.T) {
 
 func TestExecTargetsRuntimeUIDAndPreservesArguments(t *testing.T) {
 	t.Parallel()
-	current, err := user.Current()
-	if err != nil {
-		t.Fatal(err)
-	}
 	runner := &fakeRunner{}
-	cfg := config.Config{ContainerHome: "/home/runtime", Workdir: "/work/path with spaces"}
+	container := &containerruntime.Container{ID: "id"}
+	container.Config.Env = []string{"HCORRAL_HOST_UID=12345", "HCORRAL_CONTAINER_HOME=/home/runtime", "HCORRAL_WORKDIR=/work/path with spaces"}
+	cfg := config.Config{ContainerHome: "/home/ignored", Workdir: "/work/ignored"}
 	args := []string{"printf", "%s\\n", "space arg", "line\nbreak"}
-	if got := replaceExec(cfg, "hcorral-demo-1234567", args, Streams{}, runner); got != 0 {
+	if got := replaceExec(cfg, container, args, Streams{}, runner); got != 0 {
 		t.Fatalf("replaceExec status = %d", got)
 	}
 	if len(runner.replaced) == 0 {
 		t.Fatal("no replacement argv recorded")
 	}
-	if !containsSequence(runner.replaced, []string{"gosu", current.Uid, "env", "HOME=/home/runtime"}) {
+	if !containsSequence(runner.replaced, []string{"gosu", "12345", "env", "HOME=/home/runtime"}) {
 		t.Fatalf("runtime UID/environment missing from argv: %#v", runner.replaced)
 	}
 	wantTail := append([]string{"bash", "/work/path with spaces"}, args...)

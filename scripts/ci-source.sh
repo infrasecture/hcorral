@@ -7,7 +7,7 @@ builder="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c607
 
 run_go() { docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${builder}" "$@"; }
 
-formatting="$(run_go sh -c 'gofmt -l cmd internal')"
+formatting="$(run_go sh -c 'gofmt -l cmd internal tests/integration')"
 [[ -z "${formatting}" ]] || { echo "ERROR: gofmt required: ${formatting}" >&2; exit 1; }
 # shellcheck disable=SC2016 # Executed inside the pinned builder.
 run_go sh -c 'work=$(mktemp -d); cp -a /src/. "$work"; cd "$work"; go mod tidy; diff -u /src/go.mod go.mod; if [[ -f /src/go.sum || -f go.sum ]]; then diff -u /src/go.sum go.sum; fi'
@@ -18,8 +18,11 @@ docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${bu
 # to hosted-runner scheduling delays at a short wall-clock deadline.
 run_go go test ./internal/update -run '^$' -fuzz '^FuzzParse$' -fuzztime=25000x
 
-shellcheck -x build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
-bash -n build.sh release.sh image/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+shellcheck -x build.sh release.sh image/*.sh internal/app/assets/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh
+for script in build.sh release.sh image/*.sh internal/app/assets/*.sh scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh tests/image/*.sh tests/integration/*.sh tests/qualification/*.sh tests/fixtures/minimal-image/*.sh; do
+  bash -n "${script}"
+done
+python3 tests/tmux-notices_test.py
 scripts/check-third-party.sh
 scripts/check-provenance.sh
 scripts/tests/release-contract.sh
@@ -29,7 +32,8 @@ run_go go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -config-file .gi
 grep -Fq 'GNU AFFERO GENERAL PUBLIC LICENSE' LICENSE
 grep -Fq 'AGPL-3.0-or-later' README.md
 [[ -s THIRD_PARTY_LICENSES.md && -s docs/provenance.md ]]
-if git grep -nE 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' -- ':!docs/provenance.md' ':!internal/legacyguard/**' ':!scripts/ci-source.sh'; then
+# The transition fixture deliberately invokes the pinned original launcher.
+if git grep -nE 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' -- ':!docs/provenance.md' ':!internal/legacyguard/**' ':!tests/qualification/mycodex-transition.sh' ':!scripts/ci-source.sh'; then
   echo 'ERROR: stale or noncanonical hcorral namespace found' >&2
   exit 1
 fi

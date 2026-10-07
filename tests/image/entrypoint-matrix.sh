@@ -31,7 +31,21 @@ run_case() {
       [[ "$actual_identity" == "$expected_identity" ]] || { echo "identity: expected $expected_identity, got $actual_identity" >&2; exit 1; }
       [[ "$PWD" == "$HCORRAL_WORKDIR" && "$HOME" == "$HCORRAL_CONTAINER_HOME" && ! -e /workspace ]] || { echo "paths: expected PWD=$HCORRAL_WORKDIR HOME=$HCORRAL_CONTAINER_HOME and no /workspace; got PWD=$PWD HOME=$HOME" >&2; exit 1; }
       [[ -s "$HOME/.hcorral/home-bootstrap.env" ]]; tmux has-session -t matrix; sudo -n true
-      if [[ -n "$EXPECTED_EXTRA_GID" ]]; then id -G | tr " " "\n" | grep -Fxq "$EXPECTED_EXTRA_GID"; fi
+      if [[ -n "$EXPECTED_EXTRA_GID" ]]; then
+        id -G | tr " " "\n" | grep -Fxq "$EXPECTED_EXTRA_GID"
+        access_file="$HOME/group-permission-probe"
+        touch "$access_file"
+        sudo -n chown "0:$EXPECTED_EXTRA_GID" "$access_file"
+        sudo -n chmod 0660 "$access_file"
+        printf "group access\n" >"$access_file"
+        [[ "$(cat "$access_file")" == "group access" ]]
+        sudo -n chmod 0600 "$access_file"
+        if cat "$access_file" >/dev/null 2>&1; then
+          echo "permission probe did not require supplementary-group access" >&2
+          exit 1
+        fi
+        sudo -n rm "$access_file"
+      fi
       if [[ "$HCORRAL_HARNESS_TYPE" == codex ]]; then [[ -s /etc/codex/config.toml && ! -e "$HOME/.codex/config.toml" ]]; fi
       if [[ "$HCORRAL_HARNESS_TYPE" == claude ]]; then [[ -s "$HOME/.claude/settings.json" && "$DISABLE_AUTOUPDATER" == 1 ]]; fi
       if [[ "$HCORRAL_HARNESS_TYPE" == pi ]]; then grep -Fq defaultProjectTrust "$HOME/.pi/agent/settings.json"; grep -Fq always "$HOME/.pi/agent/settings.json"; fi
