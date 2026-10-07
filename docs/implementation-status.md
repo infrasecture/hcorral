@@ -18,12 +18,12 @@ development testing.
 | Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
 | Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
-| Bounded probes and readiness | Implemented; image cleanup pending | Docker/Compose capture contexts, outer readiness deadline, and container-side timeout; real container process cleanup remains to verify |
+| Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
 | Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Native Linux matrix passed | At `43df6a4`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition is a separate pending gate |
-| State-preserving myCodex transition | Documented and wired; Docker result pending | Pinned original launcher/recipe, copied/reused named homes, native picker/resume and return; only the native probe has run locally |
+| State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
@@ -740,3 +740,28 @@ fresh and already indexed destinations. Native follow-up and peer-resume context
 assertions run after real public export/import/re-export. This closes the Linux
 composition gap; macOS composition and the production transition/probe jobs
 were still pending at this checkpoint.
+
+## Production probe and complete transition results: 2026-10-07
+
+Both mixed-version jobs at `f10c95c` completed successfully:
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570554)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570556).
+Their completed logs confirm bounded blocked-login and blocked-executable
+version checks, runtime UID, reaping of monitor/shell/child, correct bundled
+fallback and restored healthy discovery, with workstation identity and mounts
+unchanged. All four old/new launcher-image combinations, three shared-home UID
+pairs, retained PTY reports and hosted display protocols pass again.
+
+The full original-myCodex transition now passes both deliberate home copying
+and explicit reuse, native picker/resume and return through the original
+launcher. The copied-home case also passes public Docker export, host native
+resume, import into a stopped receiver and native resume there. Source/destination
+home metadata, volume labels and selected container identity checks remain in
+the fixture. This qualifies those tested Linux layouts, not a real user migration
+or arbitrary additional mounts/UID changes.
+
+Both macOS jobs in that run remain active. The repository currently has zero
+registered self-hosted runners, confirmed through the Actions API. A physical
+Linux desktop host has been requested for the separate desktop gate; hosted
+protocol success is not substituted for that evidence. The newer metadata and
+maintenance tests at `41da45c` still need their native platform matrix.
