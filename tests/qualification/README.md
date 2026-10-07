@@ -32,6 +32,12 @@ ownership and process-crash recovery tests. No user credentials or hosted model
 service are required. This is native filesystem/runtime qualification; real
 Docker endpoint tests live in `tests/integration`.
 
+Native fixtures disable plugin startup, which would otherwise fetch unrelated
+catalogs from the network. Each app server owns a separate process group so its
+background children are stopped before disposable homes are removed, including
+after cancellation. Completed-turn fixtures still require graceful server exit
+before inspecting the persisted conversation.
+
 The native revert fixture also completes two actual turns, reverts before the
 second and transfers the native-created replacement. It requires the removed
 continuation to be absent from both exported bytes and resumed provider context,

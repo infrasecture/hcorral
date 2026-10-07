@@ -313,9 +313,13 @@ Transfer options (before or after the ID/path):
 SQLite discovery uses local base config, local requirements and CODEX_SQLITE_HOME.
 Use explicit SQLite paths for database overrides from project config, selected
 Codex profiles, runtime flags, cloud policy or macOS managed preferences.
-The persisted conversation must be inactive. Existing divergent history is a
-conflict; identical content is reused. Managed inherited prefixes may grow when
-all prior bytes match; a later complete-parent import preserves child boundaries.
+Exit or unload the conversation at both endpoints first; an idle loaded thread
+can still hold its writer lock. The tested native writer protocol is Codex
+0.160.0/0.160.1. Stop unqualified writers sharing either home or volume, including
+other corrals; a stopped selected container alone does not prove quiescence.
+Existing divergent history is a conflict; identical content is reused.
+Managed inherited prefixes may grow when all prior bytes match; a later
+complete-parent import preserves child boundaries.
 Supported destination metadata may be repaired to select complete imported history.
 Failed publication can retain copied files; retry verifies and reuses them.
 Credentials and workspace files are excluded.

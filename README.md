@@ -177,8 +177,19 @@ path in a supported destination database while preserving existing names and
 unrelated metadata. This repair currently supports Codex 0.160.0/0.160.1's schema.
 Credentials, configuration, workspace files, database-only
 names/metadata and external resources are excluded. The selected persisted
-conversation must be inactive. Review its saved workspace and permissions before
-resuming at the destination. Archived sessions stay archived.
+conversation must be inactive: exit or unload it at both endpoints before
+transferring. An idle but loaded Codex conversation can still own its writer lock.
+Review its saved workspace and permissions before resuming at the destination.
+Archived sessions stay archived.
+
+The tested native writer protocol is Codex 0.160.0/0.160.1. Other processes using
+the same homes or volumes also matter, even when the selected corral is stopped.
+Older or otherwise unqualified writers must be stopped; the launcher cannot
+prove their absence from a rollout version or image label. Shared filesystems
+must coordinate locks between all participating hosts and containers. See the
+[remaining consistency boundaries](docs/session-transfer-design.md#remaining-consistency-questions)
+and platform evidence before treating a different runtime/storage combination as
+supported.
 
 SQLite metadata may live outside `CODEX_HOME`. Discovery reads local base config,
 local requirements and `CODEX_SQLITE_HOME` separately at each endpoint. To select

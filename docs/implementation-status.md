@@ -941,3 +941,11 @@ the background-child regression pass. Native test executables cross-compile
 for both macOS architectures. ShellCheck, Bash syntax, release-contract checks
 and workflow lint pass. These are local checks, not macOS runtime acceptance;
 the final Colima and public Docker/native-resume gates remain outstanding.
+
+Nonpublishing [CI run 37565661591](https://github.com/infrasecture/hcorral/actions/runs/37565661591)
+tests these corrections at `df30f26`. Its source, build and image jobs were
+observed running after dispatch. The previous run is terminal and has not been
+restarted or replaced while active. README/help now make the exit-or-unload
+prerequisite and qualified writer versions explicit; that guidance does not
+claim automatic detection of every process sharing a home or close the remaining
+runtime/storage boundary requirement.
