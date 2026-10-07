@@ -588,3 +588,39 @@ cgo disabled and pass linkage verification on all four targets. These local
 checks do not execute the new Docker cases; their real results, the corrected
 macOS assertion, mixed-version diagnostics, GUI servers and transition fixture
 remain pending the next CI run. No release or image was published.
+
+## Public native-history composition gate: 2026-10-07
+
+The native legacy/paginated/fork/revert/archive suite now has an explicit Docker
+mode. It uses the packaged CLI to export independently seeded synthetic history
+from a real container, then retains the existing native picker/resume and
+loopback-provider context assertions. After the real Codex completes a turn,
+public import writes its persisted history into another stopped container;
+public export returns it to the peer native Codex for resume. Both 0.160.0 and
+0.160.1 directions and fresh/already indexed host destinations are exercised.
+Every public call must retain workstation identity/state/mounts and leave no
+helper. The fixture copies only disposable synthetic setup data; it does not
+change the public transfer's exclusion of databases or configuration.
+
+The integration runner wires this composition gate on both Linux architectures,
+both Compose variants, and the Colima platforms. Native fixture homes now use
+the runtime `.codex` layout, and synthetic source databases are closed before
+fixture seeding. The ordinary core tests keep using their in-process pipeline.
+Local core/native tests pass after these fixture changes, including the reverse
+version direction under the race detector. All four native test executables
+cross-build with cgo disabled and pass linkage inspection; Go vet, ShellCheck,
+workflow lint and release-contract checks pass. Actual Docker composition remains
+pending execution; the simple transition/native probe is a separate gate.
+
+At `43df6a4`, the ARM macOS CI job passed its native tests but could not start
+the x86_64 Colima guest: Homebrew's base Lima installation omits that guest
+agent. The CI and release setup now explicitly install
+`lima-additional-guestagents` on ARM before Colima startup. That correction
+requires another run; no ARM Docker result is claimed.
+
+That same run passed Linux AMD64/ARM64 integration with current and pinned
+Compose. The actual job logs explicitly show the connection-reset,
+lost-completion/retry and shared-storage-alias cases passing on both native
+architectures. This is real daemon/helper evidence for those new cases, not
+merely a successful proxy unit test. Intel Colima and the mixed-version jobs
+were still running at this checkpoint; the run is not a successful full matrix.

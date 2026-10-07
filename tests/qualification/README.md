@@ -23,6 +23,22 @@ ownership and process-crash recovery tests. No user credentials or hosted model
 service are required. This is native filesystem/runtime qualification; real
 Docker endpoint tests live in `tests/integration`.
 
+The integration runner also calls this script with `HCORRAL_NATIVE_DOCKER=1`,
+an explicit `HCORRAL_SESSION_TEST_IMAGE` and the packaged `HCORRAL_TEST_BINARY`.
+That mode runs `TestCodexResumesNativeHistory` through the public commands:
+export synthetic container history, resume on the native host, complete a turn
+against the loopback provider, import the native-written result into another
+stopped container, export it again and resume with the peer Codex version.
+Legacy/paginated histories, compressed inherited prefixes, revert selection,
+archive state and existing indexed destinations retain the same context/privacy
+assertions as the core test. Both version directions run. The fixture volumes
+use the source's absolute pathname inside a separate container filesystem so
+their synthetic SQLite selections remain valid; they are never host binds.
+Fixture setup is separate from the public transfer's selective-copy contract.
+Each public operation must preserve the stopped workstation and remove its
+helper. This composition gate requires real Docker execution and is not implied
+by success of the ordinary in-process native suite.
+
 CI runs the native session suite on Linux/macOS AMD64/ARM64 and real Colima
 integration on both macOS targets. On ARM64, Colima uses an x86_64 QEMU guest
 to avoid depending on nested hardware virtualization. The launcher and session
@@ -30,6 +46,8 @@ test executable still run natively as ARM64 macOS programs, selecting the
 embedded AMD64 helper for the actual Linux container. This also exercises
 different host/container architectures. It is not a native ARM64 guest-VM test;
 the Linux ARM64 jobs separately execute that container/helper architecture.
+The ARM host also needs Homebrew's `lima-additional-guestagents` package for
+the x86_64 guest agent, in addition to QEMU.
 See Colima's documented [architecture selection](https://colima.run/docs/configuration/).
 This added hosted ARM64 Docker gate still requires a successful run.
 The release workflow uses the same session gates before publication can proceed.

@@ -40,9 +40,14 @@ through real Docker, for running and stopped workstations and numeric identities
 - Image-declared anonymous volumes do not become persistent transfer side effects.
 
 The fixture carries runtime ownership labels but bypasses a workstation
-entrypoint. These tests establish the Docker transport contract, not real-image
-shell initialization or native Codex resume. Those require the image canaries
-and native Codex tests. Connection-fault coverage requires the explicit proxy
+entrypoint. The endpoint executable tests the Docker transport contract;
+real-image shell initialization requires the image canaries. After those
+endpoint tests, the runner invokes `codex-sessions.sh` in public-command mode
+against the same daemon, fixture image and packaged launcher. That separate
+stage verifies native resume of richer histories and native-written return
+transfers with both pinned Codex versions. It requires the native session-core
+acceptance executable as well as the endpoint executable. Connection-fault
+coverage requires the explicit proxy
 cases to execute; ordinary local endpoint success does not establish it. The
 proxy plumbing also has a local protocol test for input EOF and reply suppression,
 which is not a substitute for the real-daemon tests.

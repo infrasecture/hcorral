@@ -16,3 +16,6 @@ trap 'docker image rm "$HCORRAL_SESSION_TEST_IMAGE" >/dev/null 2>&1 || true' EXI
 docker build --quiet --tag "${HCORRAL_SESSION_TEST_IMAGE}" \
   --file "${repo_root}/tests/fixtures/session-image/Dockerfile" "${repo_root}" >/dev/null
 "${test_binary}" -test.v -test.timeout=15m
+# Reuse the same real daemon/image and packaged launcher for the richer native
+# Codex histories, including a completed-turn return through public commands.
+HCORRAL_NATIVE_DOCKER=1 "${repo_root}/tests/qualification/codex-sessions.sh"

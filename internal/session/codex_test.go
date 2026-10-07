@@ -35,7 +35,7 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 	for _, mode := range []string{"legacy", "paginated", "paginated-prefix", "revert-prefix", "archived-revert-prefix"} {
 		for _, existingHome := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/existing=%v", mode, existingHome), func(t *testing.T) {
-				source, h := fixtureHome(t), fixtureHome(t)
+				source, h := nativeEndpointHome(t), nativeEndpointHome(t)
 				workspace := t.TempDir()
 				requests := make(chan string, 4)
 				provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +83,9 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 						if _, err := db.Exec("INSERT INTO threads VALUES (?, ?, ?, 'paginated')", id, filepath.Join(source.Path, childPath), mode == "archived-revert-prefix"); err != nil {
 							t.Fatal(err)
 						}
+						if err := db.Close(); err != nil {
+							t.Fatal(err)
+						}
 					}
 				} else {
 					writeFixture(t, source, fixturePath(id, id), nativeFixture(t, id, mode, nil, "persisted message"))
@@ -105,7 +108,7 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 				}
 				// Exercise the actual format/stream/staging/publication pipeline. The
 				// existing-home case keeps Codex alive after initial database backfill.
-				imported := published(t, received(t, h, exported(t, source, id)))
+				imported := nativeEndpointTransfer(t, source, h, id, true)
 				if imported.Archived != (mode == "archived-revert-prefix") {
 					t.Fatal("transfer changed archive state")
 				}
@@ -201,11 +204,11 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 				// Re-export bytes actually persisted by native Codex, including
 				// its new turn context and any legacy-to-paginated migration.
 				// Qualify the reverse direction with a separately selected peer.
-				peerHome := fixtureHome(t)
+				peerHome := nativeEndpointHome(t)
 				if err := os.WriteFile(filepath.Join(peerHome.Path, "config.toml"), []byte(config), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				published(t, received(t, peerHome, exported(t, h, id)))
+				nativeEndpointTransfer(t, h, peerHome, id, false)
 				peer := startCodex(t, peerBinary, peerHome.Path, workspace)
 				peer.call(t, "thread/resume", map[string]any{"threadId": id, "cwd": workspace, "modelProvider": "test-provider", "approvalPolicy": "never", "sandbox": "read-only"})
 				peer.call(t, "turn/start", map[string]any{"threadId": id, "input": []any{map[string]string{"type": "text", "text": "peer follow-up"}}})
@@ -353,7 +356,13 @@ func startCodex(t *testing.T, binary, home, workspace string) *codexServer {
 
 func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []string) *codexServer {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	deadline := 30 * time.Second
+	if os.Getenv("HCORRAL_NATIVE_DOCKER") == "1" {
+		// The existing-home fixture remains alive during actual Docker setup
+		// and transfer, including software-emulated Colima guests.
+		deadline = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	cmd := exec.CommandContext(ctx, binary, "app-server", "--listen", "stdio://")
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "CODEX_HOME=" + home, "RUST_LOG=error"}
 	cmd.Env = append(cmd.Env, extraEnv...)

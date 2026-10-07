@@ -42,9 +42,17 @@ done
 # Every process uses synthetic homes and an in-process loopback provider. The
 # tests exercise native indexing/resume and a completed-turn return transfer;
 # neither the user's credentials nor an external model service are involved.
+test_args=(-test.v -test.timeout=10m)
+if [[ "${HCORRAL_NATIVE_DOCKER:-}" == 1 ]]; then
+  [[ -n "${HCORRAL_SESSION_TEST_IMAGE:-}" && -x "${HCORRAL_TEST_BINARY:-}" ]] || {
+    echo 'public native qualification requires a launcher and Docker fixture image' >&2
+    exit 2
+  }
+  test_args=(-test.v -test.timeout=20m -test.run '^TestCodexResumesNativeHistory$')
+fi
 for index in 0 1; do
   peer=$((1 - index))
   printf 'Native Codex qualification: %s -> %s (%s)\n' "${binaries[$index]}" "${binaries[$peer]}" "$platform"
   HCORRAL_TEST_CODEX="${binaries[$index]}" HCORRAL_TEST_CODEX_PEER="${binaries[$peer]}" \
-    "$test_binary" -test.v -test.timeout=10m
+    "$test_binary" "${test_args[@]}"
 done

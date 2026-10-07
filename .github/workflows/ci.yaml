@@ -227,6 +227,7 @@ jobs:
           printf '%s  %s\n' '${{ matrix.sha256 }}' "$compose" | sha256sum --check --strict
           chmod 0755 "$compose" "dist/bin/hcorral-linux-${{ matrix.arch }}"
           chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
+          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
           export HCORRAL_COMPOSE_COMMAND="[\"$compose\"]"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}"
           ./tests/integration/run.sh
@@ -272,7 +273,10 @@ jobs:
           colima_args=(--cpu 2 --memory 4 --disk 10)
           # Cross-architecture QEMU uses software emulation on hosted ARM Macs,
           # avoiding a requirement for nested hardware virtualization.
-          if [[ "$ARCH" == arm64 ]]; then colima_args+=(--arch x86_64 --vm-type qemu); fi
+          if [[ "$ARCH" == arm64 ]]; then
+            brew install lima-additional-guestagents
+            colima_args+=(--arch x86_64 --vm-type qemu)
+          fi
           colima start "${colima_args[@]}"
           trap 'colima stop' EXIT
           export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
