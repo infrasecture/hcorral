@@ -13,6 +13,15 @@ assets. Downloads are verified before extraction/execution. Updating the matrix
 requires reviewing format, indexing and writer-lock compatibility as well as
 replacing version/digest entries; it must not silently track `latest`.
 
+Within a CI job, verified release archives are reused from a private directory
+under `RUNNER_TEMP`. They are keyed by the pinned SHA-256 and checked again before
+every extraction; partial downloads are never installed in the cache. This lets
+the later Docker composition suite reuse the native suite's assets after Colima
+setup without another GitHub download. Outside CI the cache is temporary unless
+`HCORRAL_CODEX_TEST_CACHE` selects a persistent test-asset directory. Only public
+archives are cached; executables are extracted afresh and synthetic Codex homes
+are private to each invocation.
+
 The suite runs in both version directions with disposable homes/workspaces and
 an in-process loopback provider. It checks the native picker, resume and writer
 exclusion, a completed turn followed by transfer/resume in the other version,

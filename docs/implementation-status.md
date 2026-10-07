@@ -858,3 +858,24 @@ explicit `version`, which is redundant with the release archive URL. Formula
 generation now omits that field and retains versioned URLs, archive hashes and
 the executable-version assertion. Local shell and release-contract checks pass;
 native Homebrew audit/install still needs another run. No release was published.
+
+## Reuse verified native qualification assets: 2026-10-07
+
+To avoid the repeated-download DNS failure observed in the Intel job, the native
+qualification runner now retains checksum-keyed public Codex archives within a
+CI job. Both native and Docker composition invocations verify the pinned digest
+before extracting fresh binaries. Downloaded bytes enter the cache only after
+verification; failed downloads are cleaned up. Local runs use temporary storage
+unless `HCORRAL_CODEX_TEST_CACHE` explicitly selects a reusable directory. Codex
+homes and extracted executables remain private per invocation.
+
+Both full native version directions pass locally after fetching the two pinned
+archives, then pass again with `curl` replaced by a command that fails every
+download. A corrupted cached artifact is refused before execution. ShellCheck,
+Bash syntax and release-contract checks pass. The private test umask also exposed
+a permission fixture that assumed `MkdirAll(0755)` bypasses umask; it now explicitly
+sets its intended preexisting mode before testing that publication preserves it.
+
+These changes address qualification reliability and fixture setup. The macOS
+public Docker/native-resume composition, the staging cleanup correction and
+cross-host shared-storage writer exclusion still require actual platform results.

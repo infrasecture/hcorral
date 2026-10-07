@@ -5,8 +5,29 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 platform="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 test_binary="${HCORRAL_CODEX_TEST_BINARY:-${repo_root}/dist/tests/session-core-${platform}}"
 [[ -x "$test_binary" ]] || { echo "missing native session test executable: $test_binary" >&2; exit 2; }
+umask 077
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/hcorral-native-codex.XXXXXX")"
-trap 'rm -rf -- "$test_root"' EXIT
+download=""
+cleanup() {
+  [[ -z "$download" ]] || rm -f -- "$download"
+  rm -rf -- "$test_root"
+}
+trap cleanup EXIT
+# Native core qualification precedes Colima. Reuse its verified public assets
+# later in the same job, without needing another network lookup after VM setup.
+# Local runs remain temporary unless a cache directory is explicitly selected.
+cache_root="${HCORRAL_CODEX_TEST_CACHE:-${RUNNER_TEMP:-$test_root}/hcorral-codex-test-assets}"
+mkdir -p "$cache_root"
+
+verify_archive() {
+  local checksum="$1" file="$2"
+  if [[ "$platform" == darwin-* ]]; then
+    # macOS's sha256sum compatibility command lacks the GNU stdin interface.
+    printf '%s  %s\n' "$checksum" "$file" | shasum -a 256 -c
+  else
+    printf '%s  %s\n' "$checksum" "$file" | sha256sum -c
+  fi
+}
 
 binaries=()
 for version in 0.160.0 0.160.1; do
@@ -21,18 +42,19 @@ for version in 0.160.0 0.160.1; do
     exit 2
   }
   directory="$test_root/$version"
-  mkdir -p "$directory" "$directory/home"
-  curl --fail --silent --show-error --location --retry 3 --max-time 120 \
-    --output "$directory/$archive" \
-    "https://github.com/openai/codex/releases/download/rust-v${version}/${archive}"
-  if [[ "$platform" == darwin-* ]]; then
-    # The macOS sha256sum compatibility command does not implement the GNU
-    # stdin-check interface. Use the system Perl tool explicitly on macOS.
-    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 -c)
-  else
-    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c)
+  mkdir -p "$directory/home/.codex"
+  cached_archive="$cache_root/$checksum-$archive"
+  if [[ ! -f "$cached_archive" ]]; then
+    download="$(mktemp "$cache_root/.download.XXXXXX")"
+    curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+      --output "$download" \
+      "https://github.com/openai/codex/releases/download/rust-v${version}/${archive}"
+    verify_archive "$checksum" "$download"
+    mv -- "$download" "$cached_archive"
+    download=""
   fi
-  tar -xzf "$directory/$archive" -C "$directory" "${archive%.tar.gz}"
+  verify_archive "$checksum" "$cached_archive"
+  tar -xzf "$cached_archive" -C "$directory" "${archive%.tar.gz}"
   binary="$directory/${archive%.tar.gz}"
   chmod 0755 "$binary"
   [[ "$(HOME="$directory/home" CODEX_HOME="$directory/home/.codex" "$binary" --version)" == "codex-cli $version" ]]

@@ -229,6 +229,11 @@ func TestInterruptedPublicationCleansOnlyItsNewFilesAndCanRetry(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(block), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// This fixture needs a preexisting nonprivate mode, independent of the
+	// qualification runner's umask, to test that publication preserves it.
+	if err := os.Chmod(filepath.Dir(block), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(block, []byte("preserve this preexisting blocker"), 0o600); err != nil {
 		t.Fatal(err)
 	}
