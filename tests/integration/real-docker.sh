@@ -84,7 +84,25 @@ with open(sys.argv[1], encoding="utf-8") as stream:
 assert int(environment["HCORRAL_HOST_UID"]) == os.geteuid()
 assert int(environment["HCORRAL_HOST_GID"]) == os.getegid()
 actual = {int(spec.split(":", 1)[0]) for spec in environment["HCORRAL_HOST_GROUPS"].split(",")}
-expected = set(os.getgroups()) | {os.getegid()}
+groups = os.getgroups()
+if sys.platform == "darwin":
+    # Modern Python binds getgroups$DARWIN_EXTSN, which returns account-access
+    # groups instead of the process credentials used by Go's os.Getgroups.
+    # Call the POSIX symbol directly to compare the actual process group list.
+    # https://docs.python.org/3/library/os.html#os.getgroups
+    import ctypes
+    getgroups = ctypes.CDLL(None, use_errno=True).getgroups
+    getgroups.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32)]
+    getgroups.restype = ctypes.c_int
+    count = getgroups(0, None)
+    if count < 0:
+        raise OSError(ctypes.get_errno(), "getgroups size")
+    buffer = (ctypes.c_uint32 * count)()
+    count = getgroups(count, buffer)
+    if count < 0:
+        raise OSError(ctypes.get_errno(), "getgroups values")
+    groups = list(buffer[:count])
+expected = set(groups) | {os.getegid()}
 assert actual == expected, (actual, expected)
 print("PASS: packaged launcher preserves host process UID/GID and supplementary groups")
 PY

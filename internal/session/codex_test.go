@@ -363,7 +363,9 @@ func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []
 		deadline = 3 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
-	cmd := exec.CommandContext(ctx, binary, "app-server", "--listen", "stdio://")
+	// Plugin catalog startup can clone from the network independently of the
+	// local model provider. These history fixtures need no plugins.
+	cmd := nativeFixtureCommand(ctx, binary, "--disable", "plugins", "app-server", "--listen", "stdio://")
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "CODEX_HOME=" + home, "RUST_LOG=error"}
 	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Dir = workspace
@@ -390,6 +392,9 @@ func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []
 			stdin.Close()
 			cancel()
 			cmd.Wait()
+			if err := stopNativeFixtureGroup(cmd); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				t.Errorf("stop native fixture children: %v", err)
+			}
 		}
 		if t.Failed() {
 			t.Logf("isolated Codex stderr: %s", stderr.String())
@@ -527,6 +532,9 @@ func (s *codexServer) finish(t *testing.T) {
 	err := s.cmd.Wait()
 	s.cancel()
 	s.finished = true
+	if cleanupErr := stopNativeFixtureGroup(s.cmd); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrProcessDone) {
+		t.Errorf("stop native fixture children: %v", cleanupErr)
+	}
 	if err != nil {
 		t.Fatalf("Codex did not shut down cleanly after completing its turn: %v", err)
 	}

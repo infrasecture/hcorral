@@ -900,3 +900,44 @@ now tests candidate `4cf6303` on `agent/go-successor`, containing the formula an
 verified-asset-cache corrections. The older temporary qualification ref/run is
 retained while its independent mixed-version jobs finish; remove that temporary
 ref during final repository cleanup after its evidence has been recorded.
+
+## Native macOS qualification corrections: 2026-10-07
+
+[Run 37563991174](https://github.com/infrasecture/hcorral/actions/runs/37563991174)
+at `4cf6303` completed with both macOS jobs failing. All Linux, mixed-version,
+package, image, source and four-target build jobs passed. Both macOS jobs passed
+the Homebrew audit/install/exact-binary gate. ARM also passed the native Codex
+core suite; its later endpoint checks stopped at the process-group identity
+assertion, before the Colima cleanup/shared-storage regression cases.
+
+The ARM identity test compared Go's POSIX process groups with modern Python's
+macOS account-access group list. The latter included group 400, absent from
+the former. These are different interfaces, as documented by
+[Python](https://docs.python.org/3/library/os.html#os.getgroups); the pinned Go
+toolchain imports the plain `getgroups` symbol. The fixture now calls that POSIX
+symbol directly through ctypes on macOS and still requires exact numeric group
+equality. Launcher identity handling is unchanged; the new assertion requires
+an actual macOS rerun.
+
+Intel's second native version direction completed the failing subtest's resume
+assertions, then failed temporary-directory cleanup while a background plugin
+Git clone was still writing. Native history fixtures now disable unrelated
+plugin startup and own a separate process group. Timeout/cleanup terminates
+that group, including remaining children after a graceful app-server exit.
+Graceful completed-turn shutdown remains required by the resume fixture. A
+regression test uses a real background child retaining a pipe to verify cleanup
+after both cancellation and normal parent exit.
+
+Homebrew's temporary local archive URL also caused its inferred package version
+to become `64`, despite installing the right executable. Qualification now
+checks the version inferred from the real release URL, then preserves that
+version explicitly only in the temporary local formula and checks it again.
+The published formula still derives its version from the release URL. Cleanup
+also consumes the complete formula listing instead of closing its pipe early.
+
+The full Go suite and vet pass. Both native Codex 0.160.0/0.160.1 directions pass
+locally with the revised process lifecycle; ten race-enabled repetitions of
+the background-child regression pass. Native test executables cross-compile
+for both macOS architectures. ShellCheck, Bash syntax, release-contract checks
+and workflow lint pass. These are local checks, not macOS runtime acceptance;
+the final Colima and public Docker/native-resume gates remain outstanding.
