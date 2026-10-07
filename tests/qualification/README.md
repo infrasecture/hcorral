@@ -29,6 +29,12 @@ continuation to be absent from both exported bytes and resumed provider context,
 and verifies a loaded native writer excludes snapshot acquisition before and
 after revert. The separate lifecycle cases check archive/unarchive/resume/delete
 refusal while a Go transfer guard is held, then successful retry after release.
+Further native fixtures cover Git metadata, compression and background format
+migration. Unrelated cold/legacy files must be processed to establish that the
+maintenance workers actually ran, while guarded history stays unchanged.
+After release, the same selected history must compress/migrate and remain
+transferable. These cases do not qualify pre-protocol writers or arbitrary
+network filesystem semantics.
 
 The integration runner also calls this script with `HCORRAL_NATIVE_DOCKER=1`,
 an explicit `HCORRAL_SESSION_TEST_IMAGE` and the packaged `HCORRAL_TEST_BINARY`.

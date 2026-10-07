@@ -28,7 +28,7 @@ development testing.
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | `43df6a4` also passes actual attach resets, lost-completion/retry and shared-storage aliases on AMD64/ARM64; broader endpoint/platform acceptance remains |
-| Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
+| Actual Codex resume acceptance | Native Linux public Docker matrix passed; broader qualification remains | `f10c95c` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures and Compose variants; macOS composition remains |
 
 ## Execution environment
 
@@ -710,3 +710,33 @@ nonpublishing CI was dispatched at `f10c95c` as
 [run 37560678376](https://github.com/infrasecture/hcorral/actions/runs/37560678376),
 covering those corrections, the production probe, native public Docker
 composition and native lifecycle/revert checks. No earlier live job was canceled.
+
+## Native metadata and maintenance qualification: 2026-10-07
+
+Actual native Git metadata operations now verify both legacy rollout mutation
+and paginated SQLite-only updates. Legacy mutation refuses a held transfer
+guard without partially updating the database. Paginated metadata may change,
+but the selected path and guarded rollout bytes must not. Retry after release
+must succeed, and the resulting conversation must still transfer.
+
+Compression and background legacy-to-paginated migration now run through actual
+Codex workers in disposable homes. Unrelated eligible conversations must be
+processed while the guarded one stays byte-identical; the selected conversation
+must then process successfully after release. Compression requires its output
+plus the released maintenance lock. Migration records a busy skip and clears it
+on the next startup. The migrated/compressed native history must remain valid
+and selectively transferable. This covers concrete metadata and maintenance
+operations, not older nonparticipating writers or every filesystem.
+
+These cases pass locally on 0.160.1 and in three race-enabled repetitions on
+0.160.0. Session package tests and vet pass. They were added after the currently
+running CI revision and still require their four-platform native results.
+
+Meanwhile, `f10c95c` passed all four Linux integration jobs (both architectures,
+current and 2.24.6 Compose). The completed AMD64/ARM64 logs confirm all ten
+public Docker/native-history subcases in both version directions: legacy,
+paginated, compressed inherited history, revert and archived revert, each with
+fresh and already indexed destinations. Native follow-up and peer-resume context
+assertions run after real public export/import/re-export. This closes the Linux
+composition gap; macOS composition and the production transition/probe jobs
+were still pending at this checkpoint.

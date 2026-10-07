@@ -144,6 +144,21 @@ revert operation requires a loaded thread; requesting it on an unloaded thread
 returns `thread not found`, which is not evidence of writer exclusion. The
 existing resume-while-guarded fixture checks the opposite lock direction.
 
+Native Git-metadata checks distinguish the two storage modes. Legacy updates
+append rollout metadata and must refuse a held transfer guard without partially
+changing SQLite. Paginated updates may succeed while guarded because they
+change only database metadata; the selected rollout and its bytes stay intact.
+Both modes must update successfully after release and remain transferable.
+
+Native maintenance fixtures exercise compression and background legacy-to-
+paginated migration. Each must complete work on an unrelated conversation while
+leaving a transfer-locked one untouched, then process the formerly guarded
+conversation after release. Compression completion is established by its real
+output and released maintenance lock; migration must record the guarded rollout
+as busy and later clear that entry. Transfer verifies the resulting native
+history. These fixtures use actual Codex workers in disposable homes, not Go
+stand-ins for the native lock protocol.
+
 ## Selective inherited history
 
 The inspector reads only the exact prefix required from each ancestor. It
