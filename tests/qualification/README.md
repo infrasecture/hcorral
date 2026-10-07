@@ -49,6 +49,25 @@ release qualification run it on native Linux AMD64/ARM64 with the built launcher
 and no existing workstation is adopted. Builder/test tools, including Python
 for PTY driving, are qualification dependencies, not launcher prerequisites.
 
+The same job runs `mycodex-transition.sh` against its newly built Codex image.
+It fetches immutable myCodex source and builds the real historical image recipe
+with Codex 0.160.0, disabling optional unrelated agents. The original launcher
+creates/removes the old project; hcorral creates a separate project with an
+explicitly copied or reused state volume. It checks refusal while the old
+container exists, startup customization, numeric ownership, symlinks, volume
+labels, fake credentials and a synthetic conversation, including native picker
+and resume through both images. It returns through the original launcher before
+discarding its own fixtures. See the [manual transition procedure](../../docs/transition-from-mycodex.md).
+
+The copied-home scenario also invokes public `session export`, resumes the
+exported conversation in a native host Codex executable from the actual image,
+imports it through public `session import` into a stopped separate workstation,
+and starts/resumes it there. The import must preserve that stopped container's
+identity, status and mounts. This connects the actual Docker transport to native
+resume for a simple real-indexed history; the separate core suite covers more
+complex inherited, archived and reverted histories. All authentication is
+synthetic, provider configuration is local, and no model turn is started.
+
 `linux-gui.sh` qualifies actual X11 or Wayland forwarding and narrow socket
 mounts on a suitable Linux desktop host. It is separate from unit GUI discovery
 tests and headless Docker acceptance. Merely defining a workflow or having a

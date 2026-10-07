@@ -70,6 +70,12 @@ for launcher_generation in old new; do
     export HCORRAL_WORKSPACE="$test_root/workspace-${launcher_generation}-${image_generation}"
     mkdir -p "$HCORRAL_WORKSPACE"
     "$launcher" up -d
+    ready=0
+    for _ in {1..100}; do
+      if [[ "$(docker exec "$project" cat /run/hcorral-startup-status 2>/dev/null || true)" == ready ]]; then ready=1; break; fi
+      sleep 0.1
+    done
+    if [[ "$ready" != 1 ]]; then docker logs "$project" >&2; exit 1; fi
     expected_image="$(docker image inspect --format '{{.Id}}' "$image")"
     [[ "$(docker inspect --format '{{.Image}}' "$project")" == "$expected_image" ]]
     before="$(docker inspect --format '{{.Id}}|{{.State.StartedAt}}|{{json .Mounts}}' "$project")"
@@ -94,3 +100,5 @@ for launcher_generation in old new; do
     printf 'PASS: %s launcher / %s image, retained notices and persistent state (%s)\n' "$launcher_generation" "$image_generation" "$arch"
   done
 done
+
+"$root/tests/qualification/mycodex-transition.sh" "$new_image"

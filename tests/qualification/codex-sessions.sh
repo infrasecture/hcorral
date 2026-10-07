@@ -25,11 +25,12 @@ for version in 0.160.0 0.160.1; do
   curl --fail --silent --show-error --location --retry 3 --max-time 120 \
     --output "$directory/$archive" \
     "https://github.com/openai/codex/releases/download/rust-v${version}/${archive}"
-  if command -v sha256sum >/dev/null 2>&1; then
-    # macOS runners can provide a non-GNU sha256sum with short options only.
-    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c)
-  else
+  if [[ "$platform" == darwin-* ]]; then
+    # The macOS sha256sum compatibility command does not implement the GNU
+    # stdin-check interface. Use the system Perl tool explicitly on macOS.
     (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 -c)
+  else
+    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c)
   fi
   tar -xzf "$directory/$archive" -C "$directory" "${archive%.tar.gz}"
   binary="$directory/${archive%.tar.gz}"

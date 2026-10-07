@@ -32,7 +32,8 @@ run_go go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -config-file .gi
 grep -Fq 'GNU AFFERO GENERAL PUBLIC LICENSE' LICENSE
 grep -Fq 'AGPL-3.0-or-later' README.md
 [[ -s THIRD_PARTY_LICENSES.md && -s docs/provenance.md ]]
-if git grep -nE 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' -- ':!docs/provenance.md' ':!internal/legacyguard/**' ':!scripts/ci-source.sh'; then
+# The transition fixture deliberately invokes the pinned original launcher.
+if git grep -nE 'io\.infrasecture\.hcorral|com\.infrasecture\.hcorral|MYCODEX_' -- ':!docs/provenance.md' ':!internal/legacyguard/**' ':!tests/qualification/mycodex-transition.sh' ':!scripts/ci-source.sh'; then
   echo 'ERROR: stale or noncanonical hcorral namespace found' >&2
   exit 1
 fi

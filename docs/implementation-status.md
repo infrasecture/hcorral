@@ -23,7 +23,7 @@ development testing.
 | Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Qualification wired; execution pending | Actual v0.1.0/current launchers, baseline/current recipes and three-UID shared-home checks are in CI/release qualification |
-| State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
+| State-preserving myCodex transition | Documented and wired; Docker result pending | Pinned original launcher/recipe, copied/reused named homes, native picker/resume and return; only the native probe has run locally |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
@@ -482,3 +482,32 @@ and checks all four combinations, retained tmux reports and unchanged state.
 It also tests startup files shared with an older running image at three UID/GID
 pairs. Shell/workflow checks and release command-contract checks pass locally;
 the mixed-version runtime suite requires real CI execution.
+
+## Original myCodex transition and native endpoint qualification: 2026-10-07
+
+[CI run 37555406831](https://github.com/infrasecture/hcorral/actions/runs/37555406831)
+tested `6d17691`. Existing source, image, package and Linux integration/native
+checks passed again. Both mixed-version jobs passed the concurrent old/new
+image shared-home cases at all three UID/GID pairs. They then failed because
+the fixture queried tmux immediately after detached creation, before entrypoint
+readiness. The fixture now waits for actual startup readiness. The macOS
+checksum compatibility command also rejected the short stdin-check invocation;
+macOS now explicitly uses its `shasum -a 256 -c` implementation. These corrections
+need a new run; neither failed matrix is qualified.
+
+The transition guide now records inventory, quiescence, daemon-side home copy,
+explicit volume selection, startup verification and recovery. The integration
+fixture fetches the original pinned myCodex source and builds its real recipe,
+uses its launcher for creation/removal, and exercises copy and explicit reuse
+with hcorral. It checks synthetic credential/configuration/history preservation,
+file ownership/modes/symlinks, legacy refusal, native picker/resume and return
+through the original launcher. No legacy-container adoption code is introduced.
+
+The copy scenario additionally composes public Docker session export with host
+native resume, then public import into a stopped separate workstation followed
+by container-native resume. This is a simple indexed-history endpoint fixture;
+it does not replace the richer core/native history matrix. The test-only Python
+app-server probe and exact synthetic seed pass locally with native Codex 0.160.0
+and 0.160.1. ShellCheck, Bash syntax, workflow lint and release-contract checks
+pass. Actual transition/endpoint execution remains pending CI. No real user
+state, credentials, image publication or release is involved.
