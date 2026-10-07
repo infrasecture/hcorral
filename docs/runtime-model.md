@@ -66,6 +66,13 @@ Deployed image facts use Docker's actual image ID, independently of mutable
 image references. Installed harness versions can differ from bundled versions
 when the persisted user prefix contains an update.
 
+Required Compose configuration calls have a 30-second limit to allow cold
+plugins and policy wrappers. Optional configuration comparison before attachment
+has a separate five-second budget; its failure reports unknown drift and still
+attaches. Docker inspection calls retain their five-second limit, and update
+checks retain their eight-second overall budget. A shorter caller deadline
+always takes precedence. Interactive attachment has no such probe deadline.
+
 `session export/import` uses the existing Codex corral's inspected identity and
 storage, under the project lock, without Compose or GUI preparation. A temporary
 helper runs against that storage whether the workstation is running or stopped;

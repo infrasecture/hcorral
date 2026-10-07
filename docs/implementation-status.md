@@ -988,3 +988,27 @@ job successfully. Its Intel Colima job remains active; its ARM job failed as
 recorded above. Neither run is qualified overall from these partial results.
 Remove the temporary qualification branch only after its run has finished and
 the resulting evidence has been recorded.
+
+## Required Compose rendering versus attach diagnostics: 2026-10-07
+
+The `4cb9129` [AMD64 low-end Compose job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213337)
+failed when the generic Compose-wrapper case exceeded the five-second capture
+deadline during configuration rendering. This fixture deliberately replaces the
+pinned command with a wrapper delegating to the runner's `docker compose`; the
+failure is not evidence of a particular Compose 2.24.6 parsing defect. Other
+Linux jobs passed. The log establishes deadline expiry, not why that rendering
+invocation took longer than five seconds.
+
+Required configuration rendering now has a 30-second per-call bound. Optional
+pre-attach drift/image discovery instead owns a five-second overall context,
+so a stalled diagnostic still permits attachment with an unknown-drift report.
+Docker inspection and optional update deadlines are unchanged, and a shorter
+caller deadline takes precedence over the longer render limit.
+
+A real six-second shell renderer reproduces the old failure and passes with
+the new limit, retaining both rendered image and hash results. A stalled real
+child respects a shorter caller deadline. A separate controlled launcher test
+uses a real stalled renderer and confirms timely attachment to the existing
+container, an unknown-drift report and no reconciliation. Race-enabled compose,
+app, runtime and update tests pass, along with the full Go suite and vet. These checks
+do not replace rerunning the actual failed Docker/Compose qualification case.

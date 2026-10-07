@@ -743,6 +743,10 @@ func ensureSelectedImage(ctx context.Context, docker containerruntime.Docker, re
 }
 
 func desiredDrift(ctx context.Context, cfg config.Config, workspace identity.Workspace, containers []containerruntime.Container, runner command.Runner, candidate *containerruntime.Container) (string, string, string) {
+	// This is optional pre-attach information. Unlike required configuration
+	// rendering for up/create, it must not consume the longer render budget.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, _, generated, project, err := prepareProject(ctx, cfg, workspace, candidate, Streams{Out: ioDiscard{}, Err: ioDiscard{}}, runner)
 	if generated.Path != "" {
 		defer generated.Cleanup()

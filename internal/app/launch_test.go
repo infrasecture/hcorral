@@ -146,6 +146,42 @@ func TestRunningContainerAttachesWithoutMutation(t *testing.T) {
 	}
 }
 
+type stalledComposeRunner struct{ fakeRunner }
+
+func (r *stalledComposeRunner) Capture(ctx context.Context, argv, env []string) (command.Result, error) {
+	if strings.Contains(strings.Join(argv, "\x00"), "config\x00--format\x00json") {
+		return (command.ExecRunner{}).Capture(ctx, []string{"sh", "-c", "exec sleep 60"}, nil)
+	}
+	return r.fakeRunner.Capture(ctx, argv, env)
+}
+
+func TestRunningAttachSurvivesStalledComposeDiagnostic(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	workspacePath := t.TempDir()
+	workspace, err := identity.Resolve(workspacePath, workspacePath, "codex", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := containerruntime.Container{ID: "owned", Name: "/" + workspace.Project}
+	container.Config.Labels = ownedLabels(workspace, "none")
+	container.State.Status, container.State.Running = "running", true
+	runner := &stalledComposeRunner{fakeRunner: fakeRunner{containers: []containerruntime.Container{container}, workspace: workspace}}
+	var out, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Second)
+	defer cancel()
+	code := runDefault(ctx, testConfig(workspace), workspace, &container, runner.containers,
+		Streams{Out: &out, Err: &stderr}, runner, containerruntime.NewDocker(runner))
+	if code != 0 || ctx.Err() != nil {
+		t.Fatalf("optional Compose diagnostic prevented timely attach: code=%d context=%v stderr=%s", code, ctx.Err(), &stderr)
+	}
+	if len(runner.runs) != 0 || !contains(runner.replaced, container.ID) {
+		t.Fatalf("did not attach without reconciliation: runs=%v replace=%v", runner.runs, runner.replaced)
+	}
+	if !strings.Contains(stderr.String(), "drift is unknown") {
+		t.Fatalf("failed diagnostic was not reported as unknown: %s", &stderr)
+	}
+}
+
 func TestMissingSessionRecoveryReinspectsUnderLock(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cache)

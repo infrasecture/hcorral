@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/infrasecture/hcorral/internal/command"
 )
@@ -86,3 +87,38 @@ func TestRenderTreatsFinalTrustedOverlayAsTruth(t *testing.T) {
 }
 
 var _ command.Runner = renderedRunner{}
+
+func TestRenderAllowsSlowComposeWrapper(t *testing.T) {
+	t.Parallel()
+	// Configuration rendering is required setup, not an optional version probe.
+	// A cold Compose plugin or policy wrapper can legitimately exceed five
+	// seconds before returning its final configuration.
+	const wrapper = `
+case "$*" in
+  *--hash*) printf 'hcorral fixture-hash\n' ;;
+  *) sleep 6; printf '%s\n' '{"services":{"hcorral":{"image":"fixture:slow"}}}' ;;
+esac`
+	project := Project{Runner: command.ExecRunner{}, Invocation: Invocation{Prefix: []string{"sh", "-c", wrapper, "compose-fixture"}}}
+	rendered, err := project.Render(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered.Services["hcorral"].Image != "fixture:slow" || rendered.Hashes["hcorral"] != "fixture-hash" {
+		t.Fatalf("slow renderer lost configuration: %#v", rendered)
+	}
+}
+
+func TestComposeCaptureHonorsShorterCallerDeadline(t *testing.T) {
+	t.Parallel()
+	project := Project{Runner: command.ExecRunner{}, Invocation: Invocation{Prefix: []string{"sh", "-c", "exec sleep 60", "compose-fixture"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := project.Capture(ctx, "config", "--format", "json")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stalled Compose did not report the caller's deadline: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("stalled Compose outlived the caller's deadline: %s", elapsed)
+	}
+}
