@@ -970,3 +970,21 @@ One hundred race-enabled repetitions of the child-cleanup cases pass locally.
 Session tests and vet pass, and both full native Codex version directions pass
 with the revised cleanup. Native macOS execution of this correction remains
 required; the successful Linux checks do not substitute for it.
+
+## Native macOS cleanup correction verified: 2026-10-07
+
+Nonpublishing [run 37566300381](https://github.com/infrasecture/hcorral/actions/runs/37566300381)
+tests `4cb9129` on temporary branch `agent/qualify-go-successor-4cb9129`, preserving
+the earlier Intel Colima job. The new
+[ARM64 job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213388)
+and [AMD64 job](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213345)
+both passed native archive execution, Homebrew audit/version/install/exact-binary
+checks and the complete native Codex suite. This verifies the idempotent cleanup
+correction on both macOS architectures. Both subsequently entered their Colima
+steps; endpoint and public Docker/native-resume completion were not yet known.
+
+The earlier `df30f26` run completed every Linux, image, package, source and build
+job successfully. Its Intel Colima job remains active; its ARM job failed as
+recorded above. Neither run is qualified overall from these partial results.
+Remove the temporary qualification branch only after its run has finished and
+the resulting evidence has been recorded.
