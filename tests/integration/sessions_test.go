@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/infrasecture/hcorral/internal/identity"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -515,6 +516,31 @@ func TestDockerSessionSharedStorageAlias(t *testing.T) {
 		}
 		f.assertPreserved(before, volumes)
 	}
+}
+
+func TestDockerSessionSharedStorageWriterRefused(t *testing.T) {
+	// A same-kernel container lock does not establish that a VM file-sharing
+	// mount coordinates the native host writer too. Test both directions on
+	// the actual client-visible storage, including Colima's mount driver.
+	f := newDockerStorageSession(t, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), false, false, "bind-client")
+	before, volumes := f.state(), f.volumes()
+	hostHome := filepath.Join(f.daemonSource, ".codex")
+	lockName := "thread-writer-locks/" + threadA + ".lock"
+	must(t, os.MkdirAll(filepath.Dir(filepath.Join(hostHome, lockName)), 0o700))
+	writer, err := os.OpenFile(filepath.Join(hostHome, lockName), os.O_RDWR|os.O_CREATE, 0o600)
+	must(t, err)
+	defer writer.Close()
+	must(t, unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB))
+	destination := filepath.Join(f.root, "host writer protected export")
+	f.transfer(nil, "export", threadA, destination, "busy")
+	must(t, writer.Close())
+	f.transfer(nil, "export", threadA, destination, "")
+
+	blocker := f.block(lockName)
+	f.transfer(nil, "import", threadA, hostHome, "busy")
+	f.docker("stop", "--time", "1", blocker)
+	f.transfer(nil, "import", threadA, hostHome, "")
+	f.assertPreserved(before, volumes)
 }
 
 // A separate real container owns a kernel lock. This makes blocked publication

@@ -826,3 +826,14 @@ recovery/publication tests, including actual SIGKILL boundaries. A local syscall
 trace confirms lease descriptors close before unlink in both recovery and normal
 close. The real ARM Colima regression still requires the next run; this is not
 yet a successful macOS endpoint or general shared-filesystem qualification.
+
+The audit also identified that the previous storage-alias test verified only
+identical-file reuse. A new actual endpoint case holds a native host writer lock
+and requires container-side export refusal, then holds the lock in a container
+and requires host-side source refusal during import. Each retries after release.
+It qualifies cross-kernel lock behavior of the selected VM sharing driver,
+independently of the cleanup correction. Local compilation/tests cannot establish
+this property; real Linux and Colima execution is required before claiming it.
+The endpoint package tests and vet pass, and its acceptance executable builds
+with cgo disabled for all four launcher platforms. The actual new lock case has
+not yet run against Docker or Colima.

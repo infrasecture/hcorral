@@ -52,6 +52,13 @@ Each public operation must preserve the stopped workstation and remove its
 helper. This composition gate requires real Docker execution and is not implied
 by success of the ordinary in-process native suite.
 
+The client-visible bind fixture also holds the native writer lock first on the
+host, then in a container, and requires transfer through the other endpoint to
+refuse the busy conversation. Retry after releasing the owner must succeed.
+An identical-file alias round trip or two containers sharing one guest kernel
+does not prove host/VM lock interoperability. This case must pass before claiming
+that a particular VM file-sharing mount supports concurrent native host writers.
+
 CI runs the native session suite on Linux/macOS AMD64/ARM64 and real Colima
 integration on both macOS targets. On ARM64, Colima uses an x86_64 QEMU guest
 to avoid depending on nested hardware virtualization. The launcher and session
