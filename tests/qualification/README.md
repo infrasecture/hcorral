@@ -23,6 +23,13 @@ ownership and process-crash recovery tests. No user credentials or hosted model
 service are required. This is native filesystem/runtime qualification; real
 Docker endpoint tests live in `tests/integration`.
 
+The native revert fixture also completes two actual turns, reverts before the
+second and transfers the native-created replacement. It requires the removed
+continuation to be absent from both exported bytes and resumed provider context,
+and verifies a loaded native writer excludes snapshot acquisition before and
+after revert. The separate lifecycle cases check archive/unarchive/resume/delete
+refusal while a Go transfer guard is held, then successful retry after release.
+
 The integration runner also calls this script with `HCORRAL_NATIVE_DOCKER=1`,
 an explicit `HCORRAL_SESSION_TEST_IMAGE` and the packaged `HCORRAL_TEST_BINARY`.
 That mode runs `TestCodexResumesNativeHistory` through the public commands:

@@ -670,3 +670,19 @@ cross-architecture guest. Homebrew's current QEMU formula has no Intel macOS
 bottle, so installing that unused emulator can introduce a source build.
 This is a dependency correction, not a diagnosis of the still-running job:
 its combined install/start/test step does not expose which operation is active.
+
+## Native revert and selected-history transfer: 2026-10-07
+
+A new native fixture completes two real turns, reverts before the second, and
+exports/imports/resumes the native-created replacement. Its assertions cover
+changed authoritative rollout with stable thread identity, exclusion of the
+removed private continuation from the transfer stream and model context, and
+busy snapshot refusal while the native writer is loaded before and after
+revert. This extends the earlier hand-built revert fixtures with actual native
+mutation. App-server revert requires a loaded thread, so an unloaded request's
+`thread not found` result is not counted as a locking result.
+
+The case passes locally on Codex 0.160.1 and in five race-enabled runs on
+0.160.0. Full Go tests and vet pass. It joins the four-platform native runner;
+these local results do not qualify the other platforms or the public Docker
+composition. No image/release publication or real user-state migration occurred.

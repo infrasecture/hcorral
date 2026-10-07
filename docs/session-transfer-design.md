@@ -134,6 +134,16 @@ runner. It establishes those operations for that runtime pair, not interoperabil
 with older writers, arbitrary editors, every maintenance operation or an
 unqualified network filesystem.
 
+A separate native revert fixture completes two real turns against the loopback
+provider, reverts before the second, then transfers the resulting history and
+resumes it. It verifies the authoritative rollout changes while the thread ID
+stays the same, and excludes the reverted continuation from both the exported
+stream and the next model request. Snapshot acquisition must report busy while
+the native thread is loaded, before and after revert. The public app-server
+revert operation requires a loaded thread; requesting it on an unloaded thread
+returns `thread not found`, which is not evidence of writer exclusion. The
+existing resume-while-guarded fixture checks the opposite lock direction.
+
 ## Selective inherited history
 
 The inspector reads only the exact prefix required from each ancestor. It
