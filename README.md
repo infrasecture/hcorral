@@ -267,7 +267,7 @@ does not migrate, adopt, relabel, or delete myCodex resources.
 ```console
 ./scripts/ci-source.sh
 ./build.sh --release --cli-version v0.1.0 --packages
-./scripts/build-harness-image.sh --harness codex --version 0.149.1 --revision 1
+./scripts/build-harness-image.sh --harness codex
 ```
 
 Launcher releases and each harness image stream are versioned independently.

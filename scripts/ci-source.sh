@@ -23,6 +23,7 @@ for script in build.sh release.sh image/*.sh internal/app/assets/*.sh scripts/*.
   bash -n "${script}"
 done
 python3 tests/tmux-notices_test.py
+python3 tests/integration/attach-probe_test.py
 scripts/check-third-party.sh
 scripts/check-provenance.sh
 scripts/tests/release-contract.sh

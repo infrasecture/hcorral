@@ -58,10 +58,19 @@ try:
                 raise RuntimeError(f"launcher exited before clean detach (status {status})")
             break
         if not detached:
-            clients = subprocess.run(
-                tmux_command + ["list-clients", "-F", "#{session_name}"],
-                capture_output=True, timeout=5, check=False,
-            )
+            # A Colima exec can briefly stall while the container starts. Keep
+            # polling within the overall deadline instead of treating one slow
+            # Docker probe as evidence that the launcher failed to attach.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                continue
+            try:
+                clients = subprocess.run(
+                    tmux_command + ["list-clients", "-F", "#{session_name}"],
+                    capture_output=True, timeout=min(5, remaining), check=False,
+                )
+            except subprocess.TimeoutExpired:
+                continue
             if (clients.returncode == 0 and b"hcorral" in clients.stdout.splitlines()
                     and (not expected_text or expected_text in output)):
                 subprocess.run(

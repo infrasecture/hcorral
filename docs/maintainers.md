@@ -33,6 +33,12 @@ The protected `release` environment needs repository-scoped
 `image-release` environment publishes through `GITHUB_TOKEN` with
 `packages:write`. Actions are pinned to full commits.
 
+Merging a PR and running `CI` do not publish images. After changing the shared
+image recipe, entrypoint or session setup, publish **all three streams** so each
+gets the fixes. New upstream harness versions also need a new image publication.
+The builder resolves the current upstream version unless `--version` is supplied;
+the Dockerfile's pinned defaults are for direct Docker builds.
+
 Publish one or all image streams with `Publish harness image`, or locally:
 
 ```console
