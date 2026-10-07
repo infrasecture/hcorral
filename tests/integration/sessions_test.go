@@ -46,7 +46,7 @@ type transferResult struct {
 }
 
 type dockerSession struct {
-	daemonTemp                                                 string
+	daemonTemp, clientTemp                                     string
 	t                                                          *testing.T
 	binary, image, root, hostHome, volume, container, uid, gid string
 	storage, daemonSource, mountSpec                           string
@@ -107,8 +107,26 @@ func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bo
 		if f.daemonTemp != "" {
 			f.cleanupDocker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=bind,src=/tmp,dst=/daemon-tmp", "--entrypoint", "/bin/sh", f.image, "-c", `rm -rf -- "$1"`, "sh", f.daemonTemp)
 		}
+		if f.clientTemp != "" {
+			must(t, os.RemoveAll(f.clientTemp))
+		}
 	})
-	if strings.HasPrefix(storage, "bind") {
+	if storage == "bind-client" {
+		// Colima shares the host home, but not necessarily the operating
+		// system's temporary directory. Keep this alias fixture in a unique
+		// directory there and verify visibility before seeding any history.
+		home, err := os.UserHomeDir()
+		must(t, err)
+		shared, err := os.MkdirTemp(home, ".hcorral-session-alias-")
+		must(t, err)
+		f.daemonSource, f.clientTemp = shared, shared
+		marker := []byte(filepath.Base(shared))
+		must(t, os.WriteFile(filepath.Join(shared, "client-marker"), marker, 0o600))
+		got := f.docker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=bind,src="+shared+",dst=/alias,readonly", "--entrypoint", "/bin/cat", f.image, "/alias/client-marker")
+		if !bytes.Equal(got, marker) {
+			t.Fatal("Docker does not see the actual client-side alias fixture")
+		}
+	} else if strings.HasPrefix(storage, "bind") {
 		// Docker restricts propagation for binds inside its own data root.
 		// Allocate ordinary bind storage on the daemon, including for remote
 		// contexts, without assuming that a client temporary path exists there.
@@ -144,8 +162,8 @@ func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bo
 	case "volume":
 	case "volume-subpath":
 		f.mountSpec += ",volume-subpath=selected"
-	case "bind", "bind-private", "bind-nonrecursive":
-		// The source is a daemon-owned disposable path, not a client path.
+	case "bind", "bind-private", "bind-nonrecursive", "bind-client":
+		// The source has already been allocated and verified for this fixture.
 		f.mountSpec = "type=bind,src=" + f.daemonSource + ",dst=" + containerHome
 		if storage == "bind-private" {
 			f.mountSpec += ",bind-propagation=private"
@@ -235,7 +253,7 @@ func (f *dockerSession) seed(files map[string][]byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	seedMount := "type=volume,src=" + f.volume + ",dst=" + containerHome
-	if f.daemonTemp != "" {
+	if strings.HasPrefix(f.storage, "bind") {
 		seedMount = "type=bind,src=" + f.daemonSource + ",dst=" + containerHome
 	}
 	cmd := f.command(ctx, "docker", "run", "--rm", "--interactive", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", seedMount, "--entrypoint", "/bin/sh", f.image, "-c", `tar -xf - -C "$1" && chown -R "$2:$3" "$1"`, "sh", containerHome, f.uid, f.gid)
@@ -388,7 +406,11 @@ func TestDockerSessionEndpoints(t *testing.T) {
 							env = nil
 						}
 						result := f.transfer(env, "export", threadA, argument, "")
-						if result.Result.Destination != destination {
+						// The result identifies the physical home. macOS temporary
+						// paths commonly traverse /var -> /private/var.
+						physicalDestination, err := filepath.EvalSymlinks(destination)
+						must(t, err)
+						if result.Result.Destination != physicalDestination {
 							t.Fatalf("wrong host destination: %+v", result)
 						}
 						data, err := os.ReadFile(filepath.Join(destination, result.Result.MainPath))
@@ -463,6 +485,35 @@ func TestDockerSessionStorageMounts(t *testing.T) {
 			}
 			f.assertPreserved(before, volumes)
 		})
+	}
+}
+
+func TestDockerSessionSharedStorageAlias(t *testing.T) {
+	// This is deliberately a client-visible bind, unlike the other endpoint
+	// fixtures. Both endpoints must resolve to the very same history and locks.
+	f := newDockerStorageSession(t, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), false, false, "bind-client")
+	before, volumes := f.state(), f.volumes()
+	hostHome := filepath.Join(f.daemonSource, ".codex")
+	alias := filepath.Join(f.root, "symlink to same Codex home")
+	must(t, os.Symlink(hostHome, alias))
+	name := filepath.Join(hostHome, rolloutPath(threadA))
+	original, err := os.Stat(name)
+	must(t, err)
+	for _, operation := range []string{"export", "import"} {
+		result := f.transfer(nil, operation, threadA, alias, "")
+		for _, file := range result.Result.Files {
+			if file.Created || file.Promoted || file.Prefix {
+				t.Fatalf("%s replaced aliased history: %+v", operation, file)
+			}
+		}
+		after, err := os.Stat(name)
+		must(t, err)
+		got, err := os.ReadFile(name)
+		must(t, err)
+		if !os.SameFile(original, after) || !bytes.Equal(got, rollout(threadA, "saved container conversation")) || after.Mode().Perm() != 0o600 {
+			t.Fatalf("%s changed the shared original history", operation)
+		}
+		f.assertPreserved(before, volumes)
 	}
 }
 

@@ -553,3 +553,38 @@ client/container architectures. It is a qualification attempt requiring actual
 execution, not a native ARM64 guest result or a predeclared platform pass.
 Local shell/workflow and release-contract checks pass; Go integration package
 compilation passes with Docker cases skipped in this Docker-less local environment.
+
+## Colima result and connection-fault qualification: 2026-10-07
+
+[CI run 37556175953](https://github.com/infrasecture/hcorral/actions/runs/37556175953)
+has completed with failure. Intel Colima ran the real lifecycle, refresh,
+runtime, storage-mount, cancellation/retry and writer-refusal cases successfully.
+The session export subtests stopped at their destination assertion: macOS's
+`/var` temporary pathname resolves through `/private/var`, and the launcher
+correctly reports its physical destination. The assertion now compares against
+an independently resolved destination. The assertions after that failure still
+need a successful run; this is not a qualified macOS endpoint result.
+
+The Docker integration suite now also interrupts a real upgraded attach
+connection while publication is blocked by a separate kernel-lock owner. It
+requires bounded failure, helper removal, preservation of that unrelated owner,
+and a successful retry. Another case drops the reply after the helper publishes:
+independent Docker inspection must find the complete private history, the caller
+must report an unconfirmed result, and retry must reuse the existing content.
+A loopback TCP proxy forwards the real Engine API to its original Unix socket;
+it changes only the selected connection, not daemon/helper responses. These
+cases model connection resets and lost replies, not prolonged daemon outages
+or SSH/TLS-specific failures.
+
+A shared-storage case mounts an actual client-visible directory into the
+workstation and transfers in both directions through a host symlink to it.
+It requires unchanged history inode/bytes/permissions and no self-deadlock.
+The disposable bind lives beneath the host home for Colima sharing; a marker
+check establishes actual daemon visibility before history is seeded.
+
+Local Go tests and vet pass. The proxy's upgrade, input half-close and reply-loss
+plumbing passed repeated race tests. Acceptance executables cross-build with
+cgo disabled and pass linkage verification on all four targets. These local
+checks do not execute the new Docker cases; their real results, the corrected
+macOS assertion, mixed-version diagnostics, GUI servers and transition fixture
+remain pending the next CI run. No release or image was published.

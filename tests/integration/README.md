@@ -24,13 +24,28 @@ through real Docker, for running and stopped workstations and numeric identities
   client pathname exists there.
 - SIGTERM cancellation with a live remote helper blocked on a real destination
   lock, helper removal, preservation of the lock owner and successful retry.
+- A real Docker attach connection reset while a helper is blocked, with
+  bounded failure, helper removal and successful retry through the original
+  endpoint. A second fault suppresses the completion reply after publication:
+  the launcher must report an unknown outcome and reuse the complete history
+  on retry. A loopback TCP proxy forwards the Engine API to the actual Unix
+  Docker endpoint; it never fabricates daemon or helper responses. These fault
+  fixtures skip non-Unix upstream endpoints and do not model a prolonged daemon
+  outage or an SSH/TLS-specific failure.
+- Both directions of a transfer whose host home is a symlink to the same
+  client-visible bind mounted by the container. The original file inode,
+  content and private mode must survive without a lock deadlock. This fixture
+  requires the daemon to see a disposable directory beneath the client home
+  (as local Linux Docker and the qualified Colima setup do).
 - Image-declared anonymous volumes do not become persistent transfer side effects.
 
 The fixture carries runtime ownership labels but bypasses a workstation
 entrypoint. These tests establish the Docker transport contract, not real-image
 shell initialization or native Codex resume. Those require the image canaries
-and native Codex tests. A local daemon run does not establish network-disconnect
-behavior, even though host files and Docker volume files use separate storage.
+and native Codex tests. Connection-fault coverage requires the explicit proxy
+cases to execute; ordinary local endpoint success does not establish it. The
+proxy plumbing also has a local protocol test for input EOF and reply suppression,
+which is not a substitute for the real-daemon tests.
 
 The tests retain the invoking Docker context/configuration and use fresh host
 homes and uniquely named Docker resources. Run against a development daemon
