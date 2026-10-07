@@ -43,8 +43,8 @@ by component with directory descriptors and `O_NOFOLLOW`; FIFOs and other
 special files cannot block opening and are rejected. Enumeration reads names,
 not the contents of unrelated conversations.
 
-SQLite queries use `mode=ro`, a read transaction, query-only mode and a bounded
-busy timeout. They deliberately do not use `immutable=1`, which could omit
+Source SQLite queries use `mode=ro`, a read transaction, query-only mode and a
+bounded busy timeout. They deliberately do not use `immutable=1`, which could omit
 committed WAL records. Only the requested thread's selected path, history mode
 and archive status are queried. Source databases and sidecars are never part
 of a transfer plan. The native SQLite VFS opens its own descriptors: checked
@@ -135,8 +135,60 @@ No ordinary conversation file is extended or replaced. Reimporting the shorter
 child reuses the longer prerequisite without shortening it. Results distinguish
 created, reused and extended files. A later handled failure leaves a completed
 compatible extension intact and explains that retry is safe; it cannot invalidate
-any preexisting dependent's shorter cutoff. This is separate from promoting a
-prerequisite into a complete parent conversation, which remains unresolved.
+any preexisting dependent's shorter cutoff.
+
+When the complete parent is explicitly imported later, every existing managed
+representation is validated against the complete incoming bytes. A matching
+shorter prefix grows atomically; a divergent or longer prefix is a conflict.
+The complete parent is also published at its ordinary active/archived location,
+so it is no longer classified only as a prerequisite. Existing children keep
+their exact byte/ordinal cutoffs. A repeated full-parent import is a no-op.
+Results distinguish this promotion from a child's compatible prefix extension.
+
+## Destination selection and initial indexing
+
+Native initial backfill does not take thread writer locks. It commits a
+`running` state before collecting rollout paths, then `complete` after its
+metadata upserts. An index scan between prerequisite and main publication can
+therefore select the prerequisite. Thread writer guards exclude cooperating
+resumes during publication, but do not prevent this metadata observation.
+
+After linked histories or a promoted parent are durable, the importer observes
+backfill state and selected-thread metadata in one read-only transaction. It
+waits at most 15 seconds for overlapping indexing or database initialization,
+honoring cancellation. No database or a pending scan with no prerequisite
+selected needs no repair: a later initial scan sees the complete publication.
+Completed indexing with an absent row can use native filesystem fallback. A
+different ordinary selected conversation is a conflict, never an automatic
+replacement. The readiness deadline does not limit large-history validation.
+
+A selected managed prerequisite must belong to the validated incoming lineage.
+Only then can the importer repair that requested thread's selected path and
+archive fields, after all its complete history is installed. An existing wrong
+selection is reserved before live publication; one discovered after publication
+is revalidated before repair. Slow history validation/recompression happens
+before taking the database write reservation. Writer guards remain held through
+the final selection check and repair.
+
+This narrow adapter opens only an existing `state_5.sqlite` in read-write mode
+and uses `BEGIN IMMEDIATE`. It requires completed initial indexing, migration 58
+with its native checksum, known column types/primary key and known thread trigger
+definitions. The tested native versions are 0.160.0 and 0.160.1. A schema change
+requires qualification. The update rechecks the expected old selection and
+database inode; it changes only `rollout_path`, `archived` and `archived_at`.
+Titles, unrelated rows and other metadata are preserved. No database is created,
+migrated or copied, and source metadata stays read-only. Unknown layouts or
+unconfirmed commits return errors with explicit retry information.
+
+Native tests cover promotion after indexing, plain/compressed prerequisites,
+archive preservation, index startup after the first live file, and retry after
+interruption at that boundary. Actual native resume verifies both the complete
+parent's continuation, the unchanged inherited boundary of its existing child,
+and the full history inherited by a new native fork after promotion.
+These results do not make prerequisite rows invisible to all database readers.
+Before successful completion, or after a failed attempt, partial prerequisites
+can be indexed as archived rows; they are not complete standalone parents.
+Retry the import to completion before using its requested conversation.
 
 ## Transfer stream and publication
 
@@ -172,16 +224,17 @@ New files are installed with exclusive same-filesystem hard links, prerequisites
 first and the main rollout last. An existing complete conversation cannot be
 overwritten; only the verified extension of a managed prerequisite described
 above uses atomic replacement. Newly created parent directory entries and
-installed file entries are synced. On a handled failure, reverse cleanup removes
-only links whose inode still belongs
-to this attempt; replacements and preexisting files are preserved. Empty created
-directories may remain. Closing the incoming transfer removes its private
-staging, never the successful installed files.
+installed file entries are synced. Once installed, fully validated files are
+retained even on a handled failure: a concurrent native indexer may already have
+recorded their paths, so deleting them could leave dangling authoritative rows.
+Errors report retained files or compatible extensions; a retry verifies/reuses
+them and completes any required selection repair. Empty created directories may
+remain. Closing the incoming transfer removes only its private staging.
 
 This is not an atomic transaction across several rollout paths. SIGINT/SIGTERM
-and ordinary transport errors run cleanup; SIGKILL or machine failure can leave
-private staging and already-published prerequisite prefixes. Do not recursively
-delete every matching staging directory: another transfer may own it. A cleanup
+and ordinary transport errors clean unpublished staging; SIGKILL or machine
+failure can leave private staging as well as published prerequisites. Do not
+recursively delete every matching staging directory: another transfer may own it. A cleanup
 or retry protocol for those interrupted states remains part of final integration.
 
 ## Internal helper
@@ -222,8 +275,10 @@ or workstation start is part of the operation.
 
 Mount selection retains the storage covering the Codex home and its nested state
 mounts. An explicitly resolved, relocated SQLite home must also be in persistent
-storage. Additional database mounts are read-only and narrowed to the database
-directory; direct database-file/sidecar mounts are retained without adding
+storage. Additional database mounts are narrowed to the database directory and
+made read-only for export. For import, they retain their actual deployed access
+so a supported selection can be repaired; a deployed read-only mount is never
+made writable. Direct database-file/sidecar mounts are retained without adding
 unrelated nested workspace mounts. Named-volume subpaths come from Docker's
 `HostConfig.Mounts[].VolumeOptions.Subpath` and are preserved when narrowing.
 Existing Codex mounts remain writable because writer coordination needs them.
@@ -344,26 +399,21 @@ fails; absence of a result does not prove nothing was written.
 
 ## Remaining consistency questions
 
-The tested initialized-home case is not proof against a new native initial
-backfill starting midway through publication. The researched backfill does not
-take thread writer locks and recursively indexes prerequisite prefixes. A same-ID
-prefix observed before the main rollout can become an authoritative SQLite row.
-Resolve and test that race before claiming general concurrent import support;
-the implementation currently refuses a preexisting prefix selection and does not
-write SQLite to repair it.
-
-Compatible longer prefixes are implemented and pass native resume tests, but
-a complete parent imported after an earlier partial prerequisite still conflicts.
-Resolve promotion without making a short prefix the selected complete conversation
-or invalidating existing dependents. Source/destination alias
-handling now releases source locks before destination acquisition as described
-above; real shared-volume/remote endpoint qualification remains outstanding.
+Initial indexing and complete-parent promotion now have the explicit protocol
+and native tests above. Runtime qualification still must establish which writers
+and metadata operations share the storage; the history creation version or the
+selected container's stopped state cannot establish that boundary. This protocol
+does not coordinate arbitrary filesystem/database edits or older writers that
+ignore native locks. Source/destination alias handling releases source locks
+before destination acquisition; real shared-volume/remote endpoint qualification
+remains outstanding. Safe cleanup of abandoned private staging after an
+uncatchable interruption also remains to implement.
 
 ## Remaining implementation
 
-1. Resolve concurrent initial backfill, complete-parent promotion
-   and recovery after an uncatchable interruption. Keep database selection and
-   prerequisite visibility explicit.
+1. Complete recovery of abandoned private staging after an uncatchable
+   interruption and broader writer/runtime qualification. Keep database
+   selection and prerequisite visibility explicit.
 2. Qualify endpoint paths, configuration boundaries, storage aliases and
    source/destination identity against actual deployed environments. Extend
    metadata support where it can be preserved without copying unrelated state.
@@ -375,7 +425,8 @@ above; real shared-volume/remote endpoint qualification remains outstanding.
    then execute the full endpoint and source/destination acceptance matrix.
 
 `HCORRAL_TEST_CODEX=/absolute/path/to/codex go test -v ./internal/session -run
-TestCodexResumesNativeHistory` runs the optional native test. Set
+'Test(Native)?Codex'` runs the optional native tests, including promotion and
+index overlap. Set
 `HCORRAL_TEST_CODEX_PEER` to a second executable for a cross-version round trip;
 otherwise the same executable is used at both endpoints. It uses disposable
 homes, no credentials and a loopback mock provider. It checks the core stream and

@@ -25,7 +25,7 @@ development testing.
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
-| Session consistency and conflicts | Core and compatible prefix extension implemented; indexing/promotion remain | Read-only SQLite/WAL selection, writer guards, conflicts and publication tested; longer plain/compressed prerequisites preserve existing children in native Codex; initial backfill and complete-parent promotion need resolution |
+| Session consistency and conflicts | Core, extension, promotion and index repair implemented; recovery/qualification remain | Read-only source selection; writer guards; compatible prefix growth and complete-parent promotion; native initial-index overlap and interrupted retry tests; abandoned private staging and broader writer/runtime qualification remain |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
@@ -275,3 +275,58 @@ Final local checks for this checkpoint:
 This resolves compatible growth, not complete-parent promotion or simultaneous
 initial indexing. Those cases, uncatchable-interruption recovery, actual Docker
 transport and the remaining image/platform/transition matrix stay open.
+
+## Parent promotion and native indexing checkpoint: 2026-10-07
+
+An explicitly imported complete parent can now replace its classification as a
+partial prerequisite without changing existing children's inherited boundaries.
+Managed plain/compressed representations grow only after their full existing
+bytes have been validated. The complete parent is installed at its ordinary
+native location; a subsequent native fork can inherit its full continuation.
+
+When destination indexing selects a prerequisite, the importer repairs only the
+requested thread's path/archive fields under an existing, qualified SQLite
+schema and a write reservation. It waits for overlapping initial indexing while
+retaining native writer guards. Names and unrelated metadata are preserved;
+unknown layouts/triggers are refused. Separately mounted destination metadata
+retains its deployed access for import; export remains read-only. No read-only
+mount is made writable.
+
+Fully validated live files now remain after failed publication, because native
+indexing may already have recorded their paths. Retrying verifies/reuses those
+files and completes selection repair. Private unpublished staging is cleaned on
+handled failures. This supersedes the earlier reverse-unlink cleanup policy.
+Uncatchable-interruption cleanup of abandoned private staging remains open.
+
+Local evidence for this checkpoint:
+
+- The full Go suite and vet pass. Session, transport and app race checks pass,
+  including the native 0.160.1-to-0.160.0 completed-turn round-trip matrix.
+- Native 0.160.0 and 0.160.1 both pass complete-parent promotion with active and
+  archived parents, plain/compressed prerequisites, original-child resume and
+  a new native fork after promotion. Native indexing between prerequisite and
+  main publication, and an interrupted attempt followed by retry, both select
+  and resume the complete requested revert without its private parent tail.
+  The existing transfer/resume matrix still passes in both version directions.
+- Controlled tests cover running-index waits/cancellation with writer guards
+  retained, schema/checksum/trigger refusal, divergent/shorter histories,
+  preserved names/unrelated rows, interrupted metadata commit and repeat imports.
+  Docker mount tests verify import/export access and deployed read-only settings.
+- Static Linux AMD64 promotion, selection-repair and ownership tests pass as
+  1000:1000, 501:20 and 12345:23456, with supplementary group 44444. No host account
+  setup or user-home changes are involved.
+- Both Linux helpers were rebuilt and pass static-linkage validation. The
+  embedded AMD64 helper extends prerequisites, promotes/re-exports a complete
+  parent and transfers in both directions. ARM64 is inspected, not executed.
+  The compressed payloads total 6,786,478 bytes.
+- All four development launchers and session test executables cross-build with
+  cgo disabled and pass linkage checks. Each launcher contains both exact helper
+  payloads. Launcher sizes are 18,698,424 bytes (Linux AMD64), 18,153,656 (Linux
+  ARM64), 18,788,240 (macOS AMD64) and 18,290,402 (macOS ARM64). Native Linux AMD64
+  runs the public help command. These are not qualified release packages.
+
+The proposal remains incomplete. Abandoned staging recovery, broader writer and
+metadata-operation qualification, actual Docker/remote transfers and cancellation,
+native platform/image/package acceptance, mixed launcher/image compatibility and
+the demonstrated myCodex transition remain required. No image or release was
+published and no real user conversation or workstation was migrated.

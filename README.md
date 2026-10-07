@@ -171,6 +171,10 @@ The command copies the selected native history and required inherited prefixes.
 It preserves the session ID and reuses identical existing files; divergent
 history is a conflict. A managed inherited prefix can grow when a later fork
 needs more matching history; existing children keep their original boundaries.
+Importing the complete parent later makes that parent independently resumable.
+If Codex indexed a prerequisite, the importer repairs that conversation's selected
+path in a supported destination database while preserving existing names and
+unrelated metadata. This repair currently supports Codex 0.160.0/0.160.1's schema.
 Credentials, configuration, workspace files, database-only
 names/metadata and external resources are excluded. The selected persisted
 conversation must be inactive. Review its saved workspace and permissions before
@@ -190,7 +194,9 @@ already exist; container metadata must be in persistent mounted storage.
 `--format=json` returns the confirmed result and resolved database locations.
 A result can accompany a nonzero exit if publication succeeded but later helper
 cleanup failed. A missing result is not proof that the destination was unchanged;
-inspect it or retry, which reuses verified identical history.
+inspect it or retry, which reuses verified identical history and completes any
+pending selection repair. A failed transfer can retain fully copied prerequisite
+files; finish the import before using the requested conversation.
 
 Complete builds bundle Linux AMD64 and ARM64 helpers, so users need neither Go
 nor Python installed. Use `build.sh` for a complete source build; plain `go build`

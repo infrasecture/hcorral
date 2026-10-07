@@ -25,6 +25,9 @@ type Target struct {
 	Workdir     string
 	Mounts      []containerruntime.Mount
 	SQLiteEnv   string
+	// Only an import may retain deployed write access to separate metadata
+	// storage for narrowly scoped prerequisite-selection repair.
+	SQLiteWritable bool
 }
 
 // InspectTarget accepts only facts from an existing, ownership-verified corral.
@@ -37,6 +40,17 @@ func InspectTarget(container *containerruntime.Container) (Target, error) {
 // database receives only its required persistent mounts; it cannot silently
 // fall back to a database baked into the helper image or container rootfs.
 func InspectTargetWithSQLite(container *containerruntime.Container, sqliteHome string) (Target, error) {
+	return inspectTarget(container, sqliteHome, false)
+}
+
+func InspectTargetForTransfer(container *containerruntime.Container, sqliteHome, operation string) (Target, error) {
+	if operation != "import" && operation != "export" {
+		return Target{}, errors.New("session transfer requires export or import")
+	}
+	return inspectTarget(container, sqliteHome, operation == "import")
+}
+
+func inspectTarget(container *containerruntime.Container, sqliteHome string, sqliteWritable bool) (Target, error) {
 	if container == nil {
 		return Target{}, errors.New("session transfer requires an existing Codex corral; no workstation or state volume was created")
 	}
@@ -154,11 +168,13 @@ func InspectTargetWithSQLite(container *containerruntime.Container, sqliteHome s
 			}
 			mount.Destination = sqliteHome
 		}
-		mount.RW = false
+		// Never make a deployed read-only mount writable. Export only needs
+		// metadata reads; import may repair an existing qualified selection.
+		mount.RW = mount.RW && sqliteWritable
 		mounts = append(mounts, mount)
 	}
 	sort.Slice(mounts, func(i, j int) bool { return mounts[i].Destination < mounts[j].Destination })
-	return Target{ContainerID: container.ID, ImageID: container.ImageID, UID: uid, GID: gid, Groups: groups, Home: home, CodexHome: codexHome, SQLiteHome: sqliteHome, Workdir: workdir, Mounts: mounts, SQLiteEnv: env["CODEX_SQLITE_HOME"]}, nil
+	return Target{ContainerID: container.ID, ImageID: container.ImageID, UID: uid, GID: gid, Groups: groups, Home: home, CodexHome: codexHome, SQLiteHome: sqliteHome, Workdir: workdir, Mounts: mounts, SQLiteEnv: env["CODEX_SQLITE_HOME"], SQLiteWritable: sqliteWritable}, nil
 }
 
 func absolutePath(value string) bool {

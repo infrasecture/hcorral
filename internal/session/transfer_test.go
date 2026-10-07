@@ -237,8 +237,8 @@ func TestInterruptedPublicationCleansOnlyItsNewFilesAndCanRetry(t *testing.T) {
 		t.Fatal("expected main-directory failure")
 	}
 	files, err := dst.inventory(context.Background())
-	if err != nil || len(files) != 0 {
-		t.Fatalf("partial publication left rollouts: %+v %v", files, err)
+	if err != nil || len(files) != 1 || !prerequisitePath(files[0].path) {
+		t.Fatalf("partial publication did not retain its complete prerequisite: %+v %v", files, err)
 	}
 	if data, _ := os.ReadFile(block); string(data) != "preserve this preexisting blocker" {
 		t.Fatal("cleanup removed preexisting content")
@@ -247,7 +247,7 @@ func TestInterruptedPublicationCleansOnlyItsNewFilesAndCanRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := published(t, in)
-	if len(result.Files) != 2 {
+	if len(result.Files) != 2 || result.Files[0].Created || !result.Files[1].Created {
 		t.Fatal("retry did not complete")
 	}
 	parent, _ := os.Stat(filepath.Join(dst.Path, "sessions"))
@@ -389,27 +389,28 @@ func TestSourceChangeNeverSendsCompletion(t *testing.T) {
 }
 
 func TestPublicationCleanupPreservesReplacement(t *testing.T) {
-	h := fixtureHome(t)
-	dir, err := h.directory("sessions", true)
-	if err != nil {
-		t.Fatal(err)
+	src, dst := fixtureHome(t), fixtureHome(t)
+	fixtureFork(t, src)
+	in := received(t, dst, exported(t, src, threadB))
+	path := filepath.Join(dst.Path, in.Plan.Files[0].Path)
+	interrupted := errors.New("interrupted after first file")
+	_, err := in.publish(context.Background(), dst, func(i int) error {
+		if i != 0 {
+			t.Fatal("publication continued after interruption")
+		}
+		if err := os.Rename(path, path+".old"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("someone else's file"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return interrupted
+	})
+	if !errors.Is(err, interrupted) || !strings.Contains(err.Error(), "remain at the destination") {
+		t.Fatalf("missing retained-publication error: %v", err)
 	}
-	defer dir.Close()
-	path := filepath.Join(h.Path, "sessions", "owned")
-	if err := os.WriteFile(path, []byte("owned"), 0o600); err != nil {
+	if err := in.Close(); err != nil {
 		t.Fatal(err)
-	}
-	info, _ := os.Stat(path)
-	// Keep the old inode allocated so inode reuse cannot disguise replacement.
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("someone else's file"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := publishedLink{parent: dir, base: "owned", info: info}
-	if err := link.removeIfOwned(); err == nil {
-		t.Fatal("cleanup accepted a replacement")
 	}
 	data, _ := os.ReadFile(path)
 	if string(data) != "someone else's file" {

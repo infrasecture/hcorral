@@ -98,6 +98,36 @@ func testPrefixTransfers(t *testing.T, remote helperRun) {
 	if _, err := transfer(context.Background(), destination, options, remote); err != nil {
 		t.Fatalf("helper could not re-export an extended prerequisite: %v", err)
 	}
+	options = transferOptions("import", source, destination)
+	result, err := transfer(context.Background(), destination, options, remote)
+	if err != nil {
+		t.Fatalf("helper could not promote the complete parent: %v", err)
+	}
+	if len(result.Files) != 1 || !result.Files[0].Promoted || result.Files[0].Prefix {
+		t.Fatalf("missing parent promotion result: %+v", result)
+	}
+	options = transferOptions("export", t.TempDir(), destination)
+	if _, err := transfer(context.Background(), destination, options, remote); err != nil {
+		t.Fatalf("helper could not re-export the complete parent: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(options.HostHome, transferRollout))
+	if err != nil || !bytes.Equal(data, parent) {
+		t.Fatalf("promoted parent lost its continuation: %v", err)
+	}
+}
+
+func TestCompletionRejectsPromotionOfPartialHistory(t *testing.T) {
+	result := session.Result{ThreadID: transferID, Destination: "/destination", MainPath: transferRollout,
+		Metadata: session.Metadata{ThreadID: transferID},
+		Files:    []session.InstalledFile{{Path: "partial", RolloutID: transferID, Prefix: true, Promoted: true}, {Path: transferRollout, RolloutID: transferID}},
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeResult(data, transferOptions("import", "/host", "/container")); err == nil {
+		t.Fatal("accepted a helper claiming that a partial prerequisite is complete")
+	}
 }
 
 func TestTransferCoordinatesBothDirectionsAndStorageAliases(t *testing.T) {

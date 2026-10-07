@@ -465,6 +465,47 @@ func TestRelocatedSQLiteUsesNarrowReadOnlyPersistentStorage(t *testing.T) {
 	}
 }
 
+func TestRelocatedSQLiteWritesRespectDirectionAndDeployedPermissions(t *testing.T) {
+	for _, operation := range []string{"export", "import"} {
+		for _, writable := range []bool{false, true} {
+			t.Run(operation+map[bool]string{true: "/rw", false: "/ro"}[writable], func(t *testing.T) {
+				d, f, workspace, _ := transportFixture(t)
+				f.workstation.Mounts[0].RW = writable
+				database := "/workspace/state"
+				f.workstation.Mounts = append(f.workstation.Mounts, containerruntime.Mount{Type: "bind", Source: "/daemon/wal", Destination: database + "/state_5.sqlite-wal", RW: false})
+				target, err := InspectTargetForTransfer(f.workstation, database, operation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var found bool
+				for _, mount := range target.Mounts {
+					if mount.Destination == database {
+						found = true
+						if mount.Source != "/daemon/workspace/state" || mount.RW != (writable && operation == "import") {
+							t.Fatalf("wrong metadata access: %+v", mount)
+						}
+					}
+					if mount.Destination == database+"/state_5.sqlite-wal" && mount.RW {
+						t.Fatal("broadened deployed read-only sidecar access")
+					}
+				}
+				if !found {
+					t.Fatal("missing relocated metadata")
+				}
+				if err := d.recheck(context.Background(), workspace, target); err != nil {
+					t.Fatal(err)
+				}
+				if operation == "import" {
+					f.workstation.Mounts[0].RW = !writable
+					if err := d.recheck(context.Background(), workspace, target); err == nil {
+						t.Fatal("metadata permissions changed after inspection without detection")
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestDeployedVolumeSubpathIsPreservedAndValidated(t *testing.T) {
 	for _, subpath := range []string{"users/alice", ".", "../escape", "/absolute", "users/../other"} {
 		t.Run(subpath, func(t *testing.T) {

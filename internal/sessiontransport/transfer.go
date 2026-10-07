@@ -38,6 +38,9 @@ func (d Docker) Transfer(ctx context.Context, workspace identity.Workspace, targ
 	if options.ContainerSQLiteHome != target.SQLiteHome {
 		return session.Result{}, errors.New("effective SQLite home does not match the inspected storage selection")
 	}
+	if target.SQLiteWritable != (options.Operation == "import") {
+		return session.Result{}, errors.New("transfer direction does not match inspected metadata access")
+	}
 	remote := func(ctx context.Context, args []string, input io.Reader, output io.Writer) error {
 		return d.Run(ctx, workspace, target, args, input, output, stderr)
 	}
@@ -167,6 +170,9 @@ func decodeResult(data []byte, options TransferOptions) (session.Result, error) 
 	for _, file := range result.Files {
 		if file.Extended && (file.Created || !file.Prefix) {
 			return session.Result{}, errors.New("completion result claims an invalid prefix extension")
+		}
+		if file.Promoted && file.Prefix {
+			return session.Result{}, errors.New("completion result claims promotion of an incomplete prerequisite")
 		}
 		if _, err := session.ParseID(file.RolloutID); err != nil {
 			return session.Result{}, err

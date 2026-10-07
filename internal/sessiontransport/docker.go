@@ -191,7 +191,7 @@ func (d Docker) recheck(ctx context.Context, workspace identity.Workspace, targe
 	if err := identity.VerifyContainer(container, workspace); err != nil {
 		return err
 	}
-	current, err := InspectTargetWithSQLite(container, target.SQLiteHome)
+	current, err := inspectTarget(container, target.SQLiteHome, target.SQLiteWritable)
 	if err != nil {
 		return err
 	}

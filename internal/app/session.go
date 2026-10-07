@@ -206,7 +206,7 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 	if err != nil {
 		return failSession(streams.Err, fmt.Errorf("container SQLite discovery: %w; use --container-sqlite-home for an explicit selection", err))
 	}
-	target, err = sessiontransport.InspectTargetWithSQLite(candidate, containerState.Path)
+	target, err = sessiontransport.InspectTargetForTransfer(candidate, containerState.Path, request.operation)
 	if err != nil {
 		return failSession(streams.Err, err)
 	}
@@ -265,6 +265,14 @@ func printSessionResult(out io.Writer, request sessionRequest, result session.Re
 	fmt.Fprintf(&report, "Session %s copied to %s Codex home %q.\n", result.ThreadID, destination, result.Destination)
 	fmt.Fprintf(&report, "Files: %d created, %d reused, %d compatibly extended; %d inherited-history prefixes.\n", created, reused, extended, prefixes)
 	fmt.Fprintf(&report, "SQLite homes: host %q; container %q.\n", hostState.Path, containerState.Path)
+	for _, file := range result.Files {
+		if file.Promoted {
+			fmt.Fprintln(&report, "The previously imported prerequisite is now available as a complete parent conversation; existing children retain their inherited-history boundaries.")
+		}
+	}
+	if result.SelectionRepaired {
+		fmt.Fprintln(&report, "The destination Codex index now selects the complete imported conversation instead of its prerequisite.")
+	}
 	if result.Metadata.CWD != "" {
 		fmt.Fprintf(&report, "Saved working directory: %q. Workspace files and local resources were not copied.\n", result.Metadata.CWD)
 	}
@@ -305,5 +313,8 @@ Use explicit SQLite paths for database overrides from project config, selected
 Codex profiles, runtime flags, cloud policy or macOS managed preferences.
 The persisted conversation must be inactive. Existing divergent history is a
 conflict; identical content is reused. Managed inherited prefixes may grow when
-all prior bytes match. Credentials and workspace files are excluded.
+all prior bytes match; a later complete-parent import preserves child boundaries.
+Supported destination metadata may be repaired to select complete imported history.
+Failed publication can retain copied files; retry verifies and reuses them.
+Credentials and workspace files are excluded.
 `

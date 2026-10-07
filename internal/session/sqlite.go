@@ -19,6 +19,23 @@ type selection struct {
 	archived   bool
 }
 
+type stateDB struct {
+	db   *sql.DB
+	file *os.File
+	info os.FileInfo
+	path string
+}
+
+func (s *stateDB) close() { s.db.Close(); s.file.Close() }
+
+func (s *stateDB) verifyIdentity() error {
+	after, err := os.Lstat(s.path)
+	if err != nil || !after.Mode().IsRegular() || !os.SameFile(s.info, after) {
+		return fmt.Errorf("Codex state database changed identity during inspection")
+	}
+	return nil
+}
+
 func isMissing(err error) bool { return errors.Is(err, os.ErrNotExist) }
 
 // selection uses a real read-only SQLite transaction, including committed WAL
@@ -26,6 +43,29 @@ func isMissing(err error) bool { return errors.Is(err, os.ErrNotExist) }
 // The caller must separately coordinate Codex writers for a consistent copy of
 // both the selected database metadata and the files it references.
 func (h *Home) selection(ctx context.Context, id string) (*selection, error) {
+	state, err := h.openStateDB(false)
+	if err != nil || state == nil {
+		return nil, err
+	}
+	defer state.close()
+	tx, err := state.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("read Codex state database: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := readSelection(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := state.verifyIdentity(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// writable opens an existing database only. It never creates a database,
+// migrates Codex's schema or imports tables from another installation.
+func (h *Home) openStateDB(writable bool) (*stateDB, error) {
 	const name = "state_5.sqlite"
 	entries, err := os.ReadDir(h.Path)
 	if err != nil {
@@ -51,9 +91,9 @@ func (h *Home) selection(ctx context.Context, id string) (*selection, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	before, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
 	// The SQLite driver opens its own descriptors. Refuse symlink/special
@@ -63,24 +103,27 @@ func (h *Home) selection(ctx context.Context, id string) (*selection, error) {
 		if err == nil {
 			file.Close()
 		} else if !isMissing(err) {
+			f.Close()
 			return nil, err
 		}
 	}
 	path := filepath.Join(h.Path, name)
 	uri := url.URL{Scheme: "file", Path: path}
 	query := url.Values{"mode": {"ro"}, "_pragma": {"query_only(1)", "busy_timeout(1000)", "trusted_schema(0)"}}
+	if writable {
+		query = url.Values{"mode": {"rw"}, "_txlock": {"immediate"}, "_pragma": {"busy_timeout(1000)", "trusted_schema(0)", "foreign_keys(1)", "synchronous(FULL)"}}
+	}
 	uri.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
-	defer db.Close()
 	db.SetMaxOpenConns(1)
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("read Codex state database: %w", err)
-	}
-	defer tx.Rollback()
+	return &stateDB{db: db, file: f, info: before, path: path}, nil
+}
+
+func readSelection(ctx context.Context, tx *sql.Tx, id string) (*selection, error) {
 	// Older state_5 schemas predate history_mode. They describe legacy
 	// rollouts; do not require an unrelated Codex schema migration to read them.
 	rows, err := tx.QueryContext(ctx, "SELECT name FROM pragma_table_info('threads')")
@@ -114,12 +157,6 @@ func (h *Home) selection(ctx context.Context, id string) (*selection, error) {
 	err = tx.QueryRowContext(ctx, "SELECT rollout_path, "+modeColumn+", archived FROM threads WHERE id = ?", id).Scan(&result.path, &result.mode, &result.archived)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read selected rollout for %s: %w", id, err)
-	}
-	// Catch replacement of the checked path before or during the query. All
-	// conversation-file I/O itself remains rooted at h's directory descriptor.
-	after, statErr := os.Lstat(path)
-	if statErr != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
-		return nil, fmt.Errorf("Codex state database changed identity during inspection")
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

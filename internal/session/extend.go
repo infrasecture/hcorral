@@ -27,11 +27,20 @@ func (in *Incoming) compareExisting(ctx context.Context, incoming File, c candid
 	// Try the required cutoff first. A longer existing representation can be
 	// reused without parsing or limiting the unrelated tail it already contains.
 	existing, boundaryErr := in.home.readRollout(ctx, c, end, in.limits)
-	if boundaryErr == nil || !incoming.Prefix || !prerequisitePath(c.path) {
+	if !prerequisitePath(c.path) || (incoming.Prefix && boundaryErr == nil) || (!incoming.Prefix && boundaryErr != nil) {
 		return existing, nil, boundaryErr
 	}
-	existing, err := in.home.readRollout(ctx, c, nil, in.limits)
-	if err != nil || existing.Bytes >= incoming.Bytes {
+	if incoming.Prefix {
+		var err error
+		existing, err = in.home.readRollout(ctx, c, nil, in.limits)
+		if err != nil {
+			return File{}, nil, boundaryErr
+		}
+	}
+	if existing.Bytes >= incoming.Bytes {
+		if !incoming.Prefix {
+			return existing, nil, nil
+		}
 		return File{}, nil, boundaryErr
 	}
 	if existing.Metadata.HistoryMode != "paginated" || existing.lastOrdinal == math.MaxUint64 {
@@ -53,20 +62,28 @@ func (in *Incoming) compareExisting(ctx context.Context, incoming File, c candid
 // future readers see the whole longer prefix, never a partly appended record.
 // Writer guards cover cooperating native writers throughout this operation.
 // Arbitrary concurrent filesystem edits do not participate in that contract.
+type preparedPrefix struct {
+	old  File
+	slot string
+}
+
 func (in *Incoming) extendPrefix(ctx context.Context, incoming File, extension prefixExtension) error {
-	old := extension.old
-	if !incoming.Prefix || !prerequisitePath(old.SourcePath) || old.stored == nil {
-		return errors.New("extension requires a validated managed prerequisite")
-	}
-	parent, err := in.home.directory(filepath.Dir(old.SourcePath), false)
+	prepared, err := in.preparePrefix(ctx, incoming, extension)
 	if err != nil {
 		return err
 	}
-	defer parent.Close()
+	return in.publishPrefix(ctx, prepared)
+}
+
+func (in *Incoming) preparePrefix(ctx context.Context, incoming File, extension prefixExtension) (preparedPrefix, error) {
+	old := extension.old
+	if incoming.Metadata.HistoryMode != "paginated" || !prerequisitePath(old.SourcePath) || old.stored == nil {
+		return preparedPrefix{}, errors.New("extension requires a validated managed prerequisite")
+	}
 	slot := fmt.Sprintf("extension-%06d", len(in.slots))
 	f, err := in.stage.open(slot, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL, 0o600)
 	if err != nil {
-		return err
+		return preparedPrefix{}, err
 	}
 	in.slots = append(in.slots, slot)
 	var output io.Writer = f
@@ -75,7 +92,7 @@ func (in *Incoming) extendPrefix(ctx context.Context, incoming File, extension p
 		encoder, err = zstd.NewWriter(f, zstd.WithEncoderConcurrency(1))
 		if err != nil {
 			f.Close()
-			return err
+			return preparedPrefix{}, err
 		}
 		output = encoder
 	}
@@ -101,8 +118,18 @@ func (in *Incoming) extendPrefix(ctx context.Context, incoming File, extension p
 	}
 	err = errors.Join(err, f.Close())
 	if err != nil {
+		return preparedPrefix{}, err
+	}
+	return preparedPrefix{old: old, slot: slot}, nil
+}
+
+func (in *Incoming) publishPrefix(ctx context.Context, prepared preparedPrefix) error {
+	old := prepared.old
+	parent, err := in.home.directory(filepath.Dir(old.SourcePath), false)
+	if err != nil {
 		return err
 	}
+	defer parent.Close()
 	current, err := in.home.regular(old.SourcePath)
 	if err != nil {
 		return err
@@ -118,7 +145,7 @@ func (in *Incoming) extendPrefix(ctx context.Context, incoming File, extension p
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := unix.Renameat(int(in.stage.dir.Fd()), slot, int(parent.Fd()), filepath.Base(old.SourcePath)); err != nil {
+	if err := unix.Renameat(int(in.stage.dir.Fd()), prepared.slot, int(parent.Fd()), filepath.Base(old.SourcePath)); err != nil {
 		return fmt.Errorf("extend inherited prefix %s: %w", old.SourcePath, err)
 	}
 	if err := parent.Sync(); err != nil {
