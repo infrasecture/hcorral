@@ -17,7 +17,7 @@ development testing.
 | Automatic GUI with headless, SSH and remote fallback | Native Linux protocol matrix passed | Resolver tests and hosted Xvfb/Weston/XWayland production-UID tests pass at `43df6a4`; physical desktop release coverage remains separate |
 | Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
-| Numeric process identity and groups | Native Linux launcher/image checks passed; macOS pending | `9a71bca` compares packaged UID/GID/groups with the actual invoking process on both Linux architectures; all six images pass actual group-based file access and denial; static unknown-account cases also pass |
+| Numeric process identity and groups | Native Linux and macOS launcher checks passed | `9a71bca` compares packaged UID/GID/groups on both Linux architectures; `4cb9129` passes the corrected POSIX process-group comparison on both Macs; all six Linux images pass group-based file access and denial; static unknown-account cases also pass |
 | Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
 | Static binaries and packages on four targets | Package execution passed; complete runtime qualification remains | `df30f26` builds all four targets with both Linux helpers, passes both Linux package jobs and both macOS Homebrew audit/version/install/exact-binary checks; remaining macOS endpoint checks and exact final artifacts still need qualification |
@@ -27,7 +27,7 @@ development testing.
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | `9a71bca` passes attach resets, lost-completion/retry, storage aliases and host/container writer exclusion on AMD64/ARM64; macOS filesystem/runtime acceptance remains |
+| Session transfer lifecycle | Native Linux passed; macOS exposed unsafe shared locking | `4cb9129` passes both Mac endpoint matrices except host/guest writer exclusion; unsupported shared-storage refusal and its nested-lock regression now require real qualification; named-volume public Docker/native composition remains |
 | Actual Codex resume acceptance | Native Linux public Docker matrix passed; broader qualification remains | `9a71bca` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures and Compose variants; macOS composition remains |
 
 ## Execution environment
@@ -1012,3 +1012,43 @@ uses a real stalled renderer and confirms timely attachment to the existing
 container, an unknown-drift report and no reconciliation. Race-enabled compose,
 app, runtime and update tests pass, along with the full Go suite and vet. These checks
 do not replace rerunning the actual failed Docker/Compose qualification case.
+
+## Colima shared locks and explicit storage refusal: 2026-10-07
+
+Both `37565661591` and `37566300381` are now terminal failures. At `4cb9129`,
+the [Intel](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213345)
+and [ARM](https://github.com/infrasecture/hcorral/actions/runs/37566300381/job/112615213388)
+jobs passed packaged process UID/GID/groups, lifecycle, refresh/fallback,
+runtime/mount/wrapper checks, disconnect/lost-reply recovery, all running/stopped
+UID/path endpoint cases, daemon-local mount variants, cancellation and guest
+writer refusal. Both also passed the alias transfer, verifying the earlier ARM
+close-before-unlink cleanup correction on its actual sharing driver.
+
+Both failed `TestDockerSessionSharedStorageWriterRefused`: export succeeded
+while the native Mac held the required writer lock on the same shared files.
+The older Intel `df30f26` job failed identically. Successful alias copying and
+same-guest locking had not established host/guest exclusion. The subsequent
+public Docker/native-resume composition did not run; these jobs are not passes.
+
+The transfer core now rejects recognized VM-shared and network filesystem
+classes rather than trusting a successful kernel-local flock. It checks opened
+roots and descendants, so a nested writer-lock or history mount cannot inherit
+the parent's storage decision. There is no bypass or automatic migration.
+Native host homes and daemon-local container volumes remain the intended
+transfer endpoints. `session-transfer-design.md` records exact platform rules
+and the remaining limits: this does not establish absence of older writers or
+qualify arbitrary layered/exported storage.
+
+Real endpoint regressions now independently inspect the guest filesystem.
+Native storage must still exclude writers and succeed after release; FUSE/9p
+shares must return the explicit unsupported-storage error while busy and idle,
+preserve existing history and refuse an import of previously absent history.
+A new fixture puts only the lock directory on shared storage under a local home.
+These are required real Docker checks, not skipped platform cases.
+
+The full Go suite and vet pass. Session/helper/transport race checks and both
+full native Codex 0.160.0/0.160.1 directions pass locally. Core test executables
+cross-compile for both Macs; endpoint executables cross-compile for both Macs
+and Linux ARM64. These local results do not qualify the new refusal on Colima.
+The next CI run must execute it and the outstanding public composition, together
+with the earlier required-render/optional-diagnostic timeout correction.

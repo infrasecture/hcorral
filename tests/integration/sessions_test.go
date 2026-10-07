@@ -112,7 +112,7 @@ func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bo
 			must(t, os.RemoveAll(f.clientTemp))
 		}
 	})
-	if storage == "bind-client" {
+	if storage == "bind-client" || storage == "volume-client-locks" {
 		// Colima shares the host home, but not necessarily the operating
 		// system's temporary directory. Keep this alias fixture in a unique
 		// directory there and verify visibility before seeding any history.
@@ -161,6 +161,8 @@ func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bo
 	f.mountSpec = "type=volume,src=" + f.volume + ",dst=" + containerHome
 	switch storage {
 	case "volume":
+	case "volume-client-locks":
+		args = append(args, "--mount", "type=bind,src="+f.daemonSource+",dst="+containerHome+"/.codex/thread-writer-locks")
 	case "volume-subpath":
 		f.mountSpec += ",volume-subpath=selected"
 	case "bind", "bind-private", "bind-nonrecursive", "bind-client":
@@ -500,8 +502,9 @@ func TestDockerSessionSharedStorageAlias(t *testing.T) {
 	name := filepath.Join(hostHome, rolloutPath(threadA))
 	original, err := os.Stat(name)
 	must(t, err)
+	wantError := f.sharedStorageError()
 	for _, operation := range []string{"export", "import"} {
-		result := f.transfer(nil, operation, threadA, alias, "")
+		result := f.transfer(nil, operation, threadA, alias, wantError)
 		for _, file := range result.Result.Files {
 			if file.Created || file.Promoted || file.Prefix {
 				t.Fatalf("%s replaced aliased history: %+v", operation, file)
@@ -524,6 +527,11 @@ func TestDockerSessionSharedStorageWriterRefused(t *testing.T) {
 	// the actual client-visible storage, including Colima's mount driver.
 	f := newDockerStorageSession(t, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), false, false, "bind-client")
 	before, volumes := f.state(), f.volumes()
+	storageError := f.sharedStorageError()
+	busyError := "busy"
+	if storageError != "" {
+		busyError = storageError
+	}
 	hostHome := filepath.Join(f.daemonSource, ".codex")
 	lockName := "thread-writer-locks/" + threadA + ".lock"
 	must(t, os.MkdirAll(filepath.Dir(filepath.Join(hostHome, lockName)), 0o700))
@@ -532,15 +540,84 @@ func TestDockerSessionSharedStorageWriterRefused(t *testing.T) {
 	defer writer.Close()
 	must(t, unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB))
 	destination := filepath.Join(f.root, "host writer protected export")
-	f.transfer(nil, "export", threadA, destination, "busy")
+	f.transfer(nil, "export", threadA, destination, busyError)
 	must(t, writer.Close())
-	f.transfer(nil, "export", threadA, destination, "")
+	f.transfer(nil, "export", threadA, destination, storageError)
+	if storageError != "" {
+		if _, err := os.Stat(filepath.Join(destination, rolloutPath(threadA))); !os.IsNotExist(err) {
+			t.Fatalf("unsupported shared storage published host history: %v", err)
+		}
+	}
 
 	blocker := f.block(lockName)
-	f.transfer(nil, "import", threadA, hostHome, "busy")
+	f.transfer(nil, "import", threadA, hostHome, busyError)
 	f.docker("stop", "--time", "1", blocker)
-	f.transfer(nil, "import", threadA, hostHome, "")
+	f.transfer(nil, "import", threadA, hostHome, storageError)
+	if storageError != "" {
+		// Refusal also applies to a genuinely new history, not just an alias
+		// that happened to have no work to publish.
+		source := filepath.Join(f.root, "unshared import source")
+		writeSession(t, source, threadB, "must not enter shared storage")
+		f.transfer(nil, "import", threadB, source, storageError)
+		if _, err := os.Stat(filepath.Join(hostHome, rolloutPath(threadB))); !os.IsNotExist(err) {
+			t.Fatalf("unsupported shared storage published container history: %v", err)
+		}
+	}
 	f.assertPreserved(before, volumes)
+}
+
+func TestDockerSessionNestedSharedLocks(t *testing.T) {
+	// The home itself is daemon-local. Checking only that root would miss a
+	// VM-shared native writer-lock directory underneath it.
+	f := newDockerStorageSession(t, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), false, false, "volume-client-locks")
+	before, volumes := f.state(), f.volumes()
+	storageError := f.sharedStorageError()
+	busyError := "busy"
+	if storageError != "" {
+		busyError = storageError
+	}
+	writer, err := os.OpenFile(filepath.Join(f.daemonSource, threadA+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	must(t, err)
+	defer writer.Close()
+	must(t, unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB))
+	host := filepath.Join(f.root, "native destination")
+	f.transfer(nil, "export", threadA, host, busyError)
+	must(t, writer.Close())
+	f.transfer(nil, "export", threadA, host, storageError)
+	if storageError != "" {
+		if _, err := os.Stat(filepath.Join(host, rolloutPath(threadA))); !os.IsNotExist(err) {
+			t.Fatalf("nested shared locks allowed publication: %v", err)
+		}
+	}
+	writeSession(t, host, threadB, "new history with nested locks")
+	f.transfer(nil, "import", threadB, host, storageError)
+	if storageError != "" {
+		f.docker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", f.mountSpec, "--entrypoint", "/bin/sh", f.image, "-c", `test ! -e "$1"`, "sh", containerHome+"/.codex/"+rolloutPath(threadB))
+	}
+	f.assertPreserved(before, volumes)
+}
+
+// Inspect the real guest filesystem independently of the launcher. Do not turn
+// an arbitrary failed transfer into an accepted unsupported-platform result.
+// Linux native binds must still satisfy writer exclusion and successful retry;
+// VM shares with separate lock domains must fail explicitly, even when idle.
+func (f *dockerSession) sharedStorageError() string {
+	f.t.Helper()
+	name := containerHome + "/.codex"
+	if f.storage == "volume-client-locks" {
+		name += "/thread-writer-locks"
+	}
+	kind := strings.TrimSpace(string(f.docker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--volumes-from", f.container, "--entrypoint", "/bin/stat", f.image, "-f", "-c", "%t", name)))
+	switch kind {
+	case "65735546", "1021997": // FUSE (including virtiofs/SSHFS), 9p.
+		f.t.Logf("qualifying explicit refusal on shared filesystem 0x%s", kind)
+		return "unsupported session storage filesystem"
+	case "ef53", "794c7630", "1021994": // ext4, overlayfs, tmpfs.
+		return ""
+	default:
+		f.t.Fatalf("unqualified fixture filesystem 0x%s; establish its writer-lock contract", kind)
+		return ""
+	}
 }
 
 // A separate real container owns a kernel lock. This makes blocked publication

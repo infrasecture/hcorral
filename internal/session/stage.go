@@ -43,7 +43,10 @@ func (h *Home) directory(name string, create bool) (*os.File, error) {
 		if err != nil {
 			return nil, fmt.Errorf("open directory %s: %w", name, err)
 		}
-		parent = os.NewFile(uintptr(fd), component)
+		parent, err = storageFile(fd, component)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return parent, nil
 }

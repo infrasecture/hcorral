@@ -186,7 +186,14 @@ The tested native writer protocol is Codex 0.160.0/0.160.1. Other processes usin
 the same homes or volumes also matter, even when the selected corral is stopped.
 Older or otherwise unqualified writers must be stopped; the launcher cannot
 prove their absence from a rollout version or image label. Shared filesystems
-must coordinate locks between all participating hosts and containers. See the
+must coordinate locks between all participating hosts and containers. Transfers
+reject FUSE (including virtiofs/SSHFS), 9p, NFS and SMB storage on Linux, and
+non-local or FUSE/virtiofs/9p storage on macOS. In particular, a Mac directory
+bind-mounted into Colima is not supported conversation storage: guest locks
+can succeed while a host writer owns the same lock. Keep the corral's Codex
+home in a daemon-local volume and export/import to the native host home instead.
+This restriction applies to nested history, lock and SQLite storage too; there
+is no bypass flag. Other unqualified storage still requires review. See the
 [remaining consistency boundaries](docs/session-transfer-design.md#remaining-consistency-questions)
 and platform evidence before treating a different runtime/storage combination as
 supported.

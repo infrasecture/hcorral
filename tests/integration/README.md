@@ -36,7 +36,15 @@ through real Docker, for running and stopped workstations and numeric identities
   client-visible bind mounted by the container. The original file inode,
   content and private mode must survive without a lock deadlock. This fixture
   requires the daemon to see a disposable directory beneath the client home
-  (as local Linux Docker and the qualified Colima setup do).
+  (as local Linux Docker and the Colima fixture do). Supported native storage
+  must succeed; unsupported VM-shared FUSE/9p storage must fail explicitly,
+  preserving the same original file identity and bytes.
+- Host-versus-container writer exclusion and retry on native shared storage.
+  Unsupported VM sharing must be refused even without a writer, in both
+  directions, including an import of previously absent history. A separate
+  fixture places just the native writer-lock directory on a shared mount under
+  a daemon-local home. The test independently inspects the guest filesystem and
+  requires the specific unsupported-storage error, never any arbitrary failure.
 - Image-declared anonymous volumes do not become persistent transfer side effects.
 
 The fixture carries runtime ownership labels but bypasses a workstation

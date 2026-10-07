@@ -37,7 +37,11 @@ func OpenHome(path string) (*Home, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open Codex home: %w", err)
 	}
-	return &Home{Path: abs, logicalPath: logicalPath, dir: os.NewFile(uintptr(fd), abs)}, nil
+	dir, err := storageFile(fd, abs)
+	if err != nil {
+		return nil, err
+	}
+	return &Home{Path: abs, logicalPath: logicalPath, dir: dir}, nil
 }
 
 // ResolveHostHome uses the Docker client's path namespace. It only resolves
@@ -85,7 +89,10 @@ func (h *Home) open(name string, flags int, mode uint32) (*os.File, error) {
 		if err != nil {
 			return nil, &os.PathError{Op: "open directory", Path: name, Err: err}
 		}
-		parent = os.NewFile(uintptr(fd), component)
+		parent, err = storageFile(fd, component)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if parent != h.dir {
 		defer parent.Close()
@@ -94,7 +101,7 @@ func (h *Home) open(name string, flags int, mode uint32) (*os.File, error) {
 	if err != nil {
 		return nil, &os.PathError{Op: "open", Path: name, Err: err}
 	}
-	return os.NewFile(uintptr(fd), name), nil
+	return storageFile(fd, name)
 }
 
 func (h *Home) regular(name string) (*os.File, error) {

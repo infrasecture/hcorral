@@ -125,6 +125,41 @@ Rust currently implements its Unix file locks with `flock`, matching the Go
 guards; keep this interoperability check in runtime qualification rather than
 assuming it permanently. See [Rust File::try_lock](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock).
 
+### Filesystem boundary
+
+Real Colima qualification found that both the Intel VZ and ARM QEMU file-sharing
+mounts allowed a container export while the Mac held the conversation's native
+writer lock. A successful `flock` in each kernel is not cross-kernel exclusion.
+The ordinary named-volume, daemon-local bind and native-host cases are separate:
+they do not require exporting a single locking namespace through a VM share.
+
+The core now checks `fstatfs` on opened roots and descendant descriptors, including
+writer locks, history, staging and separately selected SQLite storage. Linux
+rejects FUSE (including virtiofs and SSHFS), 9p, NFS and SMB/CIFS. macOS rejects
+non-local mounts and recognized FUSE/virtiofs/9p types. Inspection errors fail
+closed. A nested shared mount cannot inherit approval from a local parent.
+The check uses the actual descriptor, preserving rooted path/identity handling;
+it neither executes a host `stat` command nor guesses from a Docker context name.
+
+These are deliberately unsupported storage classes, not a claim that every NFS
+or FUSE implementation has broken locks. Linux's [flock documentation](https://man7.org/linux/man-pages/man2/flock.2.html)
+describes remote-lock behavior depending on server, kernel and mount options.
+The [FUSE implementation](https://github.com/torvalds/linux/blob/master/fs/fuse/inode.c)
+reports one filesystem magic for its different implementations, while
+[Lima's mount documentation](https://lima-vm.io/docs/config/mount/) describes its
+distinct sharing drivers. Qualifying a class requires evidence for all supported
+participants, not merely a second process in the same kernel.
+
+There is no `--force` override or automatic storage migration. Use daemon-local
+container history and a native local host home with the existing streaming
+transfer. Refusal does not start or replace the workstation. Destination setup
+can create its requested empty directory, and a transfer discovering an
+unsupported nested path can already have created private staging or native lock
+entries; it must not publish through that unsupported path. Existing history is
+preserved. The filesystem check does not prove absence of older writers, detect
+all layered/exported storage or qualify arbitrary network filesystems. Those
+runtime/storage boundaries remain explicit requirements.
+
 The native lifecycle fixture now also holds a Go snapshot guard while asking
 Codex to archive, unarchive, resume or delete legacy/paginated history. Each request must
 report an existing writer and preserve both bytes and authoritative selection;

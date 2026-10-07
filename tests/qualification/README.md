@@ -69,7 +69,13 @@ by success of the ordinary in-process native suite.
 
 The client-visible bind fixture also holds the native writer lock first on the
 host, then in a container, and requires transfer through the other endpoint to
-refuse the busy conversation. Retry after releasing the owner must succeed.
+refuse the busy conversation on supported native storage. Retry after releasing
+the owner must succeed. On VM-shared FUSE/9p storage, the command must instead
+explicitly refuse the unsupported filesystem both while locked and while idle;
+no new history may be published. The fixture independently checks the actual
+guest filesystem type rather than treating an arbitrary error as success. A
+separate case puts only the writer-lock directory on the shared mount beneath
+a daemon-local home, checking that root-only filesystem validation cannot pass.
 An identical-file alias round trip or two containers sharing one guest kernel
 does not prove host/VM lock interoperability. This case must pass before claiming
 that a particular VM file-sharing mount supports concurrent native host writers.

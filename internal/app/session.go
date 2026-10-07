@@ -317,6 +317,8 @@ Exit or unload the conversation at both endpoints first; an idle loaded thread
 can still hold its writer lock. The tested native writer protocol is Codex
 0.160.0/0.160.1. Stop unqualified writers sharing either home or volume, including
 other corrals; a stopped selected container alone does not prove quiescence.
+VM-shared and network storage with unqualified locks is refused. Keep container
+history in daemon-local storage and transfer to/from a native local host home.
 Existing divergent history is a conflict; identical content is reused.
 Managed inherited prefixes may grow when all prior bytes match; a later
 complete-parent import preserves child boundaries.
