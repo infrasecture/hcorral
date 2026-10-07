@@ -686,3 +686,27 @@ The case passes locally on Codex 0.160.1 and in five race-enabled runs on
 0.160.0. Full Go tests and vet pass. It joins the four-platform native runner;
 these local results do not qualify the other platforms or the public Docker
 composition. No image/release publication or real user-state migration occurred.
+
+## Intel Colima endpoint result: 2026-10-07
+
+The Intel macOS job [112590315045](https://github.com/infrasecture/hcorral/actions/runs/37558298578/job/112590315045)
+at `43df6a4` completed successfully. Its real VZ/Colima run passed lifecycle,
+refresh/configuration preservation, numeric transfer ownership at all three
+UID/GID pairs, running/stopped endpoints and all host-path default variants,
+bind/private/nonrecursive/subpath storage, shared-storage aliases, read-only
+refusal, connection reset, lost-completion retry, cancellation/helper cleanup
+and active-writer refusal. The prior macOS canonical-path assertion no longer
+fails. This establishes those Intel endpoint cases; the newer native public
+Docker composition and production-image probe tests were not in that revision.
+
+The combined job step had installed QEMU 11.1.0 from a cached Sonoma bottle,
+then used VZ and spent most of its time running tests. Its duration was not
+evidence of a stalled source build. Removing the unused dependency remains an
+appropriate correction but is not presented as fixing that completed run.
+
+The run failed overall because the ARM Colima guest-agent and Linux transition
+receiver fixtures failed as described above. After it became terminal, ordinary
+nonpublishing CI was dispatched at `f10c95c` as
+[run 37560678376](https://github.com/infrasecture/hcorral/actions/runs/37560678376),
+covering those corrections, the production probe, native public Docker
+composition and native lifecycle/revert checks. No earlier live job was canceled.

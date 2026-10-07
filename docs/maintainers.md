@@ -9,9 +9,13 @@ Run the source, package, shell, contract, race, and vulnerability gates with:
 
 `CI` uses hosted Linux amd64/arm64 and macOS Intel/Apple Silicon runners. The
 release workflow prepares one artifact set, qualifies deb/rpm/Arch packages,
-both Darwin archives and Homebrew formulae, and headless Colima on the Intel
-macOS worker supported by Colima's own CI model, then publishes the exact
-prepared bytes. Preview releases may explicitly waive unavailable
+both Darwin archives and Homebrew formulae, and headless Colima on both macOS
+architectures, then publishes the exact prepared bytes. Intel uses the VZ
+driver. The hosted ARM runner uses an emulated x86_64 QEMU guest, so its native
+ARM launcher also exercises selection of the embedded Linux AMD64 helper;
+it does not qualify a native ARM64 guest. Current results and remaining gates
+are recorded in [the implementation ledger](implementation-status.md).
+Preview releases may explicitly waive unavailable
 Linux X11/Wayland/XWayland evidence; stable releases require the corresponding
 self-hosted runners. Docker Desktop is not a target.
 
