@@ -85,6 +85,7 @@ jobs:
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
+      - run: sudo apt-get update && sudo apt-get install -y xvfb weston xwayland xauth x11-xserver-utils
       - env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}

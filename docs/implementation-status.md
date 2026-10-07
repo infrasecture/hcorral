@@ -14,7 +14,7 @@ development testing.
 | Updated behavior, ADRs and parity baseline | Updated | Runtime/configuration docs, ADR 0004, provenance and manifest now reference #17/#18; Go contract tests pass |
 | Shared shell defaults and preserved existing homes | Native image canaries passed | CI at `fb16f6b` built Codex/Claude/Pi on AMD64/ARM64 and ran entrypoint/home tests for three UID/GID pairs; mixed-image shared-home qualification remains |
 | GUI badge and retained/reopenable tmux reports | Implemented; image matrix pending | Launcher-embedded helper, deployed identity/home/session, `notices`; real PTY and handshake tests pass |
-| Automatic GUI with headless, SSH and remote fallback | Implemented; native desktop pending | Resolver tests cover SSH, daemon/context precedence, Desktop rejection and no credential writes during discovery |
+| Automatic GUI with headless, SSH and remote fallback | Implemented; native protocol qualification wired | Resolver tests pass; hosted Xvfb/Weston/XWayland production-UID tests require execution, physical desktop coverage remains separate |
 | Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
 | Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
@@ -511,3 +511,20 @@ app-server probe and exact synthetic seed pass locally with native Codex 0.160.0
 and 0.160.1. ShellCheck, Bash syntax, workflow lint and release-contract checks
 pass. Actual transition/endpoint execution remains pending CI. No real user
 state, credentials, image publication or release is involved.
+
+## Native GUI protocol qualification wiring: 2026-10-07
+
+The repository currently has no registered self-hosted runners. CI and Linux
+release qualification now provision real Xvfb, Weston and XWayland servers on
+the native hosted runners instead of treating resolver unit tests as desktop
+execution. The probe image derives from the newly built production Codex image,
+adding diagnostic clients while retaining actual entrypoint and UID behavior.
+Tests cover automatic selection (including Wayland preference), authenticated
+X11/XWayland and Wayland protocol connections, narrow read-only mounts, deployed
+tmux badges and unchanged attachment after display variables disappear. An
+unusable explicit GUI request must leave the deployed container unchanged.
+
+ShellCheck, Bash syntax, workflow lint and release-contract checks pass locally.
+Native server/container execution remains pending CI. The servers use software
+rendering on a disposable runner; this is not physical desktop, GPU or every
+compositor's clipboard acceptance, and existing stable desktop gates remain.

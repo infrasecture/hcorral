@@ -72,3 +72,26 @@ synthetic, provider configuration is local, and no model turn is started.
 mounts on a suitable Linux desktop host. It is separate from unit GUI discovery
 tests and headless Docker acceptance. Merely defining a workflow or having a
 test file does not establish that these gates passed for a release.
+
+`hosted-gui.sh` supplies real local Xvfb, Weston and XWayland servers on the
+Linux qualification runners. It derives a test image from the built production
+Codex image, adding only `xset`/`wayland-info` diagnostic clients; the entrypoint,
+UID/GID handling, shell initialization and tmux remain unchanged. The protocol
+clients execute as the actual host UID inside the container, rather than the
+minimal fixture's root-only stub. No host desktop configuration is modified.
+
+It checks automatic X11 and Wayland selection, Wayland preference when both
+servers are available, authenticated XWayland access, narrow read-only mounts,
+the deployed GUI badge after real PTY attachment, preserved attachment identity
+after display variables disappear, and refusal of an unusable explicit GUI
+request without replacing the existing container. Server processes, credentials,
+workspaces and images are scoped to that invocation and cleaned up afterwards.
+X11 access uses a fresh authentication cookie, not unrestricted `xhost` access.
+
+Weston runs its headless backend with software rendering; XWayland uses shared
+memory in its supported standalone testing mode. See the platform's
+[Weston manual](https://manpages.ubuntu.com/manpages/noble/man1/weston.1.html) and
+[XWayland manual](https://manpages.ubuntu.com/manpages/noble/man1/Xwayland.1.html).
+These are native protocol/permission tests, not physical display, GNOME/KDE
+clipboard or GPU-driver qualification. Existing stable-release desktop gates
+remain separate; no absence of a registered desktop runner is treated as a pass.

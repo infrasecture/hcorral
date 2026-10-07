@@ -101,4 +101,5 @@ for launcher_generation in old new; do
   done
 done
 
+"$root/tests/qualification/hosted-gui.sh" "$new_image"
 "$root/tests/qualification/mycodex-transition.sh" "$new_image"
