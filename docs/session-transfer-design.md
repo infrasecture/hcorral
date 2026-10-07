@@ -548,26 +548,35 @@ and native tests above. Runtime qualification still must establish which writers
 and metadata operations share the storage; the history creation version or the
 selected container's stopped state cannot establish that boundary. This protocol
 does not coordinate arbitrary filesystem/database edits or older writers that
-ignore native locks. Source/destination alias handling releases source locks
-before destination acquisition; real shared-volume/remote endpoint qualification
-remains outstanding. Recovery of recognized abandoned private staging is
-implemented above; older or unfamiliar staging requires deliberate inspection
-and is never automatically removed.
+ignore native locks. Whether stopping such writers is an explicit operator
+prerequisite or requires an enforceable maintenance boundary remains unresolved.
+The qualified native lock protocol and refusal of recognized shared-filesystem
+classes do not establish that no other storage client can write.
 
-## Remaining implementation
+Source/destination alias handling releases source locks before destination
+acquisition. Real Linux and Colima tests now qualify the supported native-storage
+cases and explicit refusal on VM-shared FUSE, including nested lock mounts.
+Recovery of recognized abandoned private staging is implemented and tested;
+older or unfamiliar staging requires deliberate inspection and is never
+automatically removed. These results do not qualify every filesystem or writer.
 
-1. Complete broader writer/runtime qualification, including the filesystem
-   requirements for writer and staging locks. Keep database selection and
-   prerequisite visibility explicit.
-2. Qualify endpoint paths, configuration boundaries, storage aliases and
-   source/destination identity against actual deployed environments. Extend
-   metadata support where it can be preserved without copying unrelated state.
-3. Qualify the bundled launcher's Docker streaming/cancellation against actual
-   containers, deployed home/mount/identity and architecture inspection.
-4. Exercise public `session export/import` on running/stopped and remote-Docker
-   paths without workstation pull/start/recreate/attach side effects.
-5. Extend native fixtures, runtime writer qualification and platform coverage,
-   then execute the full endpoint and source/destination acceptance matrix.
+## Qualification status
+
+The public commands, helper packaging, streaming and cancellation, actual mount
+and identity discovery, non-overwriting publication and native resume composition
+are implemented. The full nonpublishing matrix passed at `2b41cc7` on Linux and
+macOS AMD64/ARM64, with current/pinned Compose on Linux and both Colima hosts.
+It covers running/stopped preservation, path/configuration and numeric ownership
+cases, storage aliases, connection-fault recovery and both pinned Codex version
+directions. The ARM Mac uses an emulated AMD64 guest; Linux ARM64 jobs separately
+qualify the native ARM64 helper. See the [execution ledger](implementation-status.md)
+for exact job links and the supported boundaries.
+
+Completion still requires resolving the unqualified-writer boundary above.
+The broader proposal also retains physical-desktop acceptance and qualification
+of exact final versioned release artifacts. This development result does not
+authorize publication or real-state migration. New Codex versions, metadata
+support or storage classes require their own reviewed compatibility evidence.
 
 `HCORRAL_TEST_CODEX=/absolute/path/to/codex go test -v ./internal/session -run
 'Test(Native)?Codex'` runs the optional native tests, including promotion and
@@ -576,6 +585,8 @@ index overlap. Set
 otherwise the same executable is used at both endpoints. It uses disposable
 homes, no credentials and a loopback mock provider. It checks the core stream and
 publication, picker visibility, selected rollout, actual resumed model context,
-writer exclusion, and re-export of a completed native-written turn. It does not
-yet qualify Docker transport, a real model service or all metadata portability.
-See `implementation-status.md` for the executed version matrix.
+writer exclusion, and re-export of a completed native-written turn. That core-only
+invocation does not exercise Docker transport. The separate public Docker/native
+composition in `tests/qualification/codex-sessions.sh` does, using the same pinned
+versions and synthetic conversations. Neither suite uses a real model service or
+claims that all metadata and external resources are portable.
