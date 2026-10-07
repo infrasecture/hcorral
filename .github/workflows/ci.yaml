@@ -136,6 +136,7 @@ jobs:
     name: ci/linux-${{ matrix.arch }}
     needs: build
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04
@@ -170,6 +171,7 @@ jobs:
     name: ci/compose-2.24.6-${{ matrix.arch }}
     needs: build
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-24.04

@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,7 +35,7 @@ func (ExecRunner) Capture(ctx context.Context, argv, env []string) (Result, erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, err
+	return Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}, commandError(ctx, err)
 }
 
 func (ExecRunner) Run(ctx context.Context, argv, env []string, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -44,7 +45,19 @@ func (ExecRunner) Run(ctx context.Context, argv, env []string, stdin io.Reader, 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.WaitDelay = time.Second
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, stdin, stdout, stderr
-	return cmd.Run()
+	return commandError(ctx, cmd.Run())
+}
+
+// CommandContext can report an ExitError ("signal: killed") when cancellation
+// terminates a running child. Preserve the context cause as well as that exit
+// status, so callers can distinguish cancellation from an ordinary failure.
+// A command that already succeeded stays successful even if cancellation races
+// with its return; confirmed work must not become an invented failure.
+func commandError(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil {
+		return errors.Join(err, ctx.Err())
+	}
+	return err
 }
 
 func (ExecRunner) Replace(argv, env []string) error {

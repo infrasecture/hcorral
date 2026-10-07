@@ -5,6 +5,36 @@ Design reference: myCodex `.proposals/hcorral-go-successor.md`, phase 5, and
 commands are now wired on the development branch; unresolved consistency and
 runtime qualification gates below still prevent claiming release readiness.
 
+## Reproducing storage mounts
+
+The endpoint retains bind propagation from Docker's actual `Mounts` inspection
+and recursion options from `HostConfig.Mounts`. The helper preserves those
+options instead of applying `rprivate` to every bind. Volume subpaths continue
+to come from the deployed volume definition. Access is never upgraded from a
+deployed read-only mount. The helper deliberately omits source-directory creation:
+a vanished bind source must fail instead of becoming empty replacement state.
+
+The transport currently supports only default/consistent bind modes.
+Cached/delegated modes, SELinux relabel modes, unknown propagation or
+mode values, and contradictory recursive options are refused. Transfer does not
+relabel existing host storage. Unrelated workspace/GUI mounts remain outside
+the selected storage and are not rejected for their own unused bind options.
+
+A separate SQLite bind is narrowed to its selected directory when safe. A
+nonrecursive parent bind cannot be narrowed this way: resolving its daemon-side
+subdirectory could enter a submount that the original workstation excludes.
+Such a layout requires a direct mount of the database directory. No fallback
+widens the helper to the whole workspace. Docker clients lacking a requested
+mount option fail creation explicitly; the transport never removes that option
+and retries with weaker semantics.
+
+This mapping follows the [Docker bind-mount contract](https://docs.docker.com/engine/storage/bind-mounts/),
+[Engine bind options](https://github.com/moby/moby/blob/master/api/types/mount/mount.go)
+and [CLI mount parser](https://github.com/docker/cli/blob/master/opts/mount.go).
+The unit checks verify inspection, metadata narrowing, refusal and reinspection
+after helper copy. Real Docker bind/subpath cases are part of the integration
+suite; their presence alone is not runtime qualification.
+
 ## Source format
 
 The first implementation targets the native format researched at Codex

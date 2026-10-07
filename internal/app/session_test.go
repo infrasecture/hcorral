@@ -28,6 +28,18 @@ const appSessionID = "019a1234-1111-7111-8111-111111111111"
 const appSessionFile = "sessions/2026/10/06/rollout-2026-10-06T12-34-56-" + appSessionID + ".jsonl"
 const transferOwnerLabel = "ai.infrasecture.hcorral.transfer"
 
+func TestSessionFailureDistinguishesCallerAndPeerCancellation(t *testing.T) {
+	failure := errors.Join(session.ErrConflict, context.Canceled)
+	if code := failSession(context.Background(), io.Discard, failure); code != 1 {
+		t.Fatalf("peer cleanup cancellation hid the conflict: exit %d", code)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := failSession(ctx, io.Discard, failure); code != 130 {
+		t.Fatalf("caller cancellation lost: exit %d", code)
+	}
+}
+
 func TestSessionArgumentsAcceptIntermixedFlagsAndPreserveHostPaths(t *testing.T) {
 	for _, args := range [][]string{
 		{"export", appSessionID, "host with spaces", "--format=json", "--files", "5000"},

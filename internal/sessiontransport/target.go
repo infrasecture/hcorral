@@ -130,13 +130,22 @@ func inspectTarget(container *containerruntime.Container, sqliteHome string, sql
 	}
 	for i := range deployed {
 		definition, present := definitions[deployed[i].Destination]
-		if !present || definition.Type != "volume" {
+		if !present {
 			continue
 		}
-		if deployed[i].Type != "volume" || (definition.Source != "" && definition.Source != deployed[i].Name) {
-			return Target{}, errors.New("deployed volume definition disagrees with the actual storage mount")
+		if definition.Type != deployed[i].Type {
+			return Target{}, errors.New("deployed mount definition disagrees with the actual storage type")
 		}
-		deployed[i].Subpath = definition.VolumeOptions.Subpath
+		switch definition.Type {
+		case "volume":
+			if definition.Source != "" && definition.Source != deployed[i].Name {
+				return Target{}, errors.New("deployed volume definition disagrees with the actual storage mount")
+			}
+			deployed[i].Subpath = definition.VolumeOptions.Subpath
+		case "bind":
+			deployed[i].BindOptions = definition.BindOptions
+			deployed[i].Consistency = definition.Consistency
+		}
 	}
 	mounts, err := storageMounts(deployed, codexHome, true)
 	if err != nil {
@@ -162,6 +171,12 @@ func inspectTarget(container *containerruntime.Container, sqliteHome string, sql
 		if contains(mount.Destination, sqliteHome) && mount.Destination != sqliteHome {
 			relative := strings.TrimPrefix(strings.TrimPrefix(sqliteHome, mount.Destination), "/")
 			if mount.Type == "bind" {
+				if mount.BindOptions.NonRecursive {
+					// Resolving a daemon subdirectory can enter a host submount
+					// that the workstation's nonrecursive parent deliberately
+					// excludes. A fresh bind there would select different data.
+					return Target{}, errors.New("cannot narrow a nonrecursive bind to the SQLite directory; mount that directory directly before transferring")
+				}
 				mount.Source = path.Join(mount.Source, relative)
 			} else {
 				mount.Subpath = path.Join(mount.Subpath, relative)
@@ -243,12 +258,62 @@ func storageMounts(all []containerruntime.Mount, home string, writable bool) ([]
 			if !absolutePath(mount.Source) {
 				return nil, errors.New("deployed state bind has no absolute daemon-side source")
 			}
+			if err := validateBindMount(mount); err != nil {
+				return nil, fmt.Errorf("Codex storage bind at %s: %w", mount.Destination, err)
+			}
 		default:
 			return nil, fmt.Errorf("unsupported Codex storage mount type %q at %s", mount.Type, mount.Destination)
 		}
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Destination < selected[j].Destination })
 	return selected, nil
+}
+
+func validateBindMount(mount containerruntime.Mount) error {
+	options := mount.BindOptions
+	if mount.Propagation != "" && options.Propagation != "" && mount.Propagation != options.Propagation {
+		return errors.New("deployed bind propagation disagrees with its definition")
+	}
+	switch bindPropagation(mount) {
+	case "private", "rprivate", "shared", "rshared", "slave", "rslave":
+	default:
+		return errors.New("unsupported bind propagation")
+	}
+	if (options.ReadOnlyNonRecursive && options.ReadOnlyForceRecursive) || (options.NonRecursive && options.ReadOnlyForceRecursive) {
+		return errors.New("conflicting recursive bind settings")
+	}
+	if options.ReadOnlyForceRecursive && mount.RW {
+		return errors.New("recursive read-only bind is reported writable")
+	}
+	switch mount.Consistency {
+	case "", "default", "consistent":
+	default:
+		return fmt.Errorf("unsupported bind consistency %q; session transfer requires consistent storage", mount.Consistency)
+	}
+	for _, mode := range strings.Split(mount.Mode, ",") {
+		switch mode {
+		case "", "ro", "rw", "default", "consistent":
+		case "private", "rprivate", "shared", "rshared", "slave", "rslave":
+			if mode != bindPropagation(mount) {
+				return errors.New("deployed bind mode disagrees with its propagation")
+			}
+		case "z", "Z":
+			return errors.New("SELinux-labeled storage binds need separate helper qualification; transfer does not relabel existing storage")
+		default:
+			return fmt.Errorf("unsupported bind mode %q", mode)
+		}
+	}
+	return nil
+}
+
+func bindPropagation(mount containerruntime.Mount) string {
+	if mount.Propagation != "" {
+		return mount.Propagation
+	}
+	if mount.BindOptions.Propagation != "" {
+		return mount.BindOptions.Propagation
+	}
+	return "rprivate"
 }
 
 func databaseFile(name string) bool {

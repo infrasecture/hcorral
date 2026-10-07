@@ -19,6 +19,9 @@ through real Docker, for running and stopped workstations and numeric identities
 - Preservation of authentication, configuration, unrelated conversations,
   workstation identity, lifecycle timestamps, mounts and persistent volumes.
 - Read-only storage refusal and a writer lock owned by a separate container.
+- Named-volume subpaths and daemon-side binds, including private propagation
+  and nonrecursive mounts. The test owns the daemon paths and never assumes a
+  client pathname exists there.
 - SIGTERM cancellation with a live remote helper blocked on a real destination
   lock, helper removal, preservation of the lock owner and successful retry.
 - Image-declared anonymous volumes do not become persistent transfer side effects.

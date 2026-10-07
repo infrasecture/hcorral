@@ -21,14 +21,29 @@ type Mount struct {
 	Source      string `json:"Source"`
 	Destination string `json:"Destination"`
 	RW          bool   `json:"RW"`
+	Mode        string `json:"Mode"`
+	Propagation string `json:"Propagation"`
 	// Subpath is populated from HostConfig.Mounts when a volume uses a subdir.
 	Subpath string `json:"-"`
+	// Bind options missing from Mounts are retained from HostConfig.Mounts.
+	BindOptions BindOptions `json:"-"`
+	Consistency string      `json:"-"`
+}
+
+type BindOptions struct {
+	Propagation            string `json:"Propagation"`
+	NonRecursive           bool   `json:"NonRecursive"`
+	ReadOnlyNonRecursive   bool   `json:"ReadOnlyNonRecursive"`
+	ReadOnlyForceRecursive bool   `json:"ReadOnlyForceRecursive"`
+	CreateMountpoint       bool   `json:"CreateMountpoint"`
 }
 
 type MountDefinition struct {
-	Type          string `json:"Type"`
-	Source        string `json:"Source"`
-	Target        string `json:"Target"`
+	Type          string      `json:"Type"`
+	Source        string      `json:"Source"`
+	Target        string      `json:"Target"`
+	Consistency   string      `json:"Consistency"`
+	BindOptions   BindOptions `json:"BindOptions"`
 	VolumeOptions struct {
 		Subpath string `json:"Subpath"`
 	} `json:"VolumeOptions"`

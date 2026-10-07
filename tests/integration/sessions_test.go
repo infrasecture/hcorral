@@ -48,6 +48,7 @@ type transferResult struct {
 type dockerSession struct {
 	t                                                          *testing.T
 	binary, image, root, hostHome, volume, container, uid, gid string
+	storage, daemonSource, mountSpec                           string
 	env                                                        []string
 }
 
@@ -56,6 +57,11 @@ type dockerSession struct {
 // requires both artifact and image explicitly and never substitutes a mock.
 func newDockerSession(t *testing.T, uid, gid string, running, readOnly bool) *dockerSession {
 	t.Helper()
+	return newDockerStorageSession(t, uid, gid, running, readOnly, "volume")
+}
+
+func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bool, storage string) *dockerSession {
+	t.Helper()
 	binary, image := os.Getenv("HCORRAL_TEST_BINARY"), os.Getenv("HCORRAL_SESSION_TEST_IMAGE")
 	if binary == "" || image == "" {
 		t.Skip("requires HCORRAL_TEST_BINARY and HCORRAL_SESSION_TEST_IMAGE")
@@ -63,7 +69,7 @@ func newDockerSession(t *testing.T, uid, gid string, running, readOnly bool) *do
 	if !filepath.IsAbs(binary) {
 		t.Fatal("test launcher path must be absolute")
 	}
-	f := &dockerSession{t: t, binary: binary, image: image, root: t.TempDir(), uid: uid, gid: gid}
+	f := &dockerSession{t: t, binary: binary, image: image, root: t.TempDir(), uid: uid, gid: gid, storage: storage}
 	f.hostHome = filepath.Join(f.root, "isolated host home")
 	workspace := filepath.Join(f.root, "client workspace")
 	for _, dir := range []string{f.hostHome, workspace} {
@@ -88,6 +94,7 @@ func newDockerSession(t *testing.T, uid, gid string, running, readOnly bool) *do
 		f.env = append(f.env, "DOCKER_CONFIG="+filepath.Join(home, ".docker"))
 	}
 	f.docker("volume", "create", f.volume)
+	f.daemonSource = strings.TrimSpace(string(f.docker("volume", "inspect", "--format", "{{.Mountpoint}}", f.volume)))
 	t.Cleanup(func() {
 		// Only this test's unique storage and containers are eligible. Helpers
 		// cannot be removed by a broad global prefix when another test is live.
@@ -118,11 +125,27 @@ func newDockerSession(t *testing.T, uid, gid string, running, readOnly bool) *do
 	for _, item := range []string{"HCORRAL_HOST_UID=" + uid, "HCORRAL_HOST_GID=" + gid, "HCORRAL_HOST_GROUPS=" + gid + ":primary,44444:extra", "HCORRAL_CONTAINER_HOME=" + containerHome, "HCORRAL_WORKDIR=/client-workspace-not-mounted"} {
 		args = append(args, "--env", item)
 	}
-	mount := "type=volume,src=" + f.volume + ",dst=" + containerHome
-	if readOnly {
-		mount += ",readonly"
+	f.mountSpec = "type=volume,src=" + f.volume + ",dst=" + containerHome
+	switch storage {
+	case "volume":
+	case "volume-subpath":
+		f.mountSpec += ",volume-subpath=selected"
+	case "bind", "bind-private", "bind-nonrecursive":
+		// The source is a daemon-owned disposable path, not a client path.
+		f.mountSpec = "type=bind,src=" + f.daemonSource + ",dst=" + containerHome
+		if storage == "bind-private" {
+			f.mountSpec += ",bind-propagation=private"
+		}
+		if storage == "bind-nonrecursive" {
+			f.mountSpec += ",bind-recursive=disabled"
+		}
+	default:
+		t.Fatalf("unknown fixture storage %s", storage)
 	}
-	args = append(args, "--mount", mount, image, "600")
+	if readOnly {
+		f.mountSpec += ",readonly"
+	}
+	args = append(args, "--mount", f.mountSpec, image, "600")
 	f.docker(args...)
 	f.docker("start", f.container)
 	if !running {
@@ -166,6 +189,13 @@ func (f *dockerSession) cleanupDocker(args ...string) {
 
 func (f *dockerSession) seed(files map[string][]byte) {
 	f.t.Helper()
+	if f.storage == "volume-subpath" {
+		nested := make(map[string][]byte, len(files))
+		for name, data := range files {
+			nested[path.Join("selected", name)] = data
+		}
+		files = nested
+	}
 	var buf bytes.Buffer
 	w := tar.NewWriter(&buf)
 	dirs := map[string]bool{}
@@ -233,7 +263,8 @@ func (f *dockerSession) transfer(env []string, operation, id, home string, wantE
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	err := cmd.Run()
 	if wantError != "" {
-		if err == nil || !strings.Contains(stderr.String(), wantError) {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 || !strings.Contains(stderr.String(), wantError) {
 			f.t.Fatalf("wanted %q failure, got %v stdout=%s stderr=%s", wantError, err, &out, &stderr)
 		}
 		return transferResult{}
@@ -264,7 +295,18 @@ func (f *dockerSession) containerFile(name string) ([]byte, *tar.Header) {
 }
 
 func (f *dockerSession) helperIDs() []string {
-	return strings.Fields(string(f.docker("ps", "-aq", "--filter", "label="+transferLabel, "--filter", "volume="+f.volume)))
+	var owned []string
+	for _, id := range strings.Fields(string(f.docker("ps", "-aq", "--filter", "label="+transferLabel))) {
+		var mounts []struct{ Name, Source string }
+		must(f.t, json.Unmarshal(f.docker("inspect", "--format", "{{json .Mounts}}", id), &mounts))
+		for _, mount := range mounts {
+			if mount.Name == f.volume || mount.Source == f.daemonSource {
+				owned = append(owned, id)
+				break
+			}
+		}
+	}
+	return owned
 }
 
 func (f *dockerSession) state() string {
@@ -379,12 +421,35 @@ func TestDockerSessionReadOnlyStorageRefused(t *testing.T) {
 	f.assertPreserved(before, volumes)
 }
 
+func TestDockerSessionStorageMounts(t *testing.T) {
+	for _, storage := range []string{"bind", "bind-private", "bind-nonrecursive", "volume-subpath"} {
+		t.Run(storage, func(t *testing.T) {
+			f := newDockerStorageSession(t, "12345", "23456", false, false, storage)
+			before, volumes := f.state(), f.volumes()
+			host := filepath.Join(f.root, "host transfer storage")
+			result := f.transfer(nil, "export", threadA, host, "")
+			got, err := os.ReadFile(filepath.Join(host, result.Result.MainPath))
+			must(t, err)
+			if !bytes.Equal(got, rollout(threadA, "saved container conversation")) {
+				t.Fatal("export used the wrong mounted storage")
+			}
+			want := writeSession(t, host, threadB, "history for "+storage)
+			result = f.transfer(nil, "import", threadB, host, "")
+			got, header := f.containerFile(".codex/" + result.Result.MainPath)
+			if !bytes.Equal(got, want) || header.Uid != 12345 || header.Gid != 23456 || header.Mode&0o777 != 0o600 {
+				t.Fatalf("wrong bind/subpath publication: %+v", header)
+			}
+			f.assertPreserved(before, volumes)
+		})
+	}
+}
+
 // A separate real container owns a kernel lock. This makes blocked publication
 // deterministic without a large-file timing race or a fake Docker command.
 func (f *dockerSession) block(lockPath string) string {
 	f.t.Helper()
 	name := f.container + "-blocker"
-	f.docker("run", "--detach", "--name", name, "--user", f.uid+":"+f.gid, "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=volume,src="+f.volume+",dst="+containerHome, "--entrypoint", "/bin/sh", f.image, "-c", `mkdir -p "$(dirname "$1")"; exec flock -x "$1" sh -c 'echo locked > "$1"; exec sleep 300' sh "$2"`, "sh", containerHome+"/.codex/"+lockPath, containerHome+"/locked")
+	f.docker("run", "--detach", "--name", name, "--user", f.uid+":"+f.gid, "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", f.mountSpec, "--entrypoint", "/bin/sh", f.image, "-c", `mkdir -p "$(dirname "$1")"; exec flock -x "$1" sh -c 'echo locked > "$1"; exec sleep 300' sh "$2"`, "sh", containerHome+"/.codex/"+lockPath, containerHome+"/locked")
 	f.t.Cleanup(func() { f.cleanupDocker("rm", "--force", name) })
 	f.waitFor("lock holder", func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

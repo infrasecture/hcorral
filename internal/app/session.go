@@ -157,27 +157,27 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 	}
 	lock, err := identity.AcquireLockContext(ctx, workspace.Project)
 	if err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	defer lock.Close()
 	docker := containerruntime.NewDocker(runner).WithStreams(streams.Out, streams.Err)
 	containers, err := docker.ListContainers(ctx)
 	if err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	if legacy := legacyguard.Find(containers, workspace.Path); legacy != nil {
 		return refuseLegacy(streams.Err, legacy)
 	}
 	candidate := findContainer(containers, workspace.Project)
 	if err := identity.VerifyContainer(candidate, workspace); err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	if err := verifyProjectContainers(containers, workspace, candidate); err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	target, err := sessiontransport.InspectTarget(candidate)
 	if err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	if cfg.StateSpecified || cfg.Sources["state"] == "environment" {
 		want := stateVolumeName(cfg, workspace)
@@ -196,7 +196,7 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 	hostState, err := sessionconfig.SQLiteHome(discoveryCtx, sessionconfig.SQLiteOptions{Home: hostHome, CWD: cfg.CallerDir, Environment: services.sqliteHome, Explicit: request.hostSQLite}, services.readHost)
 	if err != nil {
 		stopDiscovery()
-		return failSession(streams.Err, fmt.Errorf("host SQLite discovery: %w; use --host-sqlite-home for an explicit selection", err))
+		return failSession(ctx, streams.Err, fmt.Errorf("host SQLite discovery: %w; use --host-sqlite-home for an explicit selection", err))
 	}
 	containerRead := func(ctx context.Context, name string) ([]byte, error) {
 		return transport.ReadConfig(ctx, workspace, target, name)
@@ -204,11 +204,11 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 	containerState, err := sessionconfig.SQLiteHome(discoveryCtx, sessionconfig.SQLiteOptions{Home: target.CodexHome, CWD: target.Workdir, Environment: target.SQLiteEnv, Explicit: request.containerSQLite}, containerRead)
 	stopDiscovery()
 	if err != nil {
-		return failSession(streams.Err, fmt.Errorf("container SQLite discovery: %w; use --container-sqlite-home for an explicit selection", err))
+		return failSession(ctx, streams.Err, fmt.Errorf("container SQLite discovery: %w; use --container-sqlite-home for an explicit selection", err))
 	}
 	target, err = sessiontransport.InspectTargetForTransfer(candidate, containerState.Path, request.operation)
 	if err != nil {
-		return failSession(streams.Err, err)
+		return failSession(ctx, streams.Err, err)
 	}
 	options := sessiontransport.TransferOptions{Operation: request.operation, ThreadID: request.id, HostHome: hostHome, HostSQLiteHome: hostState.Path, ContainerSQLiteHome: containerState.Path, Limits: request.limits}
 	result, transferErr := transport.Transfer(ctx, workspace, target, options, streams.Err)
@@ -218,14 +218,16 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 		}
 	}
 	if transferErr != nil {
-		return failSession(streams.Err, transferErr)
+		return failSession(ctx, streams.Err, transferErr)
 	}
 	return 0
 }
 
-func failSession(stderr io.Writer, err error) int {
+func failSession(ctx context.Context, stderr io.Writer, err error) int {
 	code := 1
-	if errors.Is(err, context.Canceled) {
+	// The transport also cancels a peer after a real conflict or I/O failure.
+	// Only cancellation of the original invocation means the user interrupted it.
+	if errors.Is(ctx.Err(), context.Canceled) {
 		code = 130
 	}
 	return fail(stderr, code, "%v", err)

@@ -12,7 +12,7 @@ development testing.
 | Requirement | State | Evidence / remaining work |
 | --- | --- | --- |
 | Updated behavior, ADRs and parity baseline | Updated | Runtime/configuration docs, ADR 0004, provenance and manifest now reference #17/#18; Go contract tests pass |
-| Shared shell defaults and preserved existing homes | Implemented; runtime pending | Atomic user-owned initialization; ShellCheck passes; real UID/GID matrix wired into native image canaries but not run locally |
+| Shared shell defaults and preserved existing homes | Native image canaries passed | CI at `fb16f6b` built Codex/Claude/Pi on AMD64/ARM64 and ran entrypoint/home tests for three UID/GID pairs; mixed-image shared-home qualification remains |
 | GUI badge and retained/reopenable tmux reports | Implemented; image matrix pending | Launcher-embedded helper, deployed identity/home/session, `notices`; real PTY and handshake tests pass |
 | Automatic GUI with headless, SSH and remote fallback | Implemented; native desktop pending | Resolver tests cover SSH, daemon/context precedence, Desktop rejection and no credential writes during discovery |
 | Inactive `latest` refresh and guarded stopped replacement | Implemented; Docker pending | State-transition tests pass; `tests/integration/image-refresh.sh` added to integration suite, execution still required |
@@ -20,7 +20,7 @@ development testing.
 | Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
 | Bounded probes and readiness | Implemented; image cleanup pending | Docker/Compose capture contexts, outer readiness deadline, and container-side timeout; real container process cleanup remains to verify |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
-| Static binaries and packages on four targets | Partial | Four CGO-disabled cross-builds and linkage checks pass; exact release packages, native ARM64/macOS execution and later helper footprint remain |
+| Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
@@ -397,3 +397,37 @@ environment. The Docker assertions themselves still require execution. This suit
 evidence, not native Codex resume or production-image shell acceptance. Remote
 disconnects, unusual mount semantics and the broader runtime/platform/transition
 matrix remain separate gates.
+
+## First Docker CI results and transport corrections: 2026-10-07
+
+[CI run 37553065955](https://github.com/infrasecture/hcorral/actions/runs/37553065955)
+tested pushed commit `fb16f6b88323e9f6a85c7b53992df27f64406018`. It is a failed
+run, not a completed qualification:
+
+- All six Codex/Claude/Pi image jobs passed on native AMD64/ARM64. The build
+  script invokes the entrypoint and persisted-home canaries, including the three
+  UID/GID pairs and fresh/old-marker/custom/empty/symlink/login-file cases.
+- Source checks, the four-target artifact build, Linux package jobs, and native
+  macOS AMD64/ARM64 launcher version/help checks passed. ARM64 Arch coverage
+  extracts and executes the package; it is not a native package-manager install.
+- Both ARM64 Docker jobs passed lifecycle, refresh, runtime contracts, session
+  import/export at all numeric identities, repeated/conflicting copies,
+  read-only refusal and external-writer refusal. Cancellation exposed a real
+  error-classification bug: a killed Docker client lost `context.Canceled`,
+  producing exit 1 instead of 130. The AMD64 integration jobs were cancelled by
+  matrix fail-fast; they do not count as passes.
+
+The command runner now retains the cancellation cause alongside the child exit
+error. Session exit classification uses the caller's context so internal peer
+cancellation after a conflict does not disguise that conflict as a user abort.
+Real local child-process tests cover cancellation/output retention; success and
+ordinary failure remain distinct. CI matrix fail-fast is disabled for these
+integration jobs to retain independent architecture evidence.
+
+Storage inspection now preserves bind propagation and recursive settings,
+rejects unqualified consistency/relabel modes, and refuses unsafe narrowing of a
+nonrecursive metadata bind. Tests cover inspection/argument mapping, changed
+settings after helper copy, and actual Docker bind/volume-subpath transfers.
+The Docker cases and corrected cancellation must pass a subsequent run before
+being marked qualified. No images, releases or real user state were published
+or migrated by this development workflow.

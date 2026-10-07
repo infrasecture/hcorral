@@ -167,7 +167,18 @@ func mountArgument(mount containerruntime.Mount) string {
 			fields = append(fields, "volume-subpath="+mount.Subpath)
 		}
 	} else {
-		fields = append(fields, "src="+mount.Source, "bind-propagation=rprivate")
+		fields = append(fields, "src="+mount.Source, "bind-propagation="+bindPropagation(mount))
+		if mount.BindOptions.NonRecursive {
+			fields = append(fields, "bind-recursive=disabled")
+		}
+		if mount.BindOptions.ReadOnlyNonRecursive {
+			fields = append(fields, "bind-recursive=writable")
+		}
+		if mount.BindOptions.ReadOnlyForceRecursive {
+			fields = append(fields, "bind-recursive=readonly")
+		}
+		// Never copy CreateMountpoint: a missing source must fail, not become
+		// an empty directory that could be mistaken for existing Codex state.
 	}
 	if !mount.RW {
 		fields = append(fields, "readonly=true")
