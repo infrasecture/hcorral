@@ -7,7 +7,7 @@ builder="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c607
 
 run_go() { docker run --rm --volume "${root}:/src:ro" --workdir /src --env GOWORK=off "${builder}" "$@"; }
 
-formatting="$(run_go sh -c 'gofmt -l cmd internal')"
+formatting="$(run_go sh -c 'gofmt -l cmd internal tests/integration')"
 [[ -z "${formatting}" ]] || { echo "ERROR: gofmt required: ${formatting}" >&2; exit 1; }
 # shellcheck disable=SC2016 # Executed inside the pinned builder.
 run_go sh -c 'work=$(mktemp -d); cp -a /src/. "$work"; cd "$work"; go mod tidy; diff -u /src/go.mod go.mod; if [[ -f /src/go.sum || -f go.sum ]]; then diff -u /src/go.sum go.sum; fi'

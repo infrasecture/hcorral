@@ -51,7 +51,7 @@ source_date_epoch="${SOURCE_DATE_EPOCH:-315532800}"
 pkg_version="${cli_version#v}"
 gomod_cache_volume=hcorral-build-gomod-v1
 gobuild_cache_volume=hcorral-build-gocache-v1
-mkdir -p dist/bin dist/package-config
+mkdir -p dist/bin dist/package-config dist/tests
 artifacts=()
 
 ensure_build_cache() {
@@ -110,6 +110,15 @@ for target in ${targets}; do
     "${builder_image}" \
     go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/infrasecture/hcorral/internal/app.Version=${cli_version} -X github.com/infrasecture/hcorral/internal/app.Commit=${commit}" -o "/src/${output}" ./cmd/hcorral
   chmod 0755 "${output}"
+  # Acceptance executables travel in the CI artifact, not user archives or
+  # packages. Native runners exercise the exact launcher without installing Go.
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS="${os}" --env GOARCH="${arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go test -c -buildvcs=false -trimpath -o "/src/dist/tests/session-transfer-${os}-${arch}" ./tests/integration
+  chmod 0755 "dist/tests/session-transfer-${os}-${arch}"
   docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
     --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
     go run ./cmd/hcorral-pack linkage -os "${os}" -arch "${arch}" "/src/${output}"

@@ -152,10 +152,11 @@ jobs:
       - run: |
           chmod 0755 "dist/bin/hcorral-linux-${{ matrix.arch }}"
           "dist/bin/hcorral-linux-${{ matrix.arch }}" version
-      - if: matrix.arch == 'amd64'
-        env:
-          HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-amd64
-        run: ./tests/integration/run.sh
+      - env:
+          HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-${{ matrix.arch }}
+        run: |
+          chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
+          ./tests/integration/run.sh
 
   linux-gate:
     name: ci/linux
@@ -192,6 +193,7 @@ jobs:
             "https://github.com/docker/compose/releases/download/v2.24.6/docker-compose-linux-${{ matrix.compose_arch }}"
           printf '%s  %s\n' '${{ matrix.sha256 }}' "$compose" | sha256sum --check --strict
           chmod 0755 "$compose" "dist/bin/hcorral-linux-${{ matrix.arch }}"
+          chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
           export HCORRAL_COMPOSE_COMMAND="[\"$compose\"]"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}"
           ./tests/integration/run.sh

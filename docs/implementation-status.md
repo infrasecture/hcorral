@@ -372,3 +372,28 @@ qualification, actual Docker/remote execution and cancellation, native image and
 platform/package checks, mixed launcher/image compatibility and the demonstrated
 myCodex transition remain required. No publication or user-state migration was
 performed at this checkpoint.
+
+## Docker acceptance wiring checkpoint: 2026-10-07
+
+The integration suite now invokes the final launcher and its embedded helper
+against real Docker volumes through a standalone Go test executable. Both Linux
+architectures are wired into CI with current and pinned Compose. The release
+Colima suite also receives its native acceptance executable. Test binaries travel
+in the CI artifact, but are excluded from user archives/packages.
+
+Cases cover running/stopped workstations, three numeric UID/GID pairs, explicit,
+environment and default host homes, exact history bytes, private file ownership,
+repeat/conflicting transfers, excluded state, read-only storage, a separate
+container holding a writer lock, and cancellation/retry with an actual helper
+blocked on destination coordination. Workstation IDs, lifecycle timestamps,
+mounts, existing credentials/configuration/history and volume inventory are
+checked for preservation. No fixture Codex or image-installed helper is used.
+
+The full local Go suite and vet, ShellCheck and release-contract checks pass.
+Acceptance executables cross-build for all four targets and pass linkage
+inspection; workflow lint passes.
+Ordinary Go tests skip these explicit Docker cases without their fixture/image
+environment. The Docker assertions themselves still require execution. This suite is transport
+evidence, not native Codex resume or production-image shell acceptance. Remote
+disconnects, unusual mount semantics and the broader runtime/platform/transition
+matrix remain separate gates.

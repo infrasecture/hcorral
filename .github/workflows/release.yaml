@@ -116,6 +116,7 @@ jobs:
             "${arch_root}/usr/bin/hcorral" version
           fi
           dpkg-deb --extract "dist/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb" "${package_root}/deb"
+          chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
           HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/integration/run.sh
       - env:
           VERSION: ${{ inputs.version }}
@@ -194,6 +195,7 @@ jobs:
           mkdir -p "$TEST_TMPDIR"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
           chmod 0755 "$HCORRAL_TEST_BINARY"
+          chmod 0755 "dist/tests/session-transfer-darwin-${ARCH}"
           ./tests/integration/run.sh
       - env:
           VERSION: ${{ inputs.version }}
