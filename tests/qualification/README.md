@@ -29,6 +29,26 @@ launcher checks but does not establish a local Docker/VM acceptance result.
 The release workflow uses the same session gates before publication can proceed.
 Running the ordinary CI workflow never publishes a launcher or image.
 
+`mixed-versions.sh` qualifies the actual published v0.1.0 launcher against the
+new launcher artifact, each with an image built from the pre-parity recipe at
+`18fb3944f9b04758b920b1e9415fd017eff8cf51` and the current recipe. Both images
+contain pinned Codex 0.160.0, isolating the launcher/image contract from changes
+to Codex itself. The old launcher archive is checksum-verified before use.
+Both image builds run their normal entrypoint canaries; the new image also
+runs the full persisted-home suite. Three UID/GID pairs share a fresh home
+between concurrently running old/new image containers, then exercise new panes
+in the older container after the newer image installs compatible startup files.
+
+The four launcher/image combinations use isolated workspaces and state volumes.
+Actual PTY attach/detach and retained/reopened reports are checked against the
+runtime user's tmux server. Container identity, lifecycle timestamps, mounts,
+panes and a persistent-state sentinel must survive attachment. This test does
+not promise that a new launcher repairs an older image's entrypoint. CI and
+release qualification run it on native Linux AMD64/ARM64 with the built launcher
+(the extracted DEB binary during release qualification). No image is pushed,
+and no existing workstation is adopted. Builder/test tools, including Python
+for PTY driving, are qualification dependencies, not launcher prerequisites.
+
 `linux-gui.sh` qualifies actual X11 or Wayland forwarding and narrow socket
 mounts on a suitable Linux desktop host. It is separate from unit GUI discovery
 tests and headless Docker acceptance. Merely defining a workflow or having a

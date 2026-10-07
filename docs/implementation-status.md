@@ -15,19 +15,19 @@ development testing.
 | Shared shell defaults and preserved existing homes | Native image canaries passed | CI at `fb16f6b` built Codex/Claude/Pi on AMD64/ARM64 and ran entrypoint/home tests for three UID/GID pairs; mixed-image shared-home qualification remains |
 | GUI badge and retained/reopenable tmux reports | Implemented; image matrix pending | Launcher-embedded helper, deployed identity/home/session, `notices`; real PTY and handshake tests pass |
 | Automatic GUI with headless, SSH and remote fallback | Implemented; native desktop pending | Resolver tests cover SSH, daemon/context precedence, Desktop rejection and no credential writes during discovery |
-| Inactive `latest` refresh and guarded stopped replacement | Implemented; Docker pending | State-transition tests pass; `tests/integration/image-refresh.sh` added to integration suite, execution still required |
+| Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
 | Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
 | Bounded probes and readiness | Implemented; image cleanup pending | Docker/Compose capture contexts, outer readiness deadline, and container-side timeout; real container process cleanup remains to verify |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
 | Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
-| Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
+| Mixed launcher/image versions | Qualification wired; execution pending | Actual v0.1.0/current launchers, baseline/current recipes and three-UID shared-home checks are in CI/release qualification |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Docker partially verified | Real AMD64/ARM64 CI transfers, ownership, stopped/running preservation, cancellation/retry and writer refusal pass; one bind-fixture setup was corrected, broader endpoint qualification remains |
+| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | CI at `c28f31d` passes AMD64/ARM64 transfers, ownership, stopped/running preservation, cancellation/retry, writer refusal and bind/subpath cases; remote disconnect and broader endpoint acceptance remain |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
 ## Execution environment
@@ -458,3 +458,27 @@ propagation beneath its own data root. The fixture now allocates an ordinary
 unique daemon-side temporary directory, preserving the private-bind case and
 the remote-client path boundary. This correction and the new native platform
 runner require the next CI result; neither failed run is presented as green.
+
+## Linux endpoint results and mixed-version qualification: 2026-10-07
+
+[CI run 37554555815](https://github.com/infrasecture/hcorral/actions/runs/37554555815)
+tested `c28f31d`. Source, all six production-image jobs, four-target builds,
+Linux packages and all four architecture/Compose integration jobs passed.
+The corrected private-bind fixture now passes with the other storage cases.
+Both Linux architectures also ran the native Codex 0.160.0/0.160.1 core suite
+in both directions. This joins existing native resume and Docker transport
+results; it still does not prove public Docker transfer followed by native resume.
+
+Both macOS jobs failed before the native suite: the runner's non-GNU sha256sum
+rejects GNU long options. The checksum runner now uses the supported short `-c`
+option, retaining pinned digest verification. Release artifact verification on
+macOS uses the same portable option. Native macOS results and Intel Colima
+integration require another run; the failed jobs are not counted as passes.
+
+Actual old/new launcher/image qualification is now wired into CI and release
+Linux gates on both architectures. The test verifies a published v0.1.0 launcher,
+builds a pinned historical image recipe and the current recipe without pushing,
+and checks all four combinations, retained tmux reports and unchanged state.
+It also tests startup files shared with an older running image at three UID/GID
+pairs. Shell/workflow checks and release command-contract checks pass locally;
+the mixed-version runtime suite requires real CI execution.

@@ -26,9 +26,10 @@ for version in 0.160.0 0.160.1; do
     --output "$directory/$archive" \
     "https://github.com/openai/codex/releases/download/rust-v${version}/${archive}"
   if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --strict)
+    # macOS runners can provide a non-GNU sha256sum with short options only.
+    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | sha256sum -c)
   else
-    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 --check)
+    (cd "$directory" && printf '%s  %s\n' "$checksum" "$archive" | shasum -a 256 -c)
   fi
   tar -xzf "$directory/$archive" -C "$directory" "${archive%.tar.gz}"
   binary="$directory/${archive%.tar.gz}"

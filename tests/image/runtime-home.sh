@@ -15,10 +15,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+scenarios=(fresh old-marker custom empty symlink bash-profile bash-login inaccessible unreadable-rc dangling-rc)
+if [[ "${HCORRAL_TEST_SHARED_HOME_ONLY:-0}" == 1 ]]; then
+  [[ -n "$legacy_image" ]] || { echo 'shared-home qualification requires the older image' >&2; exit 2; }
+  scenarios=(fresh)
+fi
 for spec in 1000:1000 501:20 12345:23456; do
   uid="${spec%:*}"
   gid="${spec#*:}"
-  for scenario in fresh old-marker custom empty symlink bash-profile bash-login inaccessible unreadable-rc dangling-rc; do
+  for scenario in "${scenarios[@]}"; do
     docker volume create "$volume" >/dev/null
     docker run --rm --entrypoint /bin/bash -v "$volume:/test-home" "$image" \
       -c '

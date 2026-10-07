@@ -165,10 +165,37 @@ jobs:
   linux-gate:
     name: ci/linux
     if: always()
-    needs: [linux, compose-compat]
+    needs: [linux, compose-compat, mixed-versions]
     runs-on: ubuntu-24.04
     steps:
-      - run: test '${{ needs.linux.result }}' = success && test '${{ needs.compose-compat.result }}' = success
+      - run: test '${{ needs.linux.result }}' = success && test '${{ needs.compose-compat.result }}' = success && test '${{ needs.mixed-versions.result }}' = success
+
+  mixed-versions:
+    name: ci/mixed-versions-${{ matrix.arch }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ci-release-matrix-${{ github.sha }}
+          path: dist
+      - env:
+          HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod 0755 "$HCORRAL_TEST_BINARY"
+          ./tests/qualification/mixed-versions.sh
 
   compose-compat:
     name: ci/compose-2.24.6-${{ matrix.arch }}

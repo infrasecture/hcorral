@@ -17,6 +17,14 @@ project, *argv = sys.argv[1:]
 if not argv:
     raise SystemExit("usage: attach-probe.py fixture-container launcher [args...]")
 
+tmux_command = ["docker", "exec", project]
+runtime_uid = os.environ.get("HCORRAL_TEST_TMUX_UID")
+if runtime_uid:
+    if not runtime_uid.isdecimal():
+        raise SystemExit("HCORRAL_TEST_TMUX_UID must be numeric")
+    tmux_command.extend(["gosu", runtime_uid])
+tmux_command.append("tmux")
+
 pid, fd = pty.fork()
 if pid == 0:
     fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
@@ -50,12 +58,12 @@ try:
             break
         if not detached:
             clients = subprocess.run(
-                ["docker", "exec", project, "tmux", "list-clients", "-F", "#{session_name}"],
+                tmux_command + ["list-clients", "-F", "#{session_name}"],
                 capture_output=True, timeout=5, check=False,
             )
             if clients.returncode == 0 and b"hcorral" in clients.stdout.splitlines():
                 subprocess.run(
-                    ["docker", "exec", project, "tmux", "detach-client", "-s", "hcorral"],
+                    tmux_command + ["detach-client", "-s", "hcorral"],
                     capture_output=True, timeout=5, check=True,
                 )
                 detached = True
