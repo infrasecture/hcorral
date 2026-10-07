@@ -47,7 +47,9 @@ embedded AMD64 helper for the actual Linux container. This also exercises
 different host/container architectures. It is not a native ARM64 guest-VM test;
 the Linux ARM64 jobs separately execute that container/helper architecture.
 The ARM host also needs Homebrew's `lima-additional-guestagents` package for
-the x86_64 guest agent, in addition to QEMU.
+the x86_64 guest agent, in addition to QEMU. Intel jobs explicitly select the
+VZ driver and do not install QEMU; they do not need the cross-architecture
+emulator or its build dependencies.
 See Colima's documented [architecture selection](https://colima.run/docs/configuration/).
 This added hosted ARM64 Docker gate still requires a successful run.
 The release workflow uses the same session gates before publication can proceed.
@@ -72,6 +74,14 @@ release qualification run it on native Linux AMD64/ARM64 with the built launcher
 (the extracted DEB binary during release qualification). No image is pushed,
 and no existing workstation is adopted. Builder/test tools, including Python
 for PTY driving, are qualification dependencies, not launcher prerequisites.
+
+The same production image then runs `version-probe.sh`. An ordinary version
+probe must identify its bundled executable before the fixture introduces a
+blocked login profile and a blocked user-prefix executable. Both deliberately
+ignore TERM and spawn a child. The public `info` command must return within its
+outer deadline, fall back to the bundled version, and leave no monitor, shell
+or child process behind. Restoring the fixture startup files must restore normal
+version discovery without changing workstation identity, image or mounts.
 
 The same job runs `mycodex-transition.sh` against its newly built Codex image.
 It fetches immutable myCodex source and builds the real historical image recipe

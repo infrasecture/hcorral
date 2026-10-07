@@ -12,9 +12,9 @@ development testing.
 | Requirement | State | Evidence / remaining work |
 | --- | --- | --- |
 | Updated behavior, ADRs and parity baseline | Updated | Runtime/configuration docs, ADR 0004, provenance and manifest now reference #17/#18; Go contract tests pass |
-| Shared shell defaults and preserved existing homes | Native image canaries passed | CI at `fb16f6b` built Codex/Claude/Pi on AMD64/ARM64 and ran entrypoint/home tests for three UID/GID pairs; mixed-image shared-home qualification remains |
-| GUI badge and retained/reopenable tmux reports | Implemented; image matrix pending | Launcher-embedded helper, deployed identity/home/session, `notices`; real PTY and handshake tests pass |
-| Automatic GUI with headless, SSH and remote fallback | Implemented; native protocol qualification wired | Resolver tests pass; hosted Xvfb/Weston/XWayland production-UID tests require execution, physical desktop coverage remains separate |
+| Shared shell defaults and preserved existing homes | Native image and shared-home canaries passed | Codex/Claude/Pi AMD64/ARM64 entrypoint/home tests and three UID/GID pairs pass; `43df6a4` also passes concurrent old/new image shared homes |
+| GUI badge and retained/reopenable tmux reports | Native Linux image matrix passed | Launcher-embedded helper, deployed identity/home/session, `notices`; actual four-combination PTY/state checks pass at `43df6a4`, plus local scrolling/handshake tests |
+| Automatic GUI with headless, SSH and remote fallback | Native Linux protocol matrix passed | Resolver tests and hosted Xvfb/Weston/XWayland production-UID tests pass at `43df6a4`; physical desktop release coverage remains separate |
 | Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
 | Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
@@ -27,7 +27,7 @@ development testing.
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | CI at `c28f31d` passes AMD64/ARM64 transfers, ownership, stopped/running preservation, cancellation/retry, writer refusal and bind/subpath cases; remote disconnect and broader endpoint acceptance remain |
+| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | `43df6a4` also passes actual attach resets, lost-completion/retry and shared-storage aliases on AMD64/ARM64; broader endpoint/platform acceptance remains |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
 ## Execution environment
@@ -647,3 +647,26 @@ runtime UID before writing test configuration. Its stopped import, subsequent
 resume, return to myCodex and reuse scenario still require execution. ShellCheck
 and Bash syntax pass for that correction; the failed job is not full transition
 qualification.
+
+## Production version-probe cleanup gate: 2026-10-07
+
+The mixed-version runner now also checks the version deadline against its real
+new Codex image. The fixture verifies healthy native discovery, then separately
+blocks a runtime user's login profile and user-prefix executable. Both ignore
+TERM and spawn a child, requiring the existing container-side timeout to use
+its kill deadline. Public `info` must return with the image's bundled version
+and no invented installed version. All three recorded PIDs (timeout monitor,
+shell and child) must be reaped, and the workstation's identity/image/mounts
+must be unchanged. Normal discovery must recover after restoring fixture files.
+
+ShellCheck and Bash syntax checks pass. Real Docker execution is pending; this
+addition closes missing test coverage, not the acceptance gate itself. The
+existing live Intel Colima job is retained while its result is still pending.
+
+CI and release qualification now explicitly select Colima's VZ driver on Intel
+macOS, matching the driver observed in the earlier actual integration log.
+QEMU and additional Lima guest agents are installed only for the ARM host's
+cross-architecture guest. Homebrew's current QEMU formula has no Intel macOS
+bottle, so installing that unused emulator can introduce a source build.
+This is a dependency correction, not a diagnosis of the still-running job:
+its combined install/start/test step does not expose which operation is active.
