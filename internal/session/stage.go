@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -46,21 +48,50 @@ func (h *Home) directory(name string, create bool) (*os.File, error) {
 	return parent, nil
 }
 
-func (h *Home) staging() (*Home, string, error) {
+func (h *Home) staging(ctx context.Context) (*Incoming, error) {
+	coordination, err := h.stagingCoordination(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer coordination.Close()
+	if err := h.recoverStaging(ctx); err != nil {
+		return nil, err
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	name := ".hcorral-transfer-" + hex.EncodeToString(nonce[:])
+	name := stagingPrefix + hex.EncodeToString(nonce[:])
 	if err := unix.Mkdirat(int(h.dir.Fd()), name, 0o700); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	dir, err := h.directory(name, false)
 	if err != nil {
 		unix.Unlinkat(int(h.dir.Fd()), name, unix.AT_REMOVEDIR)
-		return nil, "", err
+		return nil, err
 	}
-	return &Home{Path: filepath.Join(h.Path, name), dir: dir}, name, nil
+	stage := &Home{Path: filepath.Join(h.Path, name), dir: dir}
+	lease, err := stage.open(stagingLease, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL, 0o600)
+	if err == nil {
+		err = unix.Flock(int(lease.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+	}
+	if err == nil {
+		// Persist the lease before any payload can be created. After a machine
+		// failure, a lease-free directory can therefore only be empty.
+		err = errors.Join(lease.Sync(), dir.Sync(), h.dir.Sync())
+	}
+	if err != nil {
+		if lease != nil {
+			lease.Close()
+		}
+		unix.Unlinkat(int(dir.Fd()), stagingLease, 0)
+		dir.Close()
+		unix.Unlinkat(int(h.dir.Fd()), name, unix.AT_REMOVEDIR)
+		return nil, fmt.Errorf("reserve transfer staging: %w", err)
+	}
+	// The coordinator remains held until the lease is locked, so recovery
+	// cannot mistake a newly created, not-yet-locked directory for an orphan.
+	return &Incoming{home: h, stage: stage, name: name, lease: lease}, nil
 }
 
 // Incoming owns private, verified staging files. Close removes only this
@@ -71,24 +102,24 @@ type Incoming struct {
 	name        string
 	slots       []string
 	limits      Limits
+	lease       *os.File
 }
 
 func (in *Incoming) Close() error {
 	if in.stage == nil {
 		return nil
 	}
-	var result error
-	for _, name := range in.slots {
-		err := unix.Unlinkat(int(in.stage.dir.Fd()), name, 0)
-		if !errors.Is(err, unix.ENOENT) {
-			result = errors.Join(result, err)
-		}
+	// Cleanup must remain possible after the transfer context was cancelled.
+	// If coordination cannot be acquired, release our lease and leave an orphan
+	// for the next attempt instead of deleting without coordination.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	coordination, result := in.home.stagingCoordination(ctx)
+	if result == nil {
+		result = in.home.removeStaging(ctx, in.stage, in.name)
+		result = errors.Join(result, coordination.Close())
 	}
-	result = errors.Join(result, in.stage.Close())
-	err := unix.Unlinkat(int(in.home.dir.Fd()), in.name, unix.AT_REMOVEDIR)
-	if !errors.Is(err, unix.ENOENT) {
-		result = errors.Join(result, err)
-	}
+	result = errors.Join(result, in.lease.Close(), in.stage.Close())
 	in.stage = nil
 	return result
 }

@@ -116,7 +116,7 @@ func TestSignalCleansStagingWhileInputPipeIsBlocked(t *testing.T) {
 				t.Fatalf("invalid interrupted-helper response: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 			entries, err := os.ReadDir(destination)
-			if err != nil || len(entries) != 0 {
+			if err != nil || len(entries) != 1 || entries[0].Name() != ".hcorral-staging.lock" {
 				t.Fatalf("signal left partial publication or staging: %v %v", entries, err)
 			}
 		})

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -88,6 +89,7 @@ func TestBundledHelpers(t *testing.T) {
 					return cmd.Run()
 				})
 			})
+			t.Run("killed-import-recovery", func(t *testing.T) { testBundledRecovery(t, path) })
 			for _, operation := range []string{"export", "import"} {
 				for _, alias := range []bool{false, true} {
 					name := operation
@@ -133,6 +135,81 @@ func TestBundledHelpers(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func testBundledRecovery(t *testing.T, executable string) {
+	t.Helper()
+	source, expected := transferFixture(t)
+	destination := t.TempDir()
+	options := transferOptions("import", source, destination)
+	var wire bytes.Buffer
+	if err := sessionhelper.Run(context.Background(), transferArgs("export", source, source, options), nil, &wire); err != nil {
+		t.Fatal(err)
+	}
+	args := transferArgs("import", destination, destination, options)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, args...)
+	cmd.WaitDelay = time.Second
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	if _, err := stdin.Write(wire.Bytes()[:2048]); err != nil {
+		t.Fatal(err)
+	}
+	var abandoned string
+	for abandoned == "" {
+		matches, err := filepath.Glob(filepath.Join(destination, ".hcorral-transfer-v1-*", ".lease"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) == 1 {
+			abandoned = filepath.Dir(matches[0])
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatal("bundled helper did not acquire a recoverable staging lease")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err == nil || ctx.Err() != nil {
+		t.Fatalf("helper was not killed during staging: %v", err)
+	}
+	if _, err := os.Stat(abandoned); err != nil {
+		t.Fatal("killed helper did not leave staging")
+	}
+	retry := exec.CommandContext(ctx, executable, args...)
+	retry.WaitDelay = time.Second
+	retry.Stdin = bytes.NewReader(wire.Bytes())
+	var response, stderr bytes.Buffer
+	retry.Stdout, retry.Stderr = &response, &stderr
+	if err := retry.Run(); err != nil {
+		t.Fatalf("bundled retry failed: %v %s", err, stderr.String())
+	}
+	if _, err := decodeResult(response.Bytes(), options); err != nil {
+		t.Fatalf("bundled retry did not confirm publication: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(destination, transferRollout)); err != nil || !bytes.Equal(data, expected) {
+		t.Fatalf("bundled retry changed history: %v", err)
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".hcorral-transfer-") {
+			t.Fatalf("bundled retry retained staging %s", entry.Name())
+		}
 	}
 }
 

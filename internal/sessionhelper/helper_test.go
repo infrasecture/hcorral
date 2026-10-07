@@ -129,7 +129,7 @@ func TestHelperRefusesDifferentIncomingThreadBeforePublication(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	entries, err := os.ReadDir(destination)
-	if err != nil || len(entries) != 0 {
+	if err != nil || len(entries) != 1 || entries[0].Name() != ".hcorral-staging.lock" {
 		t.Fatalf("wrong-thread import changed destination: %v %v", entries, err)
 	}
 }

@@ -25,7 +25,7 @@ development testing.
 | Mixed launcher/image versions | Pending | Actual old/new artifacts and shared-home compatibility |
 | State-preserving myCodex transition | Pending | Preserve legacy guard; test explicit volume reuse procedure |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
-| Session consistency and conflicts | Core, extension, promotion and index repair implemented; recovery/qualification remain | Read-only source selection; writer guards; compatible prefix growth and complete-parent promotion; native initial-index overlap and interrupted retry tests; abandoned private staging and broader writer/runtime qualification remain |
+| Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
@@ -330,3 +330,45 @@ metadata-operation qualification, actual Docker/remote transfers and cancellatio
 native platform/image/package acceptance, mixed launcher/image compatibility and
 the demonstrated myCodex transition remain required. No image or release was
 published and no real user conversation or workstation was migrated.
+
+## Abandoned staging recovery checkpoint: 2026-10-07
+
+Transfers now use versioned private staging with a kernel-held lease and a short
+creation/recovery/close coordinator. A subsequent import can discard a recognized
+abandoned staging directory after process death, without using its age or a PID
+as evidence. Active transfers, other owners, unfamiliar layouts and published
+history are preserved. Creation and cleanup sync ordering keeps an empty
+lease-free directory recoverable across interruption. The full protocol and
+filesystem assumptions are recorded in `session-transfer-design.md`.
+
+Local verification:
+
+- Real subprocesses are killed with SIGKILL during directory creation, after
+  complete staging, after prerequisite publication and after full publication.
+  Concurrent receives preserve live staging even with an old mtime; retry after
+  confirmed death removes the orphan and preserves published inodes and bytes.
+- Tests preserve old/future staging namespaces, unknown files, symlinks, FIFOs,
+  nested directories, missing/changed/hard-linked leases, foreign owners and
+  inaccessible directories. Multi-batch enumeration and cancellation of a wait
+  for the creation coordinator are exercised.
+- The full Go suite and vet pass. Changed session/helper/transport/app packages
+  pass race checks. The native Codex 0.160.1-to-0.160.0 transfer/resume/re-export
+  matrix, parent promotion/new fork, index overlap and configuration tests pass.
+- The static Linux AMD64 recovery suite passes as UID/GID 1000:1000, 501:20 and
+  12345:23456, each with supplementary group 44444. A root-only fixture verifies
+  preservation of another UID's private staging directory.
+- Rebuilt embedded Linux AMD64 helpers pass a killed-import/retry test and the
+  existing transfer/extension/promotion matrix. ARM64 is statically inspected,
+  not executed locally. Compressed helper payloads total 6,799,367 bytes.
+- Session test executables and launchers cross-build for Linux/macOS AMD64/ARM64
+  and pass linkage checks. Each final development launcher contains both exact
+  helpers. Launcher sizes are 18,723,000 bytes, 18,219,192 bytes, 18,816,944 bytes
+  and 18,323,474 bytes respectively. These are development builds, not release
+  packages or native macOS/ARM64 runtime qualification.
+
+Power failure was not simulated; sync ordering and actual process-crash recovery
+are distinct evidence. Broader writer/filesystem and metadata-operation
+qualification, actual Docker/remote execution and cancellation, native image and
+platform/package checks, mixed launcher/image compatibility and the demonstrated
+myCodex transition remain required. No publication or user-state migration was
+performed at this checkpoint.

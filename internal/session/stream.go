@@ -192,11 +192,12 @@ func (h *Home) Receive(ctx context.Context, input io.Reader, limits Limits) (_ *
 	if err := m.validate(limits); err != nil {
 		return nil, err
 	}
-	stage, name, err := h.staging()
+	in, err := h.staging(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("stage transfer in destination: %w", err)
 	}
-	in := &Incoming{home: h, stage: stage, name: name, limits: limits, Plan: Plan{ThreadID: m.ThreadID}}
+	in.limits, in.Plan = limits, Plan{ThreadID: m.ThreadID}
+	stage := in.stage
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, in.Close())

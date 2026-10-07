@@ -350,8 +350,9 @@ func TestReceiveRejectsCorruptUnexpectedAndIncompleteStreams(t *testing.T) {
 				t.Fatal("accepted corrupt stream")
 			}
 			assertNoStaging(t, dst)
-			if entries, _ := os.ReadDir(dst.Path); len(entries) != 0 {
-				t.Fatalf("failed receive changed destination: %v", entries)
+			entries, err := os.ReadDir(dst.Path)
+			if err != nil || len(entries) > 1 || (len(entries) == 1 && entries[0].Name() != stagingCoordinator) {
+				t.Fatalf("failed receive retained more than its coordination lock: %v %v", entries, err)
 			}
 		})
 	}

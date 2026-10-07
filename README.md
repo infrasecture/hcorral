@@ -196,7 +196,9 @@ A result can accompany a nonzero exit if publication succeeded but later helper
 cleanup failed. A missing result is not proof that the destination was unchanged;
 inspect it or retry, which reuses verified identical history and completes any
 pending selection repair. A failed transfer can retain fully copied prerequisite
-files; finish the import before using the requested conversation.
+files; finish the import before using the requested conversation. A retry also
+cleans recognized abandoned staging after a killed transfer, while preserving
+active transfers and published history.
 
 Complete builds bundle Linux AMD64 and ARM64 helpers, so users need neither Go
 nor Python installed. Use `build.sh` for a complete source build; plain `go build`

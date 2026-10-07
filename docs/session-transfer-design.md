@@ -206,7 +206,7 @@ regular members and exact order, validates native metadata and lineage again,
 and requires the completion checksum, both tar end blocks and transport EOF.
 No shell tar extractor writes into live session storage.
 
-The receiver creates a random private `.hcorral-transfer-<nonce>` directory in
+The receiver creates a random private `.hcorral-transfer-v1-<nonce>` directory in
 the destination home. Payload files are 0600, staged directories 0700, and data
 is flushed before publication. Timestamps are preserved to microsecond precision
 by descriptor-based operations. Existing directory modes are unchanged. Staged
@@ -233,9 +233,46 @@ remain. Closing the incoming transfer removes only its private staging.
 
 This is not an atomic transaction across several rollout paths. SIGINT/SIGTERM
 and ordinary transport errors clean unpublished staging; SIGKILL or machine
-failure can leave private staging as well as published prerequisites. Do not
-recursively delete every matching staging directory: another transfer may own it. A cleanup
-or retry protocol for those interrupted states remains part of final integration.
+failure can leave private staging as well as published prerequisites. A subsequent
+import recovers recognized abandoned staging as described below, then validates
+and reuses any published history through the normal conflict/selection protocol.
+
+## Abandoned staging recovery
+
+Staging uses its own versioned ownership namespace, independent of the transfer
+wire format. A permanent private `.hcorral-staging.lock` coordinates creation,
+recovery and close, but is not held while streaming or validating history. The
+new directory's empty `.lease` file is exclusively locked before releasing that
+coordinator. The kernel keeps the lease until close or process death, so an old
+directory or reused PID cannot make an active transfer eligible for cleanup.
+Coordination waits honor cancellation; close uses a separate five-second cleanup
+budget and leaves recoverable staging if it cannot acquire coordination.
+
+Only a correctly named version-1 directory owned by the effective receiving UID
+and with mode 0700 is considered. Recovery skips live leases and preserves
+foreign/inaccessible directories, unversioned development staging, future versions,
+unrecognized entries, symlinks, special files and altered or hard-linked leases.
+It validates the entire flat layout before unlinking any files, using pinned
+directory descriptors, non-following opens and bounded enumeration. Cleanup
+does not recurse or read conversation/credential contents. The coordinator is
+never unlinked, which preserves its lock identity for waiting processes.
+
+Creation syncs the lease and directory before any payload can be created.
+Cleanup syncs payload removal before unlinking the lease, then syncs directory
+removal. Thus an empty lease-free directory is a recoverable creation/cleanup
+interruption; payloads without a lease are unfamiliar and preserved. These
+durability rules require the filesystem to honor file and directory syncs and
+the advisory locks used by the protocol. Arbitrary external edits to coordination
+files are outside the cooperating-writer contract.
+
+Recovery discards incomplete private staging rather than trusting it as a source
+of resumable data. It never removes a published path, including another hard link
+to a staged payload. Tests kill real processes during creation, after staging,
+after prerequisite publication and after full publication. A concurrent receive
+preserves their live staging; a retry after confirmed SIGKILL removes the orphan
+and preserves the inode/content of any published file. The actual bundled Linux
+helper also has a killed-import/retry test. These are process-crash tests, not
+simulated power failures or qualification of every remote filesystem.
 
 ## Internal helper
 
@@ -406,14 +443,15 @@ selected container's stopped state cannot establish that boundary. This protocol
 does not coordinate arbitrary filesystem/database edits or older writers that
 ignore native locks. Source/destination alias handling releases source locks
 before destination acquisition; real shared-volume/remote endpoint qualification
-remains outstanding. Safe cleanup of abandoned private staging after an
-uncatchable interruption also remains to implement.
+remains outstanding. Recovery of recognized abandoned private staging is
+implemented above; older or unfamiliar staging requires deliberate inspection
+and is never automatically removed.
 
 ## Remaining implementation
 
-1. Complete recovery of abandoned private staging after an uncatchable
-   interruption and broader writer/runtime qualification. Keep database
-   selection and prerequisite visibility explicit.
+1. Complete broader writer/runtime qualification, including the filesystem
+   requirements for writer and staging locks. Keep database selection and
+   prerequisite visibility explicit.
 2. Qualify endpoint paths, configuration boundaries, storage aliases and
    source/destination identity against actual deployed environments. Extend
    metadata support where it can be preserved without copying unrelated state.
