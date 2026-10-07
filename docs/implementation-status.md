@@ -7,6 +7,13 @@ proposal is complete. All five phases, including session transfer, remain in
 scope. No image publication or migration of existing user state is part of
 development testing.
 
+Latest checked implementation: `973bfb1`. All 22 jobs in nonpublishing
+[CI run 37569071931](https://github.com/infrasecture/hcorral/actions/runs/37569071931)
+passed, including both Colima platforms and the public transfer/native-resume
+matrix. Later changes so far are documentation only. Physical-desktop evidence
+and the policy for writers outside the qualified locking contract remain open;
+this is a qualified development candidate, not a completed release.
+
 ## Acceptance ledger
 
 | Requirement | State | Evidence / remaining work |
@@ -15,20 +22,20 @@ development testing.
 | Shared shell defaults and preserved existing homes | Native image and shared-home canaries passed | Codex/Claude/Pi AMD64/ARM64 entrypoint/home tests and three UID/GID pairs pass; `43df6a4` also passes concurrent old/new image shared homes |
 | GUI badge and retained/reopenable tmux reports | Native Linux image matrix passed | Launcher-embedded helper, deployed identity/home/session, `notices`; actual four-combination PTY/state checks pass at `43df6a4`, plus local scrolling/handshake tests |
 | Automatic GUI with headless, SSH and remote fallback | Native Linux protocol matrix passed | Resolver tests and hosted Xvfb/Weston/XWayland production-UID tests pass at `43df6a4`; physical desktop release coverage remains separate |
-| Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
+| Inactive `latest` refresh and guarded stopped replacement | Linux and macOS Docker matrices passed | `973bfb1` passes lifecycle/refresh/runtime integration on both Linux architectures with current and 2.24.6 Compose and both Colima hosts, including guarded preservation and the corrected wrapper deadline |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
 | Numeric process identity and groups | Native Linux and macOS launcher checks passed | `9a71bca` compares packaged UID/GID/groups on both Linux architectures; `4cb9129` passes the corrected POSIX process-group comparison on both Macs; all six Linux images pass group-based file access and denial; static unknown-account cases also pass |
 | Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
-| Static binaries and packages on four targets | Package execution passed; complete runtime qualification remains | `df30f26` builds all four targets with both Linux helpers, passes both Linux package jobs and both macOS Homebrew audit/version/install/exact-binary checks; remaining macOS endpoint checks and exact final artifacts still need qualification |
+| Static binaries and packages on four targets | Development artifact/package/runtime matrix passed | `973bfb1` builds all four targets with both Linux helpers, passes Linux package jobs, both macOS Homebrew audit/version/install/exact-binary checks and all endpoint jobs; a final versioned release must qualify its own exact artifacts |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Native Linux matrix passed | At `f10c95c`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition evidence is recorded separately |
 | State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
-| Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
+| Session format discovery and dependencies | Qualified format matrix passed on four platforms | `973bfb1` passes rooted inspection, legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes against native 0.160.0/0.160.1, including completed-turn re-export |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
-| Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Native Linux passed; macOS exposed unsafe shared locking | `4cb9129` passes both Mac endpoint matrices except host/guest writer exclusion; unsupported shared-storage refusal and its nested-lock regression now require real qualification; named-volume public Docker/native composition remains |
-| Actual Codex resume acceptance | Linux and Intel macOS public Docker matrices passed; ARM macOS pending | `973bfb1` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and Intel Colima; ARM Colima and broader runtime policy remain |
+| Session endpoints and helper distribution | Development platform matrix passed | `973bfb1` passes public commands, host path defaults, inspected storage/identity, streaming, numeric ownership and cancellation on both Linux architectures and both Macs; every launcher contains both helper payloads; ARM Mac selects the AMD64 helper for its QEMU guest |
+| Session transfer lifecycle | Supported storage and explicit VM-share refusal passed | `973bfb1` passes native writer exclusion, aliases, connection faults/retry and nested-lock tests on Linux; both Colima jobs verify explicit FUSE refusal while busy and idle without publishing history, plus full daemon-local endpoint composition |
+| Actual Codex resume acceptance | Public Docker matrix passed on four platforms | `973bfb1` passes export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and both Colima hosts; broader runtime policy remains |
 
 ## Execution environment
 
@@ -1109,3 +1116,36 @@ X11/Wayland/XWayland protocols and both copied/reused-state myCodex transitions,
 including native resume and return through the original launcher. Hosted GUI
 protocol results still do not establish physical-desktop acceptance. The
 supported writer/runtime boundary and exact final release gates remain open.
+
+## Full development CI matrix passed: 2026-10-07
+
+[Run 37569071931](https://github.com/infrasecture/hcorral/actions/runs/37569071931)
+completed successfully at `973bfb1ede71f71e965c751578be1d33c7920776`.
+The final [ARM macOS job](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111209)
+passed the same explicit FUSE refusal and nested-lock assertions as Intel,
+then all ten public Docker/native-resume cases in each pinned version direction.
+Its host executable is native ARM64 and its QEMU guest/helper is Linux AMD64;
+Linux ARM64 helper execution is established by the separate native Linux jobs.
+All source, build, image, package, mixed-version and platform jobs are green.
+
+The proposal audit still leaves these boundaries open:
+
+- Physical Linux X11/Wayland desktop acceptance: hosted Xvfb/Weston/XWayland
+  passed, but no physical desktop test host has been supplied and the repository
+  has no registered self-hosted runner. The request for a suitable host remains
+  unanswered; software-rendered protocol evidence is not substituted for it.
+- Writers outside the supported lock contract: native 0.160.0/0.160.1 guards
+  and explicit known shared-filesystem refusal are qualified. Neither can prove
+  that an older/nonparticipating process or another storage client is absent.
+  The pending policy choice is an explicit operator prerequisite to stop such
+  writers versus an enforceable maintenance boundary. Guidance already in help
+  and README does not resolve that unaccepted policy decision.
+- Final release artifacts: the CI candidate uses version `v0.0.0`. A release
+  with its actual chosen version must qualify and publish its own exact bytes
+  through the existing separate launcher/image workflows. No release workflow,
+  image publication or real-state migration has been performed by this work.
+
+No remaining CI failure is being hidden behind these boundaries. The complete
+development matrix passed; the first two requirements still need external input
+before the full proposal can be declared complete. Existing historical entries
+describe their own revisions and are superseded by this checkpoint where stated.

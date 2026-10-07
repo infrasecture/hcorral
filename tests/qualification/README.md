@@ -92,7 +92,8 @@ the x86_64 guest agent, in addition to QEMU. Intel jobs explicitly select the
 VZ driver and do not install QEMU; they do not need the cross-architecture
 emulator or its build dependencies.
 See Colima's documented [architecture selection](https://colima.run/docs/configuration/).
-This added hosted ARM64 Docker gate still requires a successful run.
+Both Colima variants passed the full endpoint/public-resume matrix at `973bfb1`;
+see the [dated qualification ledger](../../docs/implementation-status.md).
 The release workflow uses the same session gates before publication can proceed.
 Running the ordinary CI workflow never publishes a launcher or image.
 
