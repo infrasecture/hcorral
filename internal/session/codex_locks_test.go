@@ -19,7 +19,7 @@ func TestNativeCodexLifecycleRespectsTransferLocks(t *testing.T) {
 		t.Skip("set HCORRAL_TEST_CODEX to a selected Codex executable")
 	}
 	for _, mode := range []string{"legacy", "paginated"} {
-		for _, operation := range []string{"archive", "unarchive", "resume"} {
+		for _, operation := range []string{"archive", "unarchive", "resume", "delete"} {
 			t.Run(mode+"/"+operation, func(t *testing.T) {
 				home := fixtureHome(t)
 				workspace := t.TempDir()
@@ -69,6 +69,15 @@ func TestNativeCodexLifecycleRespectsTransferLocks(t *testing.T) {
 				server.call(t, "thread/"+operation, params)
 				server.finish(t)
 				after, err = home.selection(context.Background(), threadA)
+				if operation == "delete" {
+					if err != nil || after != nil {
+						t.Fatalf("released delete retained the selected thread: %+v %v", after, err)
+					}
+					if _, err := os.Stat(before.path); !os.IsNotExist(err) {
+						t.Fatalf("released delete retained the fixture rollout: %v", err)
+					}
+					return
+				}
 				if err != nil || after == nil || after.archived != (operation == "archive") {
 					t.Fatalf("released %s did not complete: %+v %v", operation, after, err)
 				}

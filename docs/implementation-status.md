@@ -22,7 +22,7 @@ development testing.
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
 | Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
-| Mixed launcher/image versions | Qualification wired; execution pending | Actual v0.1.0/current launchers, baseline/current recipes and three-UID shared-home checks are in CI/release qualification |
+| Mixed launcher/image versions | Native Linux matrix passed | At `43df6a4`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition is a separate pending gate |
 | State-preserving myCodex transition | Documented and wired; Docker result pending | Pinned original launcher/recipe, copied/reused named homes, native picker/resume and return; only the native probe has run locally |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
@@ -627,21 +627,21 @@ were still running at this checkpoint; the run is not a successful full matrix.
 
 ## Native lifecycle guards and ARM qualification results: 2026-10-07
 
-The native writer-guard fixture now exercises archive, unarchive and resume
+The native writer-guard fixture now exercises archive, unarchive, resume and delete
 against both legacy and paginated histories. While Go holds the selected
 conversation's snapshot lock, native Codex must reject the operation as busy
 without changing history bytes or authoritative selection. After release, the
-same operation must succeed. All six cases pass locally with 0.160.1 and with
+same operation must succeed. All eight cases pass locally with 0.160.1 and with
 0.160.0 under the race detector. Go tests/vet pass. The new cases join the
 existing native platform runner, but other platforms require their next result;
 older runtimes and other metadata/maintenance operations remain separate gates.
 
-The ARM mixed-version job at `43df6a4` passed all four actual launcher/image
+Both native Linux mixed-version jobs at `43df6a4` passed all four actual launcher/image
 combinations, retained/reopened PTY reports, and the hosted Xvfb/Weston/XWayland
-protocol suite as UID 1001. It then reached the myCodex transition for the first
+protocol suite as UID 1001. They then reached the myCodex transition for the first
 time. Legacy refusal, copied-state preservation, shell customization and native
-resume passed, as did public export followed by native host resume. The receiver
-fixture failed before import because a fresh home does not yet contain `.codex`.
+resume passed, as did public export followed by native host resume. Both receiver
+fixtures failed before import because a fresh home does not yet contain `.codex`.
 The fixture now creates its private configuration directory as the receiving
 runtime UID before writing test configuration. Its stopped import, subsequent
 resume, return to myCodex and reuse scenario still require execution. ShellCheck
