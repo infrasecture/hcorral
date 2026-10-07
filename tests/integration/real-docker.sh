@@ -70,6 +70,25 @@ started_at="$(docker inspect --format '{{.State.StartedAt}}' "${project}")"
 [[ "$(docker inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.workspace-id-scheme"}}' "${project}")" == v1 ]]
 [[ "$(docker inspect --format '{{.State.Running}}' "${project}")" == true ]]
 
+# Inspect what the packaged launcher actually sent through Compose. Account
+# database memberships are not a substitute for the invoking process's groups,
+# especially in static Linux builds and macOS directory-service environments.
+docker inspect --format '{{json .Config.Env}}' "$project" >"$test_root/identity.json"
+python3 - "$test_root/identity.json" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    environment = dict(entry.split("=", 1) for entry in json.load(stream))
+assert int(environment["HCORRAL_HOST_UID"]) == os.geteuid()
+assert int(environment["HCORRAL_HOST_GID"]) == os.getegid()
+actual = {int(spec.split(":", 1)[0]) for spec in environment["HCORRAL_HOST_GROUPS"].split(",")}
+expected = set(os.getgroups()) | {os.getegid()}
+assert actual == expected, (actual, expected)
+print("PASS: packaged launcher preserves host process UID/GID and supplementary groups")
+PY
+
 # Initial creation had to pull the absent selected image. An explicit pull
 # fetches it again without recreating or restarting the running container.
 docker image inspect "${image}" >/dev/null

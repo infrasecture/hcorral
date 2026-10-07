@@ -95,6 +95,11 @@ ignore TERM and spawn a child. The public `info` command must return within its
 outer deadline, fall back to the bundled version, and leave no monitor, shell
 or child process behind. Restoring the fixture startup files must restore normal
 version discovery without changing workstation identity, image or mounts.
+It also checks that the production image's runtime process retains every host
+supplementary group. The common Docker lifecycle test independently compares
+the packaged launcher's actual container UID/GID/group environment against
+the host process on Linux and both macOS architectures. This supplements the
+static Linux unknown-account unit test and image account-mapping matrix.
 
 The same job runs `mycodex-transition.sh` against its newly built Codex image.
 It fetches immutable myCodex source and builds the real historical image recipe

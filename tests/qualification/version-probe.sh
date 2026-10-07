@@ -34,6 +34,18 @@ for _ in {1..100}; do
 done
 if [[ "$ready" != 1 ]]; then docker logs "$project" >&2; exit 1; fi
 before="$(container_snapshot "$project")"
+# The real image must grant the numeric supplementary groups supplied by the
+# launcher as well as switching UID/GID. Extra image-owned memberships are not
+# interpreted as lost host membership.
+docker exec "$project" gosu "$uid" id -G >"$test_root/runtime-groups"
+python3 - "$test_root/runtime-groups" <<'PY'
+import os
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    actual = {int(group) for group in stream.read().split()}
+expected = set(os.getgroups()) | {os.getegid()}
+assert expected <= actual, (actual, expected)
+PY
 expected="$(docker image inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.harness.version"}}' "$image")"
 [[ -n "$expected" ]]
 timeout 20 "$binary" info --format=json >"$test_root/healthy.json"

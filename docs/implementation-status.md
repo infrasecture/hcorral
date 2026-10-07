@@ -765,3 +765,18 @@ registered self-hosted runners, confirmed through the Actions API. A physical
 Linux desktop host has been requested for the separate desktop gate; hosted
 protocol success is not substituted for that evidence. The newer metadata and
 maintenance tests at `41da45c` still need their native platform matrix.
+
+## Packaged host identity qualification: 2026-10-07
+
+The common Docker lifecycle fixture now compares the actual container's
+launcher-supplied numeric UID/GID and complete supplementary-group set against
+the invoking host process. It uses the packaged executable on Linux and macOS,
+so unit checks alone cannot satisfy this assertion. The production-image probe
+also verifies that its runtime process receives all host supplementary groups.
+This closes a gap in test coverage between the process-identity implementation
+and the independently tested image account mapping; execution is still pending.
+The non-default image account case now reads and writes a root-owned file
+through its supplementary group, then verifies access is denied when that group
+permission is removed. This checks actual permissions as well as `id` output
+for Codex, Claude and Pi. ShellCheck, Bash syntax and release-contract checks
+pass; the actual image/platform matrix must run these new assertions.
