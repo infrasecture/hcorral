@@ -1,178 +1,116 @@
 # Transition from myCodex
 
-Hcorral deliberately has no compatibility or automatic migration layer. It
-does not adopt myCodex containers, volumes, environment variables, Compose
-files, images, or command names.
+Hcorral does not take over, modify or delete myCodex containers, volumes or
+images automatically. It creates its own containers. You can explicitly give a
+new hcorral container your existing home volume, keeping your configuration,
+logins, sessions and other home files.
 
-When a running or stopped myCodex container is verified for the same physical
-workspace, hcorral exits with status 3 and performs no mutation. Use myCodex to
-attach or run `myCodex down` in the original workspace first. Existing state
-can be selected only by explicitly naming its Docker volume through the normal
-`--state-volume` interface; hcorral never discovers or relabels it.
+## Quick start: keep your existing home
 
-## Choose the scope
-
-A transition creates a new hcorral container. It does not rename or convert the
-myCodex container. Keep the same physical workspace path, container home path,
-numeric UID/GID and required supplementary groups. Changing those at the same
-time is a separate migration, especially when paths occur inside Codex metadata,
-shell files or tool configuration.
-
-For the first trial, copy the whole persisted home to a new, explicitly named
-volume while every writer of the original home is stopped. This retains the
-original home for recovery. Unlike selective `session export/import`, this
-deliberately copies credentials, configuration, all conversations and other
-home files. Treat the copy as private state. A snapshot of a live SQLite/WAL
-directory is not a consistent backup merely because tar completed.
-
-Direct reuse through `--state-volume` is also possible after removing the old
-container, but hcorral and Codex may then change that same home. Preserve a
-separate recoverable copy first. Hcorral preserves existing startup files and
-does not recursively change their ownership. An unreadable home or startup
-file needs an explicit, scoped repair, not a blanket recursive chown.
-
-## Record and stop the original environment
-
-Run the original launcher from the original workspace with its original flags,
-image selection, overlays and environment. In the examples, replace all sample
-values with the observed configuration before executing commands:
+For the standard setup—home volume `codex_state`, the same host user and the same
+home path—run this from your project's directory with both launchers installed:
 
 ```bash
-legacy_launcher=/absolute/path/to/myCodex/bin/myCodex
-old_container=example-codex
-"$legacy_launcher" info
-"$legacy_launcher" exec id
-docker inspect --format '{{.Id}} {{.Image}} {{.Config.Image}}' "$old_container"
-docker inspect --format '{{range .Mounts}}{{println .Type .Name .Source .Destination .RW}}{{end}}' "$old_container"
+docker volume inspect codex_state >/dev/null &&
+myCodex down &&
+hcorral --harness codex --state-volume codex_state
 ```
 
-Record the actual home mount and numeric identity, workspace and additional
-mounts, configured image reference and immutable image ID. Do not infer a volume
-name from the workspace basename. Shared, private, custom and overlaid mounts
-can differ. Keep the old launcher, configuration and image available. Choose a
-qualified hcorral Codex image; a similarly named myCodex image does not implement
-hcorral's image environment contract.
+This checks that your home volume exists, removes this project's old container
+without deleting its data, and starts hcorral using that same home. **Do not add
+`-v` to `myCodex down`: that would delete the home volume.** Hcorral uses its own
+Codex image; your existing myCodex image is left alone.
 
-Use an isolated disposable workspace to check the hcorral installation before
-touching this project. The same-workspace legacy guard intentionally prevents
-testing operational commands alongside the old project container.
-
-For a named home volume, list all containers referencing it:
+Keep using `hcorral --harness codex --state-volume codex_state` afterward. To make
+the volume choice the default, add this to your host shell's startup file:
 
 ```bash
-old_volume=observed-home-volume
-docker volume inspect "$old_volume"
-docker ps -a --filter "volume=$old_volume" --format '{{.ID}} {{.Names}} {{.Status}}'
-"$legacy_launcher" stop
+export HCORRAL_STATE_VOLUME_NAME=codex_state
 ```
 
-Finish active Codex turns and stop other writers of the same home through their
-own launchers too. Stopping only this project does not stop another project
-using shared state. For a bind-mounted home or separately mounted Codex/SQLite
-directories, also account for host processes and every additional storage
-location. The named-volume example below does not cover those layouts; use a
-filesystem snapshot/copy procedure that preserves their complete, quiescent
-state and mount arrangement.
+Without that flag or setting, hcorral defaults to a separate `hcorral_state`
+volume. Your old files would still exist, but would not be mounted in the new
+container. The chosen volume is also shared by other hcorral projects using it.
 
-## Make a separate home copy
+The quick start reuses the original home, so Codex and your tools can update its
+files. For an untouched original to return to, use the copy option below first.
 
-Choose an unused volume name and a locally available qualified hcorral image
-reference. This example runs tar on the Docker daemon, so neither home is
-mistaken for a path on a remote Docker client's filesystem:
+## Private volumes and custom settings
+
+Use `myCodex info` to check the home volume, container home path and user IDs.
+Include your usual options, for example `myCodex --private-env info`.
+If the volume is not `codex_state`, substitute its reported name in the
+quick-start commands. Use the same myCodex options with `down` too.
+
+If you customized the home path, set `HCORRAL_CONTAINER_HOME` to that same path
+before starting hcorral. Run as the same host user to retain the numeric UID/GID
+and supplementary groups. Recreate additional mounts with hcorral's `--volume`
+or `-f` options, including any separately mounted Codex or SQLite directories.
+Hcorral does not translate myCodex environment variables or Compose files
+automatically; see [hcorral configuration](configuration.md).
+
+A stopped myCodex container still belongs to myCodex. Hcorral refuses to operate
+in its workspace until the original launcher removes that container with plain
+`myCodex down`; stopping it is not enough.
+
+## Optional: copy the home and keep the original
+
+For a separate trial, copy the whole home into `hcorral-home`. First finish active
+sessions and stop every container or host process writing to the old home. This
+copies live databases and configuration as well as sessions, so all writers must
+be stopped during the copy. To find containers sharing the default volume:
 
 ```bash
-new_volume=example-hcorral-home
-image=ghcr.io/infrasecture/hcorral-codex:VERSION-rREVISION
-docker image inspect "$image"
-if docker volume inspect "$new_volume" >/dev/null 2>&1; then
-  printf 'Choose a new, unused destination volume name.\n' >&2
-else
-  docker volume create "$new_volume"
-  docker run --rm --network none --entrypoint bash \
-    --mount "type=volume,src=$old_volume,dst=/source,readonly" \
-    --mount "type=volume,src=$new_volume,dst=/target" "$image" -c \
-    'set -euo pipefail; test -z "$(find /target -mindepth 1 -maxdepth 1 -print -quit)"; tar --numeric-owner --acls --xattrs -C /source -cpf - . | tar --numeric-owner --acls --xattrs -C /target -xpf -'
-fi
+docker ps --filter volume=codex_state --format '{{.Names}}'
 ```
 
-Run these steps deliberately: proceed only after volume creation and copying
-both succeed, and verify the selected source/destination before startup. A
-failed copy leaves an incomplete destination; it is not ready for reuse. The
-tar operation preserves numeric ownership, modes, symlinks and supported
-extended metadata instead of assigning the client user's ownership. It does
-not translate home paths or repair inaccessible files. Keep the original volume
-unchanged while validating the copy.
-
-Remove the old project's container using its original configuration:
+From the project's directory, run:
 
 ```bash
-"$legacy_launcher" down
-docker volume inspect "$old_volume"
+docker volume inspect codex_state >/dev/null &&
+myCodex down &&
+docker run --rm --network none \
+  --mount type=volume,src=codex_state,dst=/source,readonly \
+  --mount type=volume,src=hcorral-home,dst=/target \
+  ubuntu:24.04 bash -euc 'test -z "$(ls -A /target)"; cp -a /source/. /target/' &&
+hcorral --harness codex --state-volume hcorral-home
 ```
 
-Use plain `down`, without a volume-removal option. A stopped legacy container
-still triggers hcorral's guard. Do not bypass the guard by editing labels or
-renaming Docker objects.
+Docker creates the destination volume if needed; the copy refuses a nonempty
+destination. It runs on the Docker daemon and preserves file ownership,
+permissions and symlinks. If the copy fails, do not start hcorral on the incomplete
+destination. Inspect it and choose a fresh destination for another attempt.
 
-## Start and validate hcorral
+Keep using `--state-volume hcorral-home`, or set
+`HCORRAL_STATE_VOLUME_NAME=hcorral-home` in your host shell. Substitute your actual
+volume names when using private or custom storage. Bind-mounted homes and
+separately mounted state need corresponding copies and mounts; the command above
+copies one named volume only.
 
-Select the copied volume and the original home explicitly. Reproduce all
-required extra mounts with hcorral's `--volume`/`-f` options. This example uses
-headless mode for the first validation; choose GUI forwarding explicitly after
-the state has been checked:
+## What to check after switching
 
-```bash
-export HCORRAL_CONTAINER_HOME=/observed/container/home
-hcorral --harness codex --image "$image" --state-volume "$new_volume" --no-gui up -d
-hcorral --state-volume "$new_volume" info --format=json
-hcorral --state-volume "$new_volume" exec id
-hcorral --state-volume "$new_volume" exec codex --version
-hcorral --state-volume "$new_volume" attach
-```
+Confirm that your shell customizations work, Codex recognizes your login and
+configuration, and your existing sessions appear and resume. Hcorral preserves
+existing shell startup files and does not recursively change ownership of a
+populated home. It adds missing shell startup files. Settings that reference
+tools or paths available only in the old image may need adjustment.
 
-Keep the same workspace, image, home and overlay configuration on subsequent
-commands. `up -d` returning does not by itself prove that entrypoint setup and
-the tmux session have finished; `attach` waits for readiness and reports startup
-failure. Before retiring myCodex, verify:
+If permissions are wrong, check the home path and UID/GID before changing files;
+do not apply a recursive `chown` to the whole home as a default fix. Session
+export/import copies individual sessions, not the configuration in a whole home.
 
-- Actual state/workspace mounts and runtime UID/GID match the intended values.
-- First and newly created panes have an interactive login shell, completion and
-  the expected user customization, without permission errors.
-- Existing `.bashrc`, chosen login startup file, symlinks and custom tools retain
-  their content and ownership. A myCodex shared-default stub can use its existing
-  `/etc/skel/.bashrc` fallback when `/etc/mycodex/bashrc` is absent.
-- Codex uses the expected configuration and login, lists the expected sessions,
-  and resumes a chosen session by its existing ID. Check external SQLite paths,
-  attachments and other extra mounts where present.
-- `notices` reopens startup information, and repeated attachment preserves the
-  running container and tmux panes.
+## Going back
 
-Custom state volumes remain user managed. Hcorral does not relabel the selected
-legacy/copy volume, and normal teardown retains it. Save the chosen hcorral
-configuration using its ordinary documented settings; an alias called
-`myCodex` does not provide command or environment compatibility.
+After a copied-home trial, run `hcorral --state-volume hcorral-home down`, then
+start `myCodex` with its original volume and settings. The original home was not
+modified by hcorral. Keep the old image version available too: a moving image tag
+may now point to a newer Codex.
 
-## Recovery and evidence
+If you reused the original volume, its contents may have changed. Returning to
+an older Codex version can require restoring a backup. Hcorral's normal teardown
+retains explicitly selected home volumes; it does not relabel them.
 
-To abandon a copied-home trial, use hcorral with the same selection to run plain
-`down`, retain the trial volume for inspection, and recreate the old environment
-through the original myCodex launcher/configuration against its original home
-and recorded image. Select that image deliberately; a moving alias may have
-changed since the inventory. Do not copy a modified trial home over the original
-as an automatic rollback. After direct reuse, returning to an older Codex version
-requires data-format compatibility evidence or restoration of the saved copy.
-
-`tests/qualification/mycodex-transition.sh` exercises this procedure using the
-real launcher and image recipe from myCodex commit
-`ebc930ac00adea662789d6c2f43666ec1003eca0`, with Codex 0.160.0 and optional unrelated
-agent installations disabled. It uses only synthetic credentials/conversations
-and disposable workspaces/volumes. It checks running/stopped legacy refusal,
-copied and explicitly reused homes, preserved file hashes/modes/owners/symlinks,
-unchanged volume labels, shell customization, native picker/resume and return
-through the old launcher. No real user-state transition is performed by CI.
-
-The fixture runs on both native Linux architectures through mixed-version
-qualification. Its test definition is not a passing result; consult
-`implementation-status.md` and the relevant CI run. Passing it establishes the
-tested named-volume layout and versions, not arbitrary custom mounts, UID
-changes, macOS migration or every future Codex downgrade.
+The [transition fixture](../tests/qualification/mycodex-transition.sh) checks both
+copying and reuse with synthetic homes, including startup files, ownership,
+configuration, session resume and return to myCodex. See the
+[execution ledger](implementation-status.md) for tested versions and results.
