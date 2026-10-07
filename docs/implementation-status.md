@@ -17,18 +17,18 @@ development testing.
 | Automatic GUI with headless, SSH and remote fallback | Native Linux protocol matrix passed | Resolver tests and hosted Xvfb/Weston/XWayland production-UID tests pass at `43df6a4`; physical desktop release coverage remains separate |
 | Inactive `latest` refresh and guarded stopped replacement | Native Linux Docker checks passed | CI at `c28f31d` passes lifecycle/refresh/runtime integration on AMD64/ARM64 with current and 2.24.6 Compose; remaining platform qualification still applies |
 | Actual deployed image identity | Implemented | Docker `Image` ID retained separately from configured reference; mutable-alias and bundled/installed-version tests pass |
-| Numeric process identity and groups | Implemented; other platforms pending | Static Linux test executable passed as 1000:1000, 501:20 and 12345:23456, each with supplementary group 44444; no host accounts created |
+| Numeric process identity and groups | Native Linux launcher/image checks passed; macOS pending | `9a71bca` compares packaged UID/GID/groups with the actual invoking process on both Linux architectures; all six images pass actual group-based file access and denial; static unknown-account cases also pass |
 | Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
-| Static binaries and packages on four targets | Partial | CI at `fb16f6b` built the four-target artifact; native macOS version/help and Linux package checks passed; native session/platform qualification remains |
+| Static binaries and packages on four targets | Partial | `9a71bca` builds all four targets with both Linux helpers and passes both Linux package jobs; real Homebrew audit exposed a redundant-version error, corrected at `6a69d1a`; native macOS installation and complete runtime qualification remain |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
-| Mixed launcher/image versions | Native Linux matrix passed | At `43df6a4`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition is a separate pending gate |
+| Mixed launcher/image versions | Native Linux matrix passed | At `f10c95c`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition evidence is recorded separately |
 | State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | `43df6a4` also passes actual attach resets, lost-completion/retry and shared-storage aliases on AMD64/ARM64; broader endpoint/platform acceptance remains |
-| Actual Codex resume acceptance | Native Linux public Docker matrix passed; broader qualification remains | `f10c95c` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures and Compose variants; macOS composition remains |
+| Session transfer lifecycle | Native Linux Docker checks passed; broader qualification remains | `9a71bca` passes attach resets, lost-completion/retry, storage aliases and host/container writer exclusion on AMD64/ARM64; macOS filesystem/runtime acceptance remains |
+| Actual Codex resume acceptance | Native Linux public Docker matrix passed; broader qualification remains | `9a71bca` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures and Compose variants; macOS composition remains |
 
 ## Execution environment
 
@@ -879,3 +879,24 @@ sets its intended preexisting mode before testing that publication preserves it.
 These changes address qualification reliability and fixture setup. The macOS
 public Docker/native-resume composition, the staging cleanup correction and
 cross-host shared-storage writer exclusion still require actual platform results.
+
+## Native Linux follow-up and next candidate: 2026-10-07
+
+Completed `9a71bca` Linux jobs
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37563361356/job/112606232617)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37563361356/job/112606232567)
+confirm that the newer Git-metadata, compression and background-migration cases
+pass against both pinned Codex versions. Both also pass the new actual shared
+host/container writer exclusion in both directions, plus public Docker transfer
+and native resume. The two pinned-Compose jobs and Linux package jobs passed.
+The exact packaged process UID/GID/group comparison runs in the successful
+lifecycle fixture. These results close those Linux gaps, not the macOS ones.
+
+Both `9a71bca` macOS jobs stopped at the same redundant-version Homebrew audit.
+They did not run the newer native metadata/maintenance, Colima cleanup or
+cross-kernel writer tests. Nonpublishing
+[CI run 37563991174](https://github.com/infrasecture/hcorral/actions/runs/37563991174)
+now tests candidate `4cf6303` on `agent/go-successor`, containing the formula and
+verified-asset-cache corrections. The older temporary qualification ref/run is
+retained while its independent mixed-version jobs finish; remove that temporary
+ref during final repository cleanup after its evidence has been recorded.
