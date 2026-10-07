@@ -1174,3 +1174,27 @@ The changed shared procedure still needs a real hosted Docker regression run;
 the earlier complete CI result qualifies `973bfb1`, not this subsequent change.
 A physical desktop host and the unqualified-writer policy decision remain
 unavailable. No physical desktop acceptance or release publication is claimed.
+
+## Shared production GUI procedure verified: 2026-10-07
+
+Nonpublishing [run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
+tests `2b41cc77adc0f40ffbff1416f58786ccd15ac20b`. Its
+[AMD64](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492193)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37573403661/job/112637492206)
+mixed-version jobs both passed. Their logs confirm the revised `linux-gui.sh`
+procedure against the production-derived image as UID 1001: X11, Wayland,
+Wayland preference with both displays, and XWayland-only forwarding. Each
+checks narrow mounts, real PTY attachment, the deployed badge and preservation
+after unusable explicit GUI requests. All four old/new launcher-image pairings,
+bounded probes and copied/reused-state myCodex transitions also passed.
+
+Source checks, the four-target build, all six image jobs, both Linux package
+jobs, and the full Linux integration suite with both current and pinned Compose
+passed. The completed logs confirm shared-writer/nested-lock handling and public
+Docker transfer/native resume in both pinned Codex version directions. Both
+macOS native/Homebrew steps passed; their Colima steps remain active at this
+checkpoint, so the aggregate run is not yet qualified.
+
+These hosted protocol results qualify the shared test procedure on both Linux
+architectures. They do not qualify a physical desktop or resolve the outstanding
+unqualified-writer policy. The stable-release desktop workflow has not run.
