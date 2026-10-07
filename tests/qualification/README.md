@@ -161,14 +161,67 @@ complex inherited, archived and reverted histories. All authentication is
 synthetic, provider configuration is local, and no model turn is started.
 
 `linux-gui.sh` qualifies actual X11 or Wayland forwarding and narrow socket
-mounts on a suitable Linux desktop host. It is separate from unit GUI discovery
-tests and headless Docker acceptance. Merely defining a workflow or having a
-test file does not establish that these gates passed for a release.
+mounts on a suitable Linux desktop host. It requires a previously qualified
+production Codex image as its second argument. It derives a disposable image
+adding only diagnostic clients, checks the actual invoking UID and uses that
+user's tmux server. There is no fallback to the minimal root-only fixture.
+Both this script and `hosted-gui.sh` use this same production-image path.
+
+For a physical desktop check, run from a terminal in the logged-in desktop
+session with a local native Linux Docker engine and Compose. Keep its real
+`DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` and Xauthority environment;
+do not manufacture display variables or remove SSH markers to obtain a pass.
+The host needs Docker/Buildx, Bash, Python 3 for PTY driving and the image
+builder, and `xauth` for X11. These are qualification tools, not new launcher
+runtime requirements. The launcher under test must be an extracted release or
+CI artifact, not an unrelated installed binary.
+
+The following nonpublishing procedure builds the reviewed image recipe with
+pinned Codex, runs its normal image canaries, and checks Wayland. Change `mode`
+to `x11` for a real X11 session or XWayland on a Wayland desktop:
+
+```bash
+(
+  set -euo pipefail
+  mode=wayland
+  case "$(uname -m)" in
+    x86_64) arch=amd64 ;;
+    aarch64) arch=arm64 ;;
+    *) echo 'unsupported desktop architecture' >&2; exit 2 ;;
+  esac
+  export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-$arch"
+  test -x "$HCORRAL_TEST_BINARY"
+  test_root="$(mktemp -d /tmp/hcorral-desktop.XXXXXX)"
+  image_repository="hcorral-desktop-$(basename "$test_root" | tr '[:upper:]' '[:lower:]')"
+  image="$image_repository:0.160.0-r1-$arch"
+  trap 'docker image rm "$image" "$image_repository:0.160.0-r1" >/dev/null 2>&1 || true; rmdir "$test_root"' EXIT
+  HCORRAL_IMAGE_REPOSITORY="$image_repository" ./scripts/build-harness-image.sh \
+    --harness codex --version 0.160.0 --revision 1 --arch "$arch"
+  git rev-parse HEAD
+  sha256sum "$HCORRAL_TEST_BINARY"
+  docker image inspect --format '{{.Id}} {{.Architecture}}' "$image"
+  ./tests/qualification/linux-gui.sh "$mode" "$image"
+)
+```
+
+Record the source revision, launcher hash, image identity, desktop/compositor
+version, architecture, UID/GID and complete result with the qualification
+evidence. Run each required desktop mode separately; a Wayland pass does not
+imply an XWayland or X11 pass. The script retains desktop settings, creates its
+own workspace and private state volume, and removes its own fixtures. It does
+not publish images, alter desktop configuration or adopt a user workstation.
+The stable release workflow builds the same production recipe before calling
+this script on its corresponding self-hosted desktop runner.
+
+This is separate from unit GUI discovery tests and headless Docker acceptance.
+Merely defining a workflow or having a test file does not establish that these
+gates passed for a release.
 
 `hosted-gui.sh` supplies real local Xvfb, Weston and XWayland servers on the
-Linux qualification runners. It derives a test image from the built production
-Codex image, adding only `xset`/`wayland-info` diagnostic clients; the entrypoint,
-UID/GID handling, shell initialization and tmux remain unchanged. The protocol
+Linux qualification runners. It passes the built production Codex image to the
+shared `linux-gui.sh` procedure, adding only `xset`/`wayland-info` diagnostic
+clients; the entrypoint, UID/GID handling, shell initialization and tmux remain
+unchanged. The protocol
 clients execute as the actual host UID inside the container, rather than the
 minimal fixture's root-only stub. No host desktop configuration is modified.
 

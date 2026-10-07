@@ -1149,3 +1149,28 @@ No remaining CI failure is being hidden behind these boundaries. The complete
 development matrix passed; the first two requirements still need external input
 before the full proposal can be declared complete. Existing historical entries
 describe their own revisions and are superseded by this checkpoint where stated.
+
+## Physical desktop gate uses the production runtime: 2026-10-07
+
+The completion audit found that the separate stable-release desktop gate still
+called `linux-gui.sh` without an image override. That default built the minimal
+fixture, whose `gosu` stub leaves commands running as root. The already-passing
+hosted GUI tests used the real production image, but that did not correct the
+physical gate's weaker runtime/permission coverage.
+
+`linux-gui.sh` now requires an already-qualified production Codex image. It owns
+the disposable derived image containing diagnostic clients, asserts the actual
+invoking UID, and inspects that user's tmux server. Both hosted and physical
+qualification call this same path. The release gate builds the current recipe
+with pinned Codex and runs the normal image canaries first; it does not publish
+that image. Ambient project/volume/overlay settings cannot select an existing
+workstation during the desktop fixture. The qualification README now contains
+a nonpublishing manual procedure retaining the real desktop environment and
+recording exact launcher/image identity.
+
+ShellCheck, Bash syntax, actionlint and release-contract checks pass locally.
+Calling the desktop script without its required image fails before setup.
+The changed shared procedure still needs a real hosted Docker regression run;
+the earlier complete CI result qualifies `973bfb1`, not this subsequent change.
+A physical desktop host and the unqualified-writer policy decision remain
+unavailable. No physical desktop acceptance or release publication is claimed.

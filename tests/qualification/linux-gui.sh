@@ -3,7 +3,9 @@ set -Eeuo pipefail
 trap 'printf "GUI assertion failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 mode="${1:-}"
-case "${mode}" in x11|wayland) ;; *) echo 'usage: linux-gui.sh x11|wayland' >&2; exit 2 ;; esac
+case "${mode}" in x11|wayland) ;; *) echo 'usage: linux-gui.sh x11|wayland QUALIFIED_HCORRAL_CODEX_IMAGE' >&2; exit 2 ;; esac
+[[ $# -eq 2 && -n "$2" ]] || { echo 'a qualified production Codex image is required' >&2; exit 2; }
+base="$2"
 # Select the X11-only discovery case even when invoked from a Wayland desktop.
 if [[ "$mode" == x11 ]]; then unset WAYLAND_DISPLAY; fi
 
@@ -15,24 +17,36 @@ binary="${HCORRAL_TEST_BINARY:-${repo_root}/dist/bin/hcorral-linux-$(uname -m | 
 
 test_root="$(mktemp -d /tmp/hcorral-gui.XXXXXX)"
 workspace="${test_root}/workspace"
-image="${HCORRAL_TEST_GUI_IMAGE:-hcorral-gui-qualification:$(date +%s)-$$}"
+image="hcorral-gui-qualification:$(basename "$test_root")"
 project=""
 mkdir -p "${workspace}" "${test_root}/cache"
 export XDG_CONFIG_HOME="${test_root}/config" XDG_STATE_HOME="${test_root}/state"
+# Do not let a maintainer's project, shared volume or Compose overlays select
+# real resources. Preserve desktop credentials and Docker connection settings.
+unset HCORRAL_GUI HCORRAL_PROJECT_NAME HCORRAL_STATE_VOLUME_NAME HCORRAL_COMPOSE_FILES
+unset HCORRAL_CONTAINER_HOME HCORRAL_WORKDIR HCORRAL_BYOBU_SESSION HCORRAL_AUTO_ATTACH
+export HCORRAL_HARNESS=codex HCORRAL_TEST_TMUX_UID
+HCORRAL_TEST_TMUX_UID="$(id -u)"
 
 cleanup() {
   if [[ -n "${project}" ]]; then
     XDG_CACHE_HOME="${test_root}/cache" HCORRAL_WORKSPACE="${workspace}" HCORRAL_IMAGE="${image}" HCORRAL_PRIVATE_ENV=true HCORRAL_UPDATE_CHECK=false \
       "${binary}" --gui="${mode}" down -v >/dev/null 2>&1 || true
   fi
-  if [[ -z "${HCORRAL_TEST_GUI_IMAGE:-}" ]]; then docker image rm "${image}" >/dev/null 2>&1 || true; fi
+  docker image rm "${image}" >/dev/null 2>&1 || true
   rm -r -- "${test_root}"
 }
 trap cleanup EXIT
 
-if [[ -z "${HCORRAL_TEST_GUI_IMAGE:-}" ]]; then
-  docker build --quiet --tag "${image}" --file "${repo_root}/tests/fixtures/minimal-image/Dockerfile" "${repo_root}" >/dev/null
-fi
+# Add diagnostic clients to the actual production runtime. Both hosted and
+# physical-desktop qualification exercise its entrypoint, gosu and tmux user.
+docker image inspect "$base" >/dev/null
+docker build --quiet --build-arg "BASE=$base" --tag "$image" - <<'DOCKERFILE'
+ARG BASE
+FROM ${BASE}
+RUN apt-get update && apt-get install -y --no-install-recommends x11-xserver-utils wayland-utils \
+    && rm -rf /var/lib/apt/lists/*
+DOCKERFILE
 run_hcorral() {
   XDG_CACHE_HOME="${test_root}/cache" \
   HCORRAL_WORKSPACE="${workspace}" \
@@ -51,9 +65,7 @@ for _ in {1..100}; do
 done
 if [[ "$ready" != 1 ]]; then docker logs "$project" >&2; exit 1; fi
 [[ "$(docker inspect --format '{{index .Config.Labels "ai.infrasecture.hcorral.gui"}}' "${project}")" == "${mode}" ]]
-if [[ -n "${HCORRAL_TEST_TMUX_UID:-}" ]]; then
-  [[ "$(run_hcorral exec id -u)" == "$HCORRAL_TEST_TMUX_UID" ]]
-fi
+[[ "$(run_hcorral exec id -u)" == "$HCORRAL_TEST_TMUX_UID" ]]
 
 case "${mode}" in
   x11)
@@ -79,9 +91,7 @@ before="$(container_snapshot "$project")"
 XDG_CACHE_HOME="$test_root/cache" HCORRAL_WORKSPACE="$workspace" HCORRAL_IMAGE="$image" \
   HCORRAL_PRIVATE_ENV=true HCORRAL_UPDATE_CHECK=false DISPLAY='' WAYLAND_DISPLAY='' \
   python3 "$repo_root/tests/integration/attach-probe.py" "$project" "$binary" attach
-tmux_command=(docker exec "$project")
-if [[ -n "${HCORRAL_TEST_TMUX_UID:-}" ]]; then tmux_command+=(gosu "$HCORRAL_TEST_TMUX_UID"); fi
-tmux_command+=(tmux)
+tmux_command=(docker exec "$project" gosu "$HCORRAL_TEST_TMUX_UID" tmux)
 badge=GUI:X11
 [[ "$mode" != wayland ]] || badge=GUI:WL
 [[ "$("${tmux_command[@]}" show-options -qv -t hcorral @hcorral-gui)" == "$badge" ]]
