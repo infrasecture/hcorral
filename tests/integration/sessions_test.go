@@ -46,6 +46,7 @@ type transferResult struct {
 }
 
 type dockerSession struct {
+	daemonTemp                                                 string
 	t                                                          *testing.T
 	binary, image, root, hostHome, volume, container, uid, gid string
 	storage, daemonSource, mountSpec                           string
@@ -103,7 +104,20 @@ func newDockerStorageSession(t *testing.T, uid, gid string, running, readOnly bo
 		}
 		f.cleanupDocker("rm", "--force", f.container)
 		f.cleanupDocker("volume", "rm", f.volume)
+		if f.daemonTemp != "" {
+			f.cleanupDocker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=bind,src=/tmp,dst=/daemon-tmp", "--entrypoint", "/bin/sh", f.image, "-c", `rm -rf -- "$1"`, "sh", f.daemonTemp)
+		}
 	})
+	if strings.HasPrefix(storage, "bind") {
+		// Docker restricts propagation for binds inside its own data root.
+		// Allocate ordinary bind storage on the daemon, including for remote
+		// contexts, without assuming that a client temporary path exists there.
+		temporary := strings.TrimSpace(string(f.docker("run", "--rm", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=bind,src=/tmp,dst=/daemon-tmp", "--entrypoint", "/bin/sh", f.image, "-c", "mktemp -d /daemon-tmp/hcorral-session-bind.XXXXXXXX")))
+		if path.Dir(temporary) != "/daemon-tmp" || !strings.HasPrefix(path.Base(temporary), "hcorral-session-bind.") {
+			t.Fatalf("unexpected daemon fixture directory: %q", temporary)
+		}
+		f.daemonTemp, f.daemonSource = temporary, path.Join("/tmp", path.Base(temporary))
+	}
 	f.seed(map[string][]byte{
 		".codex/" + rolloutPath(threadA): rollout(threadA, "saved container conversation"),
 		".codex/" + rolloutPath(threadC): rollout(threadC, "unrelated conversation"),
@@ -220,7 +234,11 @@ func (f *dockerSession) seed(files map[string][]byte) {
 	must(f.t, w.Close())
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := f.command(ctx, "docker", "run", "--rm", "--interactive", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", "type=volume,src="+f.volume+",dst="+containerHome, "--entrypoint", "/bin/sh", f.image, "-c", `tar -xf - -C "$1" && chown -R "$2:$3" "$1"`, "sh", containerHome, f.uid, f.gid)
+	seedMount := "type=volume,src=" + f.volume + ",dst=" + containerHome
+	if f.daemonTemp != "" {
+		seedMount = "type=bind,src=" + f.daemonSource + ",dst=" + containerHome
+	}
+	cmd := f.command(ctx, "docker", "run", "--rm", "--interactive", "--network", "none", "--tmpfs", "/unrelated-image-volume", "--mount", seedMount, "--entrypoint", "/bin/sh", f.image, "-c", `tar -xf - -C "$1" && chown -R "$2:$3" "$1"`, "sh", containerHome, f.uid, f.gid)
 	cmd.Stdin = &buf
 	out, err := cmd.CombinedOutput()
 	if err != nil {

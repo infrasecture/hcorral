@@ -27,7 +27,7 @@ development testing.
 | Session format discovery and dependencies | Core implemented; broader qualification pending | Rooted inspection; legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes; native 0.160.0/0.160.1 fixtures and completed-turn re-export pass |
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
-| Session transfer lifecycle | Implemented transport; Docker pending | Disposable helper uses the deployed image/storage and bypasses workstation startup; ownership/cancellation/failure tests use a controlled Docker runner, not a live daemon |
+| Session transfer lifecycle | Docker partially verified | Real AMD64/ARM64 CI transfers, ownership, stopped/running preservation, cancellation/retry and writer refusal pass; one bind-fixture setup was corrected, broader endpoint qualification remains |
 | Actual Codex resume acceptance | Partial | Core transfer/resume and native-written history pass between 0.160.0 and 0.160.1 in both directions, fresh/initialized homes; Docker endpoints, broader fixtures and platform matrix remain |
 
 ## Execution environment
@@ -431,3 +431,30 @@ settings after helper copy, and actual Docker bind/volume-subpath transfers.
 The Docker cases and corrected cancellation must pass a subsequent run before
 being marked qualified. No images, releases or real user state were published
 or migrated by this development workflow.
+
+## Native platform qualification wiring: 2026-10-07
+
+The build now emits a native session-core test executable for every launcher
+target. CI and release qualification invoke it against pinned, checksum-verified
+official Codex 0.160.0/0.160.1 assets in both directions. It runs the existing
+core/native resume, completed-turn round-trip, promotion, indexing, configuration
+and process-crash tests with synthetic homes and a loopback-only provider.
+The new runner passed locally on Linux AMD64 against both downloaded releases;
+the other native platforms still require their CI results.
+
+The ordinary CI macOS Intel job now also runs the existing Colima lifecycle
+suite and the packaged session endpoint tests. This uses the previously defined
+release-platform setup and does not publish anything. The macOS ARM64 hosted
+runner still establishes native core/launcher behavior only, not a local Docker
+acceptance result. Checksums and support boundaries are documented under
+`tests/qualification/`; these test executables are excluded from user packages.
+
+[CI run 37553861532](https://github.com/infrasecture/hcorral/actions/runs/37553861532)
+tested `401c391`. Both architecture/Compose variants completed instead of
+cancelling peers. Transfers, ordinary/nonrecursive binds, volume subpaths,
+cancellation with remote cleanup/retry and writer refusal passed. The remaining
+failure was setup of the explicit-private bind fixture: Docker prohibits that
+propagation beneath its own data root. The fixture now allocates an ordinary
+unique daemon-side temporary directory, preserving the private-bind case and
+the remote-client path boundary. This correction and the new native platform
+runner require the next CI result; neither failed run is presented as green.

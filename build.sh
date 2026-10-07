@@ -119,6 +119,13 @@ for target in ${targets}; do
     --workdir /src "${builder_image}" \
     go test -c -buildvcs=false -trimpath -o "/src/dist/tests/session-transfer-${os}-${arch}" ./tests/integration
   chmod 0755 "dist/tests/session-transfer-${os}-${arch}"
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+    --env CGO_ENABLED=0 --env GOOS="${os}" --env GOARCH="${arch}" \
+    --volume "${script_dir}:/src" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+    --workdir /src "${builder_image}" \
+    go test -c -buildvcs=false -trimpath -o "/src/dist/tests/session-core-${os}-${arch}" ./internal/session
+  chmod 0755 "dist/tests/session-core-${os}-${arch}"
   docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env GOWORK=off --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build --network=none \
     --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" --workdir /src "${builder_image}" \
     go run ./cmd/hcorral-pack linkage -os "${os}" -arch "${arch}" "/src/${output}"

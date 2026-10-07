@@ -118,6 +118,9 @@ jobs:
           dpkg-deb --extract "dist/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb" "${package_root}/deb"
           chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
           HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/integration/run.sh
+      - run: |
+          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
+          ./tests/qualification/codex-sessions.sh
       - env:
           VERSION: ${{ inputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -182,6 +185,9 @@ jobs:
           hcorral version
           HOMEBREW_NO_INSTALL_FROM_API=1 brew test "$qualified_formula"
           brew uninstall hcorral
+      - run: |
+          chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
+          ./tests/qualification/codex-sessions.sh
       - if: matrix.colima
         env:
           ARCH: ${{ matrix.arch }}
