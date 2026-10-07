@@ -1,7 +1,6 @@
 package session
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -14,50 +13,8 @@ var ErrBusy = errors.New("Codex session storage is busy")
 
 const writerDirectory = "thread-writer-locks"
 
-// Snapshot holds the Codex 0.160 writer locks for the selected thread and
-// inherited rollouts. Keep it open through payload streaming, not only planning.
-// This coordinates conforming writers; callers must qualify their Codex runtime
-// against that protocol. It cannot coordinate arbitrary editors or older Codex.
-type Snapshot struct {
-	Plan   Plan
-	guard  *writerGuards
-	limits Limits
-}
-
-func (s *Snapshot) Close() error { return s.guard.Close() }
-
-// Snapshot requires a writable lock namespace, even for export. Conversation
-// files and the source SQLite database are only read. It never interrupts an
-// active writer, waits for a running turn, or claims to flush that turn's data.
-func (h *Home) Snapshot(ctx context.Context, threadID string, sqliteHome *Home, limits Limits) (*Snapshot, error) {
-	id, err := ParseID(threadID)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := limits.Validate(); err != nil {
-		return nil, err
-	}
-	if sqliteHome == nil {
-		return nil, fmt.Errorf("effective SQLite home is required for session selection")
-	}
-	guard := &writerGuards{home: h, files: make(map[string]*os.File)}
-	if err := guard.acquire(id); err != nil {
-		guard.Close()
-		return nil, err
-	}
-	plan, err := h.inspect(ctx, id, sqliteHome, limits, func(c candidate) error {
-		return guard.acquire(c.threadID, c.rolloutID)
-	})
-	if err != nil {
-		guard.Close()
-		return nil, err
-	}
-	return &Snapshot{Plan: plan, guard: guard, limits: limits}, nil
-}
-
+// writerGuards protect destination publication. Source snapshots deliberately
+// do not acquire them: Codex owns a thread's lock for as long as it is loaded.
 type writerGuards struct {
 	home  *Home
 	files map[string]*os.File
@@ -83,7 +40,7 @@ func (g *writerGuards) lockFile(path string) (*os.File, error) {
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
-			return nil, fmt.Errorf("%w: %s; finish the owning Codex process before transfer", ErrBusy, path)
+			return nil, fmt.Errorf("%w: destination %s is in use; existing conversations are never overwritten", ErrBusy, path)
 		}
 		return nil, fmt.Errorf("acquire Codex writer lock %s: %w", path, err)
 	}

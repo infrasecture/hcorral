@@ -100,30 +100,62 @@ default line limit. Explicit resource limits currently default to 256 MiB per
 record, 64 GiB per decoded file and 4,096 lineage files. Public transfer flags
 allow these limits, and the 8 MiB manifest limit, to be raised for larger data.
 
-## Writer coordination
+## Live source snapshots and destination coordination
 
-`Snapshot` takes Codex's `.coordination.lock` while opening/acquiring each
-`thread-writer-locks/<UUID>.lock`. Both stable thread and immutable rollout IDs
-are guarded where they differ. Locks remain held after inspection so payload
-streaming can use the same guards. New unrelated writers are not blocked for
-the full copy; an existing owner of a required thread causes an immediate
-busy error. Cancellation/failure releases acquired descriptors.
+The user explicitly requires copying an open or actively running conversation.
+There is no close-first prerequisite, maintenance mode, or source writer lock.
+This supersedes the original exclusive-source-lock design.
 
-This requires a writable lock namespace at the source even though conversation
-files and SQLite tables are read-only. Stopped-container export therefore
-cannot promise a completely read-only volume mount with this protocol. No
-credentials, startup files or normal entrypoint should be involved. Unlocked
-lock-file entries can remain for Codex's own coordinated stale-lock cleanup.
-Their existence is not evidence that a writer is active.
+Codex's `thread-store/src/local/paginated_fork.rs` persists its own recorder and
+captures a fixed history position. Its in-process lifecycle reservation differs
+from the cross-process writer lock, which is held throughout a loaded thread.
+Hcorral cannot flush another process's in-memory queue. Instead, it copies a
+snapshot of complete **saved records**, preserving the existing session ID:
 
-This coordinates writers implementing the researched protocol. It does not
-make a pre-protocol Codex process or arbitrary file editor safe. Runtime/version
-qualification and the shared-volume writer boundary remain integration gates;
-the recorded creation version of a rollout alone is insufficient evidence of
-which executable can currently write it.
-Rust currently implements its Unix file locks with `flock`, matching the Go
-guards; keep this interoperability check in runtime qualification rather than
-assuming it permanently. See [Rust File::try_lock](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock).
+1. Read the authoritative SQLite selection, including committed WAL data.
+2. Open the selected rollout with the existing rooted, no-symlink checks and
+   retain that descriptor through export. Capture its size before reading.
+3. For plain JSONL, find the last newline within that size. An unfinished final
+   record is excluded; malformed complete records still fail validation. Size
+   limits also apply to the unfinished tail. Compressed representations require
+   a valid bounded compressed stream, not a guessed incomplete-frame cutoff.
+4. Validate and hash precisely those bytes, then resolve inherited rollouts using
+   their exact byte and ordinal boundaries. Parents may keep appending; their
+   later history is not copied. Retain their descriptors too.
+5. Recheck SQLite selection after capture. A changed selection is an explicit
+   retryable copy error, rather than silently mixing a revert/migration with the
+   earlier selected data.
+6. Stream from the pinned descriptors up to the captured boundaries, verifying
+   hashes again before emitting the completion record. Appends are ignored;
+   archive, rename, deletion and atomic replacement cannot redirect an open
+   descriptor. In-place rewriting or truncation that changes captured bytes
+   prevents successful completion and destination publication.
+
+The selected main file remains a resumable conversation, not an inherited-only
+prefix. Nothing is written to the source, including lock files. A very new thread
+with no complete metadata record yet gets a retry message. A snapshot need not
+include an unsaved token, finish the active turn, or remain equal to the source
+after copying. It is not a merge or live synchronization mechanism.
+
+Destination publication retains Codex's `.coordination.lock` and
+`thread-writer-locks/<UUID>.lock` protocol for required thread/rollout IDs.
+Existing divergent history is a conflict; a loaded destination is refused rather
+than modified behind its running process. Unrelated open conversations do not
+block a new import. Cancellation releases the guards; unlocked entries remain
+for Codex's coordinated cleanup. Rust's Unix locks use `flock`, matching Go's
+implementation; native qualification must continue to check that contract.
+
+### Native live-copy qualification
+
+`TestNativeCodexCopiesDuringRunningTurn` holds a real Codex model request open at
+a loopback provider, copies before allowing the reply to complete, resumes the
+copy in the peer version, and proves the original continues afterward. It covers
+legacy, paginated and inherited history in both 0.160.0/0.160.1 directions.
+The same fixture uses public Docker import/re-export in endpoint qualification.
+The broader resume fixture now re-exports native-written history while its source
+remains loaded. Unit fixtures cover unfinished tails, oversized or malformed
+records, appends, archive/replacement/deletion, changed SQLite selection and
+failure without publication after an in-place rewrite or truncation.
 
 ### Filesystem boundary
 
@@ -133,8 +165,10 @@ writer lock. A successful `flock` in each kernel is not cross-kernel exclusion.
 The ordinary named-volume, daemon-local bind and native-host cases are separate:
 they do not require exporting a single locking namespace through a VM share.
 
-The core now checks `fstatfs` on opened roots and descendant descriptors, including
-writer locks, history, staging and separately selected SQLite storage. Linux
+The core checks `fstatfs` on opened roots and descendant descriptors, including
+history, staging, destination writer locks and separately selected SQLite storage.
+Source snapshots never open the writer-lock directory. An unsupported mount only
+under that unused source directory therefore does not block export. Linux
 rejects FUSE (including virtiofs and SSHFS), 9p, NFS and SMB/CIFS. macOS rejects
 non-local mounts and recognized FUSE/virtiofs/9p types. Inspection errors fail
 closed. A nested shared mount cannot inherit approval from a local parent.
@@ -160,7 +194,7 @@ preserved. The filesystem check does not prove absence of older writers, detect
 all layered/exported storage or qualify arbitrary network filesystems. Those
 runtime/storage boundaries remain explicit requirements.
 
-The native lifecycle fixture now also holds a Go snapshot guard while asking
+The native lifecycle fixture now also holds a Go destination publication guard while asking
 Codex to archive, unarchive, resume or delete legacy/paginated history. Each request must
 report an existing writer and preserve both bytes and authoritative selection;
 the same request must succeed after the guard is released. This passes locally
@@ -173,8 +207,8 @@ A separate native revert fixture completes two real turns against the loopback
 provider, reverts before the second, then transfers the resulting history and
 resumes it. It verifies the authoritative rollout changes while the thread ID
 stays the same, and excludes the reverted continuation from both the exported
-stream and the next model request. Snapshot acquisition must report busy while
-the native thread is loaded, before and after revert. The public app-server
+stream and the next model request. Snapshots before and after revert succeed while the native thread remains
+loaded; the latter must select the replacement history. The public app-server
 revert operation requires a loaded thread; requesting it on an unloaded thread
 returns `thread not found`, which is not evidence of writer exclusion. The
 existing resume-while-guarded fixture checks the opposite lock direction.
@@ -425,7 +459,8 @@ so a supported selection can be repaired; a deployed read-only mount is never
 made writable. Direct database-file/sidecar mounts are retained without adding
 unrelated nested workspace mounts. Named-volume subpaths come from Docker's
 `HostConfig.Mounts[].VolumeOptions.Subpath` and are preserved when narrowing.
-Existing Codex mounts remain writable because writer coordination needs them.
+Codex storage retains its deployed access mode, including nested mount semantics.
+Export also accepts read-only storage; import requires a writable destination.
 Bind paths refer to the daemon; user-supplied host source/destination paths never
 become daemon bind mounts. A narrowed volume subdirectory requires Docker's
 `volume-subpath` capability and must be qualified with the supported CLI/daemon.
@@ -453,9 +488,9 @@ and retain this boundary rather than claiming the CLI cannot create a missing
 volume under every external race.
 
 The host/controller and helper share the same transfer core. A producer completes
-inspection before the consumer initializes its destination. The producer must
-release source locks before closing the transport pipe: the receiver requires
-EOF before acquiring destination locks for publication. This supports identical
+inspection before the consumer initializes its destination. The producer closes
+its pinned source descriptors before closing the transport pipe. The receiver
+requires EOF and verified completion before taking destination publication locks. This supports identical
 source/destination storage, including tested root-symlink aliases, without taking
 two incompatible locks on the same file. Shared Docker-volume aliases still need
 real endpoint qualification.
@@ -543,22 +578,23 @@ fails; absence of a result does not prove nothing was written.
 
 ## Remaining consistency questions
 
-Initial indexing and complete-parent promotion now have the explicit protocol
-and native tests above. Runtime qualification still must establish which writers
-and metadata operations share the storage; the history creation version or the
-selected container's stopped state cannot establish that boundary. This protocol
-does not coordinate arbitrary filesystem/database edits or older writers that
-ignore native locks. Whether stopping such writers is an explicit operator
-prerequisite or requires an enforceable maintenance boundary remains unresolved.
-The qualified native lock protocol and refusal of recognized shared-filesystem
-classes do not establish that no other storage client can write.
+The source no longer requires proof that its writers are idle or participating in
+a locking protocol. It relies on saved append-only records, immutable inherited
+boundaries and atomic representation replacement, as used by the qualified Codex
+versions. Concurrent destructive edits cannot be made safe by a read-only copy;
+changed captured bytes fail the export checksum instead of being published.
+Future formats must qualify these properties before being accepted.
 
-Source/destination alias handling releases source locks before destination
-acquisition. Real Linux and Colima tests now qualify the supported native-storage
-cases and explicit refusal on VM-shared FUSE, including nested lock mounts.
-Recovery of recognized abandoned private staging is implemented and tested;
-older or unfamiliar staging requires deliberate inspection and is never
-automatically removed. These results do not qualify every filesystem or writer.
+Destination publication still relies on the supported native lock and metadata
+contracts. Arbitrary programs that ignore those contracts are not coordinated;
+this is not a reason to require closing the source. Recognized shared-filesystem
+classes remain refused, including nested paths. Supporting them would require a
+separate read-consistency and destination-publication qualification.
+
+Source/destination aliases do not contend on source writer locks. Existing
+identical files are reused; independent or longer main histories conflict rather
+than being merged. Recognized abandoned private staging is recovered; older or
+unfamiliar staging is never automatically removed.
 
 ## Qualification status
 
@@ -572,7 +608,8 @@ directions. The ARM Mac uses an emulated AMD64 guest; Linux ARM64 jobs separatel
 qualify the native ARM64 helper. See the [execution ledger](implementation-status.md)
 for exact job links and the supported boundaries.
 
-Completion still requires resolving the unqualified-writer boundary above.
+Live-copy changes require their own native and endpoint qualification; the older
+all-green matrix below predates removal of source locks.
 The broader proposal also retains physical-desktop acceptance and qualification
 of exact final versioned release artifacts. This development result does not
 authorize publication or real-state migration. New Codex versions, metadata
@@ -585,7 +622,8 @@ index overlap. Set
 otherwise the same executable is used at both endpoints. It uses disposable
 homes, no credentials and a loopback mock provider. It checks the core stream and
 publication, picker visibility, selected rollout, actual resumed model context,
-writer exclusion, and re-export of a completed native-written turn. That core-only
+destination writer exclusion, live source copying, and re-export of a completed
+native-written turn while its source remains loaded. That core-only
 invocation does not exercise Docker transport. The separate public Docker/native
 composition in `tests/qualification/codex-sessions.sh` does, using the same pinned
 versions and synthetic conversations. Neither suite uses a real model service or

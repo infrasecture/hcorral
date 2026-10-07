@@ -92,15 +92,14 @@ func transfer(ctx context.Context, containerHome string, options TransferOptions
 	sent := make(chan error, 1)
 	go func() {
 		err := producer(ctx, transferArgs("export", fromHome, fromSQLite, options), nil, writer)
-		// The producer has released its writer locks before EOF is exposed.
-		// Receive requires EOF before publication acquires destination locks:
-		// even source/destination aliases cannot deadlock on our own locks.
+		// Source descriptors close before EOF is exposed. Receive requires
+		// EOF and verified checksums before publication touches live history.
 		writer.CloseWithError(err)
 		sent <- err
 	}()
-	// Source inspection and writer acquisition finish before the first payload
+	// Source selection and snapshot capture finish before the first payload
 	// byte. Do not initialize a destination or start its helper for a source
-	// that is absent, busy or invalid. This buffer remains bounded.
+	// that is absent or invalid. This buffer remains bounded.
 	buffered := bufio.NewReader(reader)
 	if _, err := buffered.Peek(1); err != nil {
 		cancel()

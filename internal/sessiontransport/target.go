@@ -151,6 +151,9 @@ func inspectTarget(container *containerruntime.Container, sqliteHome string, sql
 	if err != nil {
 		return Target{}, err
 	}
+	if sqliteWritable && !mounts[0].RW {
+		return Target{}, errors.New("destination Codex home mount is read-only")
+	}
 	databaseMounts, err := storageMounts(deployed, sqliteHome, false)
 	if err != nil {
 		return Target{}, fmt.Errorf("effective SQLite storage: %w", err)
@@ -215,7 +218,7 @@ func contains(root, child string) bool {
 
 // Reproduce the mount covering the selected home and any mounts below it.
 // Workspace and GUI mounts outside that storage are deliberately not attached.
-func storageMounts(all []containerruntime.Mount, home string, writable bool) ([]containerruntime.Mount, error) {
+func storageMounts(all []containerruntime.Mount, home string, history bool) ([]containerruntime.Mount, error) {
 	var base *containerruntime.Mount
 	seen := make(map[string]bool)
 	for _, mount := range all {
@@ -231,15 +234,12 @@ func storageMounts(all []containerruntime.Mount, home string, writable bool) ([]
 	if base == nil {
 		return nil, errors.New("Codex home is not in persistent mounted storage")
 	}
-	if writable && !base.RW {
-		return nil, errors.New("Codex home mount is read-only; transfer needs its writable writer-lock namespace, including for export")
-	}
 	selected := []containerruntime.Mount{*base}
 	for _, mount := range all {
 		if mount.Destination != base.Destination && contains(home, mount.Destination) {
 			// SQLite uses direct state files and their sidecars. Nested
 			// workspace/GUI mounts below a metadata root are unrelated.
-			if !writable && (path.Dir(mount.Destination) != home || !databaseFile(path.Base(mount.Destination))) {
+			if !history && (path.Dir(mount.Destination) != home || !databaseFile(path.Base(mount.Destination))) {
 				continue
 			}
 			selected = append(selected, mount)

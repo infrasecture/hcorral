@@ -177,10 +177,8 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 				if err := json.Unmarshal(result, &resumed); err != nil || resumed.Thread.ID != id {
 					t.Fatalf("resume returned another thread: %s (%v)", result, err)
 				}
-				// Resuming really owns the thread; copying it concurrently must fail.
-				if _, err := h.Snapshot(context.Background(), id, h, DefaultLimits()); !errors.Is(err, ErrBusy) {
-					t.Fatalf("native Codex resume did not exclude snapshot writer acquisition: %v", err)
-				}
+				// A loaded conversation remains readable without releasing its writer.
+				_ = exported(t, h, id)
 				server.call(t, "turn/start", map[string]any{"threadId": id, "input": []any{map[string]string{"type": "text", "text": "fixture follow-up"}}})
 				select {
 				case body := <-requests:
@@ -200,7 +198,7 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 					t.Fatal("Codex did not send resumed context to the loopback provider")
 				}
 				server.waitNotification(t, "turn/completed")
-				server.finish(t)
+				// Keep the original loaded while the peer imports and resumes it.
 				// Re-export bytes actually persisted by native Codex, including
 				// its new turn context and any legacy-to-paginated migration.
 				// Qualify the reverse direction with a separately selected peer.

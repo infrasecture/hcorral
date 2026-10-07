@@ -343,8 +343,19 @@ func TestTargetRejectsAmbiguousOrUnsupportedStorage(t *testing.T) {
 			case "duplicate mount":
 				c.Mounts = append(c.Mounts, c.Mounts[1])
 			}
-			if _, err := InspectTarget(c); err == nil {
+			if _, err := InspectTargetForTransfer(c, "", "import"); err == nil {
 				t.Fatal("accepted invalid target")
+			}
+			if problem == "readonly" {
+				target, err := InspectTargetForTransfer(c, "", "export")
+				if err != nil {
+					t.Fatalf("refused read-only source: %v", err)
+				}
+				for _, mount := range target.Mounts {
+					if mount.Destination == c.Mounts[1].Destination && mount.RW {
+						t.Fatal("made source storage writable")
+					}
+				}
 			}
 		})
 	}

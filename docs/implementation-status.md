@@ -7,13 +7,18 @@ proposal is complete. All five phases, including session transfer, remain in
 scope. No image publication or migration of existing user state is part of
 development testing.
 
-Latest checked implementation: `2b41cc7`. All 22 jobs in nonpublishing
-[CI run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
-passed, including both Colima platforms and the public transfer/native-resume
-matrix, plus the corrected shared production-image GUI procedure on both Linux
-architectures. Later changes so far are documentation only. Physical-desktop evidence
-and the policy for writers outside the qualified locking contract remain open;
-this is a qualified development candidate, not a completed release.
+The user subsequently required copying conversations while they remain open,
+including running turns, and supplied `ssh isec` for build/test execution.
+The current working change replaces source writer exclusion with a saved-history
+snapshot. Destination publication still refuses conflicting or busy history.
+See the live-copy entry at the end for current evidence; earlier lock-refusal
+entries below describe the superseded implementation.
+
+The last complete four-platform CI matrix before this change was `2b41cc7`:
+all 22 jobs in [run 37573403661](https://github.com/infrasecture/hcorral/actions/runs/37573403661)
+passed. Physical-desktop GUI evidence remains outstanding. The supplied `isec`
+host is a headless Linux ARM64 VM, so its real Docker tests qualify the headless
+runtime and transfer paths, not a physical desktop.
 
 ## Acceptance ledger
 
@@ -33,10 +38,10 @@ this is a qualified development candidate, not a completed release.
 | Mixed launcher/image versions | Native Linux matrix passed | At `f10c95c`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition evidence is recorded separately |
 | State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
 | Session format discovery and dependencies | Qualified format matrix passed on four platforms | `973bfb1` passes rooted inspection, legacy/paginated, archive/Zstandard, authoritative revert selection and exact inherited prefixes against native 0.160.0/0.160.1, including completed-turn re-export |
-| Session consistency and conflicts | Native protocol qualified; unqualified-writer policy remains open | `2b41cc7` passes read-only source selection, native writer guards, prefix growth/promotion, initial-index overlap, SIGKILL recovery and recognized shared-storage refusal across the development matrix; arbitrary or nonparticipating writers are not excluded by those guards |
+| Session consistency and conflicts | Native ARM64 and public Docker live-copy suites passed | No source writer lock or close-first prerequisite. Native ARM64 0.160.0/0.160.1 running-turn tests passed in both directions, including public import/re-export; destination conflict/lock, prefix promotion and recovery protections remain |
 | Session endpoints and helper distribution | Development platform matrix passed | `973bfb1` passes public commands, host path defaults, inspected storage/identity, streaming, numeric ownership and cancellation on both Linux architectures and both Macs; every launcher contains both helper payloads; ARM Mac selects the AMD64 helper for its QEMU guest |
 | Session transfer lifecycle | Supported storage and explicit VM-share refusal passed | `973bfb1` passes native writer exclusion, aliases, connection faults/retry and nested-lock tests on Linux; both Colima jobs verify explicit FUSE refusal while busy and idle without publishing history, plus full daemon-local endpoint composition |
-| Actual Codex resume acceptance | Public Docker matrix passed on four platforms | `973bfb1` passes export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and both Colima hosts; broader runtime policy remains |
+| Actual Codex resume acceptance | Public Docker matrix passed on four platforms | `973bfb1` passes export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and both Colima hosts; live-copy changes require updated qualification |
 
 ## Execution environment
 
@@ -1220,3 +1225,42 @@ and enforced maintenance for unqualified writers has not been answered. A local
 X11 socket alone does not establish a usable physical-desktop Docker test host.
 Those two requirements remain open; final versioned release qualification and
 publication remain separate from this development result.
+
+
+## Live conversation snapshots and supplied ARM64 host (2026-10-07)
+
+The user explicitly rejected closing conversations before copying and supplied
+`ssh isec` for builds/tests. That resolves the old source-writer policy question;
+there is no maintenance-mode or close-first requirement. Source capture now pins
+read-only file descriptors, finds complete saved records within an initial size,
+validates exact inherited boundaries, rechecks authoritative SQLite selection,
+and verifies hashes before publication. Appends and atomic path replacements do
+not redirect or extend the captured snapshot. Pending writes and future records
+remain in the original. Destination locks and non-overwriting conflict rules
+remain separate. Read-only source mounts are accepted.
+
+The test workspace is `/home/emsi/hcorral-qualification.T6BM0C` on `isec`,
+Debian 13 ARM64, Docker 29.6.2 and Compose 5.3.1. It is an Apple-hosted headless
+Linux VM with no graphical session. No existing checkout, real conversation,
+credential file or Kubernetes workload was used as a fixture.
+
+Before the live-copy change, the native ARM64 release artifact, pinned
+0.160.0/0.160.1 native suites, production Codex image with three UID/GID home
+canaries, bounded version probes and full real-Docker suite passed. The first
+Docker run overlapped production-image canaries and failed daemon-wide resource
+assertions plus a missing-object operation. The complete serialized rerun passed;
+do not run those daemon-sensitive suites concurrently.
+
+The live-copy native suite subsequently passed both Codex version directions,
+including held running turns, copied-context resume, continued original turns,
+loaded source re-export and native revert. Initial integration assertions still
+expected source writer refusal and have been corrected to the new requirement;
+they are not evidence of an export failure. The corrected public Docker suite passed, including read-only source export,
+read-only destination refusal, live source ownership, destination exclusion,
+shared-storage behavior and actual running-turn copies in both version directions.
+The final complete source-check script is running separately on `isec`.
+
+A baseline comparison confirmed all pre-existing containers retain their exact
+IDs, image IDs, running state and lifecycle timestamps. All pre-existing images
+and volumes remain. Logs remain under the isolated qualification root. No image
+or release artifact was published.

@@ -364,7 +364,7 @@ func TestReceiveRejectsCorruptUnexpectedAndIncompleteStreams(t *testing.T) {
 }
 
 func TestSourceChangeNeverSendsCompletion(t *testing.T) {
-	for _, kind := range []string{"append", "replace"} {
+	for _, kind := range []string{"truncate", "rewrite"} {
 		t.Run(kind, func(t *testing.T) {
 			src, dst := fixtureHome(t), fixtureHome(t)
 			path := fixturePath(threadA, threadA)
@@ -375,8 +375,8 @@ func TestSourceChangeNeverSendsCompletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer snapshot.Close()
-			if kind == "append" {
-				data = append(data, []byte("{}\n")...)
+			if kind == "truncate" {
+				data = data[:len(data)/2]
 			} else {
 				data = bytes.Replace(data, []byte("original"), []byte("modified"), 1)
 			}

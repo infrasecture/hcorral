@@ -35,15 +35,17 @@ Docker endpoint tests live in `tests/integration`.
 Native fixtures disable plugin startup, which would otherwise fetch unrelated
 catalogs from the network. Each app server owns a separate process group so its
 background children are stopped before disposable homes are removed, including
-after cancellation. Completed-turn fixtures still require graceful server exit
-before inspecting the persisted conversation.
+after cancellation. Live-copy fixtures keep the source loaded during transfer.
+A separate fixture holds a model turn open until after copying, then proves that both the original
+and the resumed copy remain usable.
 
 The native revert fixture also completes two actual turns, reverts before the
 second and transfers the native-created replacement. It requires the removed
 continuation to be absent from both exported bytes and resumed provider context,
-and verifies a loaded native writer excludes snapshot acquisition before and
-after revert. The separate lifecycle cases check archive/unarchive/resume/delete
-refusal while a Go transfer guard is held, then successful retry after release.
+and copies successfully before and after revert while the native source stays
+loaded. The separate lifecycle cases check archive/unarchive/resume/delete
+refusal while a destination publication guard is held, then successful retry
+after release.
 Further native fixtures cover Git metadata, compression and background format
 migration. Unrelated cold/legacy files must be processed to establish that the
 maintenance workers actually ran, while guarded history stays unchanged.
@@ -53,10 +55,13 @@ network filesystem semantics.
 
 The integration runner also calls this script with `HCORRAL_NATIVE_DOCKER=1`,
 an explicit `HCORRAL_SESSION_TEST_IMAGE` and the packaged `HCORRAL_TEST_BINARY`.
-That mode runs `TestCodexResumesNativeHistory` through the public commands:
+That mode runs `TestCodexResumesNativeHistory` and
+`TestNativeCodexCopiesDuringRunningTurn` through the public commands:
 export synthetic container history, resume on the native host, complete a turn
 against the loopback provider, import the native-written result into another
-stopped container, export it again and resume with the peer Codex version.
+stopped container while the source stays loaded, export it again and resume
+with the peer Codex version. The active-turn fixture imports while the source
+provider is held open, then checks the resumed snapshot excludes the later reply.
 Legacy/paginated histories, compressed inherited prefixes, revert selection,
 archive state and existing indexed destinations retain the same context/privacy
 assertions as the core test. Both version directions run. The fixture volumes
@@ -68,14 +73,16 @@ helper. This composition gate requires real Docker execution and is not implied
 by success of the ordinary in-process native suite.
 
 The client-visible bind fixture also holds the native writer lock first on the
-host, then in a container, and requires transfer through the other endpoint to
-refuse the busy conversation on supported native storage. Retry after releasing
-the owner must succeed. On VM-shared FUSE/9p storage, the command must instead
+host, then in a container. Export must succeed while the source writer owns its
+lock; import into that loaded destination must refuse it. Destination retry
+after releasing the owner must succeed. On VM-shared FUSE/9p storage, the command
+must instead
 explicitly refuse the unsupported filesystem both while locked and while idle;
 no new history may be published. The fixture independently checks the actual
 guest filesystem type rather than treating an arbitrary error as success. A
 separate case puts only the writer-lock directory on the shared mount beneath
-a daemon-local home, checking that root-only filesystem validation cannot pass.
+a daemon-local home. Source snapshots do not inspect that unused lock mount;
+destination publication must refuse it on unsupported shared storage.
 An identical-file alias round trip or two containers sharing one guest kernel
 does not prove host/VM lock interoperability. This case must pass before claiming
 that a particular VM file-sharing mount supports concurrent native host writers.

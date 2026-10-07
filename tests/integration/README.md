@@ -18,7 +18,8 @@ through real Docker, for running and stopped workstations and numeric identities
 - Import, repeated export/import and divergent-content refusal.
 - Preservation of authentication, configuration, unrelated conversations,
   workstation identity, lifecycle timestamps, mounts and persistent volumes.
-- Read-only storage refusal and a writer lock owned by a separate container.
+- Read-only source export, read-only destination refusal and copying while a
+  separate container owns the source writer lock.
 - Named-volume subpaths and daemon-side binds, including private propagation
   and nonrecursive mounts. The test owns the daemon paths and never assumes a
   client pathname exists there.
@@ -39,7 +40,8 @@ through real Docker, for running and stopped workstations and numeric identities
   (as local Linux Docker and the Colima fixture do). Supported native storage
   must succeed; unsupported VM-shared FUSE/9p storage must fail explicitly,
   preserving the same original file identity and bytes.
-- Host-versus-container writer exclusion and retry on native shared storage.
+- Live source copying and destination writer exclusion/retry on native shared
+  storage.
   Unsupported VM sharing must be refused even without a writer, in both
   directions, including an import of previously absent history. A separate
   fixture places just the native writer-lock directory on a shared mount under

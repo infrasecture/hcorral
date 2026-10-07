@@ -63,17 +63,18 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.reader.Read(p)
 }
 
-// Export sends exact decoded bytes while retaining Snapshot's writer guards.
+// Export sends exactly the saved prefix captured by Snapshot. Later appends do
+// not change the copy, and a rewritten prefix cannot produce a completed stream.
 // Callers own cancellation of blocking pipes; no background goroutine is left
 // reading an arbitrary io.Reader after cancellation.
 func (s *Snapshot) Export(ctx context.Context, output io.Writer) error {
-	if len(s.Plan.Files) == 0 || len(s.guard.files) == 0 {
+	if len(s.Plan.Files) == 0 || len(s.files) == 0 {
 		return errors.New("session snapshot is empty or closed")
 	}
 	m := manifest{Version: ProtocolVersion, ThreadID: s.Plan.ThreadID}
 	for _, f := range s.Plan.Files {
-		if s.guard.files[f.ThreadID] == nil || s.guard.files[f.RolloutID] == nil {
-			return errors.New("snapshot no longer owns all required writers")
+		if s.files[f.SourcePath] == nil {
+			return errors.New("snapshot no longer owns all required source files")
 		}
 		path, err := publicationPath(f)
 		if err != nil {
@@ -99,7 +100,8 @@ func (s *Snapshot) Export(ctx context.Context, output io.Writer) error {
 		if err := w.WriteHeader(&tar.Header{Name: payloadName(i), Typeflag: tar.TypeReg, Mode: 0o600, Size: f.Bytes, Format: tar.FormatPAX}); err != nil {
 			return err
 		}
-		if err := s.guard.home.copyPayload(ctx, w, f); err != nil {
+		input := io.NewSectionReader(s.files[f.SourcePath], 0, f.stored.Size())
+		if err := copyPayload(ctx, w, f, input, strings.HasSuffix(f.SourcePath, ".zst") && !f.Prefix); err != nil {
 			return err
 		}
 	}
@@ -125,7 +127,11 @@ func (h *Home) copyPayload(ctx context.Context, output io.Writer, file File) err
 		return err
 	}
 	defer f.Close()
-	var input io.Reader = contextReader{ctx, f}
+	return copyPayload(ctx, output, file, f, !file.Prefix)
+}
+
+func copyPayload(ctx context.Context, output io.Writer, file File, input io.Reader, exact bool) error {
+	input = contextReader{ctx, input}
 	if strings.HasSuffix(file.SourcePath, ".zst") {
 		d, err := zstd.NewReader(input, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(256<<20))
 		if err != nil {
@@ -141,7 +147,7 @@ func (h *Home) copyPayload(ctx context.Context, output io.Writer, file File) err
 	if hex.EncodeToString(digest.Sum(nil)) != file.SHA256 {
 		return fmt.Errorf("source rollout changed after inspection: %s", file.SourcePath)
 	}
-	if !file.Prefix {
+	if exact {
 		var extra [1]byte
 		if n, err := input.Read(extra[:]); n != 0 || err != io.EOF {
 			return fmt.Errorf("source rollout length or compressed trailer changed: %s (%v)", file.SourcePath, err)

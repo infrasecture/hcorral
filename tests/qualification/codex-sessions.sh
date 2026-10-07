@@ -70,7 +70,7 @@ if [[ "${HCORRAL_NATIVE_DOCKER:-}" == 1 ]]; then
     echo 'public native qualification requires a launcher and Docker fixture image' >&2
     exit 2
   }
-  test_args=(-test.v -test.timeout=20m -test.run '^TestCodexResumesNativeHistory$')
+  test_args=(-test.v -test.timeout=20m -test.run '^Test(CodexResumesNativeHistory|NativeCodexCopiesDuringRunningTurn)$')
 fi
 for index in 0 1; do
   peer=$((1 - index))

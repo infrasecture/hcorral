@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +13,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// A transfer guard must exclude native operations which move history or change
+// A destination publication guard must exclude native operations which move history or change
 // its selected path, as well as ordinary resumed writers. Each refused request
 // is repeated successfully after release, proving the refusal was the guard,
 // not an invalid fixture or unsupported app-server method.
@@ -38,7 +37,7 @@ func TestNativeCodexLifecycleRespectsTransferLocks(t *testing.T) {
 				writeFixture(t, home, "config.toml", []byte(config))
 				server := startCodex(t, binary, home.Path, workspace)
 				server.call(t, "thread/list", map[string]any{"archived": archived, "limit": 100, "modelProviders": []string{"test-provider"}})
-				guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits())
+				guard, err := nativePublicationGuard(home, threadA)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -130,21 +129,13 @@ func TestNativeCodexRevertAndTransferPreserveSelectedPrefix(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatalf("native history has no authoritative selection: %+v %v", before, err)
 	}
-	if guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits()); !errors.Is(err, ErrBusy) {
-		if guard != nil {
-			guard.Close()
-		}
-		t.Fatalf("native writer allowed a transfer before revert: %v", err)
+	// Snapshot while loaded, then change the selected rollout with native revert.
+	beforeRevert := exported(t, home, threadA)
+	if !bytes.Contains(beforeRevert, []byte("private reverted continuation")) {
+		t.Fatal("live snapshot lost the saved continuation before revert")
 	}
 	params := map[string]any{"threadId": threadA, "beforeTurnId": secondTurn}
 	server.call(t, "thread/revert", params)
-	if guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits()); !errors.Is(err, ErrBusy) {
-		if guard != nil {
-			guard.Close()
-		}
-		t.Fatalf("native writer allowed a transfer after revert: %v", err)
-	}
-	server.finish(t)
 	after, err := home.selection(context.Background(), threadA)
 	if err != nil || after == nil || after.path == before.path {
 		t.Fatalf("native revert did not select a replacement rollout: %+v %v", after, err)
@@ -196,7 +187,7 @@ func TestNativeCodexMetadataRespectsTransferHistory(t *testing.T) {
 			if err != nil || before == nil || before.mode != mode {
 				t.Fatalf("native index did not preserve the fixture's history mode: %+v %v", before, err)
 			}
-			guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits())
+			guard, err := nativePublicationGuard(home, threadA)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,7 +258,7 @@ func TestNativeCodexCompressionRespectsTransferLocks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits())
+	guard, err := nativePublicationGuard(home, threadA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +331,7 @@ func TestNativeCodexMigrationRespectsTransferLocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixture(t, home, "config.toml", append(config, []byte("\n[features]\nbackground_paginated_rollout_migration=true\nlocal_thread_store_compression=false\n")...))
-	guard, err := home.Snapshot(context.Background(), threadA, home, DefaultLimits())
+	guard, err := nativePublicationGuard(home, threadA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,4 +384,15 @@ func TestNativeCodexMigrationRespectsTransferLocks(t *testing.T) {
 		t.Fatal("native migration changed the transferred conversation scope")
 	}
 	published(t, received(t, fixtureHome(t), stream))
+}
+
+// Exercise the locks still needed when publishing to a destination. Source
+// snapshots no longer use this protocol or interfere with native operations.
+func nativePublicationGuard(home *Home, id string) (*writerGuards, error) {
+	guard := &writerGuards{home: home, files: make(map[string]*os.File)}
+	if err := guard.acquire(id); err != nil {
+		guard.Close()
+		return nil, err
+	}
+	return guard, nil
 }

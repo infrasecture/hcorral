@@ -461,10 +461,13 @@ func TestDockerSessionEndpoints(t *testing.T) {
 	}
 }
 
-func TestDockerSessionReadOnlyStorageRefused(t *testing.T) {
+func TestDockerSessionReadOnlySourceCopiedAndDestinationRefused(t *testing.T) {
 	f := newDockerSession(t, "12345", "23456", false, true)
 	before, volumes := f.state(), f.volumes()
-	f.transfer(nil, "export", threadA, filepath.Join(f.root, "destination"), "read-only")
+	f.transfer(nil, "export", threadA, filepath.Join(f.root, "destination"), "")
+	source := filepath.Join(f.root, "source")
+	writeSession(t, source, threadB, "read-only destination must not change")
+	f.transfer(nil, "import", threadB, source, "read-only")
 	f.assertPreserved(before, volumes)
 }
 
@@ -521,7 +524,7 @@ func TestDockerSessionSharedStorageAlias(t *testing.T) {
 	}
 }
 
-func TestDockerSessionSharedStorageWriterRefused(t *testing.T) {
+func TestDockerSessionSharedSourceAndDestinationWriter(t *testing.T) {
 	// A same-kernel container lock does not establish that a VM file-sharing
 	// mount coordinates the native host writer too. Test both directions on
 	// the actual client-visible storage, including Colima's mount driver.
@@ -540,7 +543,8 @@ func TestDockerSessionSharedStorageWriterRefused(t *testing.T) {
 	defer writer.Close()
 	must(t, unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB))
 	destination := filepath.Join(f.root, "host writer protected export")
-	f.transfer(nil, "export", threadA, destination, busyError)
+	// A supported source remains readable while its native host owns it.
+	f.transfer(nil, "export", threadA, destination, storageError)
 	must(t, writer.Close())
 	f.transfer(nil, "export", threadA, destination, storageError)
 	if storageError != "" {
@@ -572,23 +576,16 @@ func TestDockerSessionNestedSharedLocks(t *testing.T) {
 	f := newDockerStorageSession(t, strconv.Itoa(os.Geteuid()), strconv.Itoa(os.Getegid()), false, false, "volume-client-locks")
 	before, volumes := f.state(), f.volumes()
 	storageError := f.sharedStorageError()
-	busyError := "busy"
-	if storageError != "" {
-		busyError = storageError
-	}
 	writer, err := os.OpenFile(filepath.Join(f.daemonSource, threadA+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
 	must(t, err)
 	defer writer.Close()
 	must(t, unix.Flock(int(writer.Fd()), unix.LOCK_EX|unix.LOCK_NB))
 	host := filepath.Join(f.root, "native destination")
-	f.transfer(nil, "export", threadA, host, busyError)
+	// Source snapshots never open the lock directory. A nested unsupported
+	// lock mount is relevant only when publishing at that destination.
+	f.transfer(nil, "export", threadA, host, "")
 	must(t, writer.Close())
-	f.transfer(nil, "export", threadA, host, storageError)
-	if storageError != "" {
-		if _, err := os.Stat(filepath.Join(host, rolloutPath(threadA))); !os.IsNotExist(err) {
-			t.Fatalf("nested shared locks allowed publication: %v", err)
-		}
-	}
+	f.transfer(nil, "export", threadA, host, "")
 	writeSession(t, host, threadB, "new history with nested locks")
 	f.transfer(nil, "import", threadB, host, storageError)
 	if storageError != "" {
@@ -705,11 +702,11 @@ func TestDockerSessionCancellationStopsRemoteHelper(t *testing.T) {
 	f.assertPreserved(before, volumes)
 }
 
-func TestDockerSessionActiveWriterRefused(t *testing.T) {
+func TestDockerSessionActiveSourceCopied(t *testing.T) {
 	f := newDockerSession(t, "501", "20", false, false)
 	before, volumes := f.state(), f.volumes()
 	blocker := f.block("thread-writer-locks/" + threadA + ".lock")
-	f.transfer(nil, "export", threadA, filepath.Join(f.root, "destination"), "busy")
+	f.transfer(nil, "export", threadA, filepath.Join(f.root, "destination"), "")
 	f.docker("stop", "--time", "1", blocker)
 	f.transfer(nil, "export", threadA, filepath.Join(f.root, "destination"), "")
 	f.assertPreserved(before, volumes)

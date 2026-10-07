@@ -313,10 +313,10 @@ Transfer options (before or after the ID/path):
 SQLite discovery uses local base config, local requirements and CODEX_SQLITE_HOME.
 Use explicit SQLite paths for database overrides from project config, selected
 Codex profiles, runtime flags, cloud policy or macOS managed preferences.
-Exit or unload the conversation at both endpoints first; an idle loaded thread
-can still hold its writer lock. The tested native writer protocol is Codex
-0.160.0/0.160.1. Stop unqualified writers sharing either home or volume, including
-other corrals; a stopped selected container alone does not prove quiescence.
+The source conversation can stay open and keep running. Copying captures complete
+saved records at a fixed boundary; pending writes and later messages stay in the
+original. The session ID is preserved. Existing destination conversations are
+never overwritten; a busy destination or divergent history is refused.
 VM-shared and network storage with unqualified locks is refused. Keep container
 history in daemon-local storage and transfer to/from a native local host home.
 Existing divergent history is a conflict; identical content is reused.

@@ -182,18 +182,20 @@ Importing the complete parent later makes that parent independently resumable.
 If Codex indexed a prerequisite, the importer repairs that conversation's selected
 path in a supported destination database while preserving existing names and
 unrelated metadata. This repair currently supports Codex 0.160.0/0.160.1's schema.
-Credentials, configuration, workspace files, database-only
-names/metadata and external resources are excluded. The selected persisted
-conversation must be inactive: exit or unload it at both endpoints before
-transferring. An idle but loaded Codex conversation can still own its writer lock.
-Review its saved workspace and permissions before resuming at the destination.
-Archived sessions stay archived.
+Credentials, configuration, workspace files, database-only names/metadata and
+external resources are excluded. **The source conversation can stay open and keep
+running.** Copying captures the complete records already saved at a fixed boundary;
+it excludes an unfinished final record, pending writes and later messages. The
+original continues independently. The copy keeps its session ID; this is a
+snapshot, not synchronization between two conversations. Existing conversations
+at the destination are never overwritten, and a busy destination is refused.
+Review saved workspace paths and permissions before resuming the copy. Archived
+sessions stay archived.
 
-The tested native writer protocol is Codex 0.160.0/0.160.1. Other processes using
-the same homes or volumes also matter, even when the selected corral is stopped.
-Older or otherwise unqualified writers must be stopped; the launcher cannot
-prove their absence from a rollout version or image label. Shared filesystems
-must coordinate locks between all participating hosts and containers. Transfers
+Native format and destination-lock checks cover Codex 0.160.0/0.160.1. Source
+copying does not acquire Codex's writer lock or require a writable source home.
+Destination publication still requires working locks and a supported database
+layout. Shared filesystems must coordinate those locks across clients. Transfers
 reject FUSE (including virtiofs/SSHFS), 9p, NFS and SMB storage on Linux, and
 non-local or FUSE/virtiofs/9p storage on macOS. In particular, a Mac directory
 bind-mounted into Colima is not supported conversation storage: guest locks

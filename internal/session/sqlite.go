@@ -40,8 +40,8 @@ func isMissing(err error) bool { return errors.Is(err, os.ErrNotExist) }
 
 // selection uses a real read-only SQLite transaction, including committed WAL
 // records. immutable=1 is deliberately absent: it ignores a live database's WAL.
-// The caller must separately coordinate Codex writers for a consistent copy of
-// both the selected database metadata and the files it references.
+// Snapshot pins the referenced files and rechecks selection after capture;
+// destination publication separately coordinates writers before modifying data.
 func (h *Home) selection(ctx context.Context, id string) (*selection, error) {
 	state, err := h.openStateDB(false)
 	if err != nil || state == nil {

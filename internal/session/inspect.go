@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// Plan is an inspection result, not proof that the source is quiescent. The
-// eventual transport must retain compatible writer guards through its copy.
+// Plan describes validated history. Snapshot also pins the source descriptors
+// so an export remains valid across appends and atomic path replacements.
 // Files are ordered prerequisites first, requested conversation last.
 type Plan struct {
 	ThreadID string `json:"thread_id"`
@@ -22,7 +22,7 @@ func (h *Home) Inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 	return h.inspect(ctx, threadID, sqliteHome, limits, nil)
 }
 
-func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, limits Limits, guard func(candidate) error) (Plan, error) {
+func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, limits Limits, capture func(candidate, *HistoryPosition) (File, error)) (Plan, error) {
 	id, err := ParseID(threadID)
 	if err != nil {
 		return Plan{}, err
@@ -104,12 +104,12 @@ func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 		seen[rolloutID] = true
 		var chosen File
 		for i, c := range next {
-			if guard != nil {
-				if err := guard(c); err != nil {
-					return Plan{}, err
-				}
+			var file File
+			if capture != nil {
+				file, err = capture(c, end)
+			} else {
+				file, err = h.readRollout(ctx, c, end, limits)
 			}
-			file, err := h.readRollout(ctx, c, end, limits)
 			if err != nil {
 				return Plan{}, err
 			}
@@ -145,6 +145,17 @@ func (h *Home) inspect(ctx context.Context, threadID string, sqliteHome *Home, l
 	}
 	for i, j := 0, len(result.Files)-1; i < j; i, j = i+1, j-1 {
 		result.Files[i], result.Files[j] = result.Files[j], result.Files[i]
+	}
+	if capture != nil {
+		// A revert or migration can select another rollout while we resolve
+		// its lineage. Never silently combine that new selection with old data.
+		after, err := sqliteHome.selection(ctx, id)
+		if err != nil {
+			return Plan{}, err
+		}
+		if (selected == nil) != (after == nil) || (selected != nil && *selected != *after) {
+			return Plan{}, fmt.Errorf("conversation selection changed during snapshot; retry the copy")
+		}
 	}
 	return result, nil
 }

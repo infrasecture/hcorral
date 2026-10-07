@@ -370,7 +370,7 @@ func TestHomeRootSymlinkAndCancellation(t *testing.T) {
 	}
 }
 
-func TestSnapshotOwnsAllRequiredWriterLocks(t *testing.T) {
+func TestSnapshotDoesNotBlockSourceWriters(t *testing.T) {
 	h := fixtureHome(t)
 	parent := fixtureBytes(t, threadA, "paginated", nil, "parent")
 	writeFixture(t, h, fixturePath(threadA, rolloutA), parent)
@@ -383,8 +383,8 @@ func TestSnapshotOwnsAllRequiredWriterLocks(t *testing.T) {
 	defer snapshot.Close()
 	for _, id := range []string{threadA, threadB, rolloutA} {
 		other := &writerGuards{home: h, files: make(map[string]*os.File)}
-		if err := other.acquire(id); !errors.Is(err, ErrBusy) {
-			t.Fatalf("%s was not owned: %v", id, err)
+		if err := other.acquire(id); err != nil {
+			t.Fatalf("snapshot blocked %s: %v", id, err)
 		}
 		other.Close()
 	}
@@ -401,16 +401,18 @@ func TestSnapshotOwnsAllRequiredWriterLocks(t *testing.T) {
 	second.Close()
 }
 
-func TestSnapshotRefusesActiveSourceAndReleasesOnFailure(t *testing.T) {
+func TestSnapshotAllowsActiveSourceAndReleasesOnFailure(t *testing.T) {
 	h := fixtureHome(t)
 	writeFixture(t, h, fixturePath(threadA, threadA), fixtureBytes(t, threadA, "legacy", nil, "test"))
 	writer := &writerGuards{home: h, files: make(map[string]*os.File)}
 	if err := writer.acquire(threadA); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.Snapshot(context.Background(), threadA, h, DefaultLimits()); !errors.Is(err, ErrBusy) {
-		t.Fatalf("got %v", err)
+	snapshot, err := h.Snapshot(context.Background(), threadA, h, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
 	}
+	snapshot.Close()
 	writer.Close()
 	if _, err := h.Snapshot(context.Background(), threadB, h, DefaultLimits()); err == nil {
 		t.Fatal("accepted missing thread")

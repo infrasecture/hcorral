@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -66,13 +67,29 @@ func (h *Home) readRollout(ctx context.Context, c candidate, end *HistoryPositio
 		return File{}, err
 	}
 	defer f.Close()
+	return readRolloutFile(ctx, f, c, end, limits, false)
+}
+
+func readRolloutFile(ctx context.Context, f *os.File, c candidate, end *HistoryPosition, limits Limits, snapshot bool) (File, error) {
 	before, err := f.Stat()
 	if err != nil {
 		return File{}, err
 	}
 	var input io.Reader = f
+	if snapshot {
+		// Bound the read even while Codex appends. A pinned compressed file
+		// is an immutable representation and must have a valid trailer.
+		size := before.Size()
+		if end == nil && !strings.HasSuffix(c.path, ".zst") {
+			size, err = savedRecordBoundary(ctx, f, size, limits.RecordBytes)
+			if err != nil {
+				return File{}, fmt.Errorf("capture rollout %s: %w", c.path, err)
+			}
+		}
+		input = io.NewSectionReader(f, 0, size)
+	}
 	if strings.HasSuffix(c.path, ".zst") {
-		decoder, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(256<<20))
+		decoder, err := zstd.NewReader(input, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true), zstd.WithDecoderMaxMemory(256<<20))
 		if err != nil {
 			return File{}, fmt.Errorf("open compressed rollout %s: %w", c.path, err)
 		}
@@ -160,12 +177,41 @@ func (h *Home) readRollout(ctx context.Context, c candidate, end *HistoryPositio
 	if err != nil {
 		return File{}, err
 	}
-	if before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+	if !snapshot && (before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime())) {
 		return File{}, fmt.Errorf("rollout changed during inspection: %s", c.path)
 	}
 	result.SHA256 = hex.EncodeToString(digest.Sum(nil))
 	result.lastOrdinal = previous
 	return result, nil
+}
+
+// Codex appends newline-terminated records, but write_all may be in progress.
+// Find the final complete record within the size captured before reading. Do
+// not parse, copy, or wait for the unfinished tail, and bound the backward scan.
+func savedRecordBoundary(ctx context.Context, f *os.File, size, maxRecord int64) (int64, error) {
+	var buffer [64 << 10]byte
+	remaining := size
+	for remaining > 0 {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		count := min(remaining, int64(len(buffer)))
+		if _, err := f.ReadAt(buffer[:count], remaining-count); err != nil {
+			return 0, err
+		}
+		if index := bytes.LastIndexByte(buffer[:count], '\n'); index >= 0 {
+			boundary := remaining - count + int64(index) + 1
+			if size-boundary > maxRecord {
+				return 0, errors.New("unfinished record exceeds configured limit")
+			}
+			return boundary, nil
+		}
+		remaining -= count
+		if size-remaining > maxRecord {
+			return 0, errors.New("unfinished record exceeds configured limit")
+		}
+	}
+	return 0, errors.New("conversation has no complete saved records yet; retry the copy")
 }
 
 func validateMetadata(meta *Metadata, c candidate) error {
