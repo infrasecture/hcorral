@@ -329,6 +329,14 @@ durability rules require the filesystem to honor file and directory syncs and
 the advisory locks used by the protocol. Arbitrary external edits to coordination
 files are outside the cooperating-writer contract.
 
+Once close or recovery holds the coordinator and has established ownership,
+it closes the stage lease before unlinking it. The coordinator still excludes
+other cleanup operations. Keeping that descriptor open through unlink can leave
+a FUSE hidden file and prevent directory removal; see the documented
+[libfuse open-file deletion behavior](https://libfuse.github.io/doxygen/structfuse__config.html).
+This ordering change does not establish cross-host lock coherence for arbitrary
+shared filesystems; that remains a separate storage qualification requirement.
+
 Recovery discards incomplete private staging rather than trusting it as a source
 of resumable data. It never removes a published path, including another hard link
 to a staged payload. Tests kill real processes during creation, after staging,

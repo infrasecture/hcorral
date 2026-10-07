@@ -116,10 +116,21 @@ func (in *Incoming) Close() error {
 	defer cancel()
 	coordination, result := in.home.stagingCoordination(ctx)
 	if result == nil {
-		result = in.home.removeStaging(ctx, in.stage, in.name)
+		// The coordinator now excludes recovery, so the per-stage lease can
+		// close before unlink. FUSE may retain an open unlinked lease as a
+		// hidden file, preventing removal of the otherwise empty directory.
+		result = in.lease.Close()
+		in.lease = nil
+		if result == nil {
+			result = in.home.removeStaging(ctx, in.stage, in.name)
+		}
 		result = errors.Join(result, coordination.Close())
 	}
-	result = errors.Join(result, in.lease.Close(), in.stage.Close())
+	if in.lease != nil {
+		result = errors.Join(result, in.lease.Close())
+		in.lease = nil
+	}
+	result = errors.Join(result, in.stage.Close())
 	in.stage = nil
 	return result
 }

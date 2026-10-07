@@ -801,3 +801,28 @@ The contract fixture renders from actual test inputs, verifies both URL/digest
 pairs, and rejects invalid versions or a missing archive without changing prior
 output. Actual Homebrew execution remains pending the next native platform run;
 the live `f10c95c` CI run predates this addition and has not been canceled.
+
+## ARM Colima cleanup result and correction: 2026-10-07
+
+The ARM macOS job [112597570438](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570438)
+at `f10c95c` successfully started its emulated x86_64 Colima guest. It passed
+lifecycle, refresh, runtime safety, all three UID/GID endpoint pairs and path
+defaults, mount variants, transport faults/retry, cancellation and writer refusal.
+The shared client/daemon storage-alias import returned a confirmed identical
+conversation, then failed cleanup with `directory not empty`. The job failed;
+the following public Docker/native-resume composition did not run. Intel was
+still active when this result was inspected.
+
+The cleanup code unlinked its `.lease` while retaining its open descriptor.
+The ARM guest logs show SSHFS setup, and libfuse documents that deleting an open
+file can retain a hidden file until close. That is consistent with the observed
+empty-directory failure; the job did not capture the hidden directory entry.
+Normal close and orphan recovery now close the stage lease while retaining the
+coordinator, before unlinking. Other cooperating cleanup operations remain
+excluded. Unknown staging and published history retain their existing safeguards.
+
+Full Go tests and vet pass, as do three race-enabled repetitions of the focused
+recovery/publication tests, including actual SIGKILL boundaries. A local syscall
+trace confirms lease descriptors close before unlink in both recovery and normal
+close. The real ARM Colima regression still requires the next run; this is not
+yet a successful macOS endpoint or general shared-filesystem qualification.

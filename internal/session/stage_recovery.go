@@ -111,7 +111,8 @@ func (h *Home) stagingEntries(ctx context.Context, visit func(os.DirEntry) error
 
 var errUnfamiliarStaging = errors.New("preserved unfamiliar transfer staging")
 
-// The caller holds the coordinator and this stage's lease (if one exists).
+// The caller holds the coordinator and has established ownership or acquired
+// an abandoned stage's lease, then closed it while still holding coordination.
 // Validate the entire flat layout before unlinking anything. A staged hard link
 // can already have a published sibling; unlinking only this name preserves it.
 func (h *Home) removeStaging(ctx context.Context, stage *Home, name string) error {
@@ -191,7 +192,7 @@ func (h *Home) removeStaging(ctx context.Context, stage *Home, name string) erro
 		return err
 	}
 	if err := unix.Unlinkat(int(h.dir.Fd()), name, unix.AT_REMOVEDIR); err != nil {
-		return err
+		return fmt.Errorf("remove transfer staging directory: %w", err)
 	}
 	return h.dir.Sync()
 }
@@ -238,7 +239,11 @@ func (h *Home) recoverStage(ctx context.Context, name string) error {
 		return nil // Symlinks, special files and inaccessible leases are preserved.
 	}
 	if lease != nil {
-		defer lease.Close()
+		defer func() {
+			if lease != nil {
+				lease.Close()
+			}
+		}()
 		info, err := lease.Stat()
 		if err != nil {
 			return err
@@ -250,6 +255,13 @@ func (h *Home) recoverStage(ctx context.Context, name string) error {
 			if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
 				return nil
 			}
+			return err
+		}
+		// Recovery has proved the prior owner is gone. Keep the coordinator
+		// held, but close the file before unlink so FUSE need not hide it.
+		err = lease.Close()
+		lease = nil
+		if err != nil {
 			return err
 		}
 	}
