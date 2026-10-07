@@ -624,3 +624,26 @@ lost-completion/retry and shared-storage-alias cases passing on both native
 architectures. This is real daemon/helper evidence for those new cases, not
 merely a successful proxy unit test. Intel Colima and the mixed-version jobs
 were still running at this checkpoint; the run is not a successful full matrix.
+
+## Native lifecycle guards and ARM qualification results: 2026-10-07
+
+The native writer-guard fixture now exercises archive, unarchive and resume
+against both legacy and paginated histories. While Go holds the selected
+conversation's snapshot lock, native Codex must reject the operation as busy
+without changing history bytes or authoritative selection. After release, the
+same operation must succeed. All six cases pass locally with 0.160.1 and with
+0.160.0 under the race detector. Go tests/vet pass. The new cases join the
+existing native platform runner, but other platforms require their next result;
+older runtimes and other metadata/maintenance operations remain separate gates.
+
+The ARM mixed-version job at `43df6a4` passed all four actual launcher/image
+combinations, retained/reopened PTY reports, and the hosted Xvfb/Weston/XWayland
+protocol suite as UID 1001. It then reached the myCodex transition for the first
+time. Legacy refusal, copied-state preservation, shell customization and native
+resume passed, as did public export followed by native host resume. The receiver
+fixture failed before import because a fresh home does not yet contain `.codex`.
+The fixture now creates its private configuration directory as the receiving
+runtime UID before writing test configuration. Its stopped import, subsequent
+resume, return to myCodex and reuse scenario still require execution. ShellCheck
+and Bash syntax pass for that correction; the failed job is not full transition
+qualification.

@@ -125,6 +125,15 @@ Rust currently implements its Unix file locks with `flock`, matching the Go
 guards; keep this interoperability check in runtime qualification rather than
 assuming it permanently. See [Rust File::try_lock](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock).
 
+The native lifecycle fixture now also holds a Go snapshot guard while asking
+Codex to archive, unarchive or resume legacy/paginated history. Each request must
+report an existing writer and preserve both bytes and authoritative selection;
+the same request must succeed after the guard is released. This passes locally
+with native 0.160.0 and 0.160.1 and is included in the platform qualification
+runner. It establishes those operations for that runtime pair, not interoperability
+with older writers, arbitrary editors, every maintenance operation or an
+unqualified network filesystem.
+
 ## Selective inherited history
 
 The inspector reads only the exact prefix required from each ancestor. It

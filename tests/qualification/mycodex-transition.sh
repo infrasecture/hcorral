@@ -105,7 +105,8 @@ public_round_trip() {
     sleep 0.1
   done
   if [[ "$ready" != 1 ]]; then docker logs "$receiver" >&2; exit 1; fi
-  docker exec -i --user "$uid:$gid" "$receiver" sh -c 'cat >/home/transition/.codex/config.toml' <"$host_home/config.toml"
+  docker exec -i --user "$uid:$gid" "$receiver" sh -c \
+    'umask 077; mkdir -p /home/transition/.codex && cat >/home/transition/.codex/config.toml' <"$host_home/config.toml"
   "$binary" --project-name "$receiver" --state-volume "$receiver_volume" stop
   stopped="$(container_snapshot "$receiver")"
   "$binary" --project-name "$receiver" --state-volume "$receiver_volume" session import "$thread" "$host_home"

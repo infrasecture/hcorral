@@ -465,6 +465,15 @@ func TestNativeCodexSQLiteLocationMatchesDiscovery(t *testing.T) {
 
 func (s *codexServer) call(t *testing.T, method string, params any) json.RawMessage {
 	t.Helper()
+	result, rpcError := s.request(t, method, params)
+	if len(rpcError) != 0 {
+		t.Fatalf("%s: %s", method, rpcError)
+	}
+	return result
+}
+
+func (s *codexServer) request(t *testing.T, method string, params any) (json.RawMessage, json.RawMessage) {
+	t.Helper()
 	s.sequence++
 	if err := json.NewEncoder(s.stdin).Encode(map[string]any{"id": s.sequence, "method": method, "params": params}); err != nil {
 		t.Fatal(err)
@@ -485,13 +494,10 @@ func (s *codexServer) call(t *testing.T, method string, params any) json.RawMess
 			}
 			continue
 		}
-		if len(envelope.Error) != 0 {
-			t.Fatalf("%s: %s", method, envelope.Error)
-		}
-		return envelope.Result
+		return envelope.Result, envelope.Error
 	}
 	t.Fatalf("Codex exited while handling %s: %v", method, s.scanner.Err())
-	return nil
+	return nil, nil
 }
 
 func (s *codexServer) waitNotification(t *testing.T, method string) {
