@@ -1052,3 +1052,11 @@ cross-compile for both Macs; endpoint executables cross-compile for both Macs
 and Linux ARM64. These local results do not qualify the new refusal on Colima.
 The next CI run must execute it and the outstanding public composition, together
 with the earlier required-render/optional-diagnostic timeout correction.
+
+Nonpublishing [CI run 37569071931](https://github.com/infrasecture/hcorral/actions/runs/37569071931)
+tests candidate `973bfb1` on `agent/go-successor`. Its source, four-target build
+and six image jobs were verified running after dispatch. No older run was
+cancelled: both previous runs were terminal before dispatch. Their evidence is
+recorded above, and the completed temporary qualification branch
+`agent/qualify-go-successor-4cb9129` has been removed. The repository still has
+no registered self-hosted runner for the separate physical-desktop gate.
