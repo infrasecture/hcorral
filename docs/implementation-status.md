@@ -28,7 +28,7 @@ development testing.
 | Session consistency and conflicts | Core, extension, promotion, index repair and staging recovery implemented; qualification remains | Read-only source selection; writer guards; compatible prefix growth/promotion; native initial-index overlap; actual SIGKILL recovery preserves active staging and published history; broader writer/runtime/filesystem qualification remains |
 | Session endpoints and helper distribution | Implemented; broader qualification pending | Public commands, base file/env SQLite discovery with explicit overrides, inspected storage/identity, streaming and bundled helpers; all four development launchers contain both exact payloads; native endpoint/package matrix remains |
 | Session transfer lifecycle | Native Linux passed; macOS exposed unsafe shared locking | `4cb9129` passes both Mac endpoint matrices except host/guest writer exclusion; unsupported shared-storage refusal and its nested-lock regression now require real qualification; named-volume public Docker/native composition remains |
-| Actual Codex resume acceptance | Native Linux public Docker matrix passed; broader qualification remains | `9a71bca` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures and Compose variants; macOS composition remains |
+| Actual Codex resume acceptance | Linux and Intel macOS public Docker matrices passed; ARM macOS pending | `973bfb1` passes public export, native resume/completed turn, stopped import/re-export and peer resume in both 0.160.0/0.160.1 directions, fresh/initialized homes, both Linux architectures/Compose variants and Intel Colima; ARM Colima and broader runtime policy remain |
 
 ## Execution environment
 
@@ -1083,3 +1083,29 @@ The aggregate run is therefore not yet qualified.
 The published release list still contains only preview `v0.1.0`. README now
 distinguishes those installation examples from this branch's unreleased
 behavior, including the separate image update needed for shell initialization.
+
+## Intel Colima composition verified: 2026-10-07
+
+The [Intel macOS job](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111111)
+at `973bfb1` completed successfully. Its real shared-storage fixtures observed
+filesystem magic `0x65735546` and verified explicit refusal for aliases, active
+writers and nested writer locks, including refusal while idle and preservation
+of existing history. All supported named-volume and daemon-local bind endpoint,
+ownership, lifecycle, cancellation and connection-fault cases passed.
+
+The subsequent public Docker/native-resume composition also passed all ten
+history/destination cases in each Codex version direction. The actual workflow
+exports container history, resumes and completes a turn on native macOS,
+imports into a stopped receiver, exports again and resumes with the peer
+version. Legacy, paginated, compressed inherited, reverted and archived-reverted
+histories passed with fresh and already indexed destinations. This closes the
+previously unexecuted Intel composition gate; the ARM Colima job remains live.
+
+Both [AMD64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111281)
+and [ARM64](https://github.com/infrasecture/hcorral/actions/runs/37569071931/job/112624111073)
+mixed-version jobs also completed successfully. Their logs confirm all four
+old/new launcher-image combinations, bounded production-image probes, hosted
+X11/Wayland/XWayland protocols and both copied/reused-state myCodex transitions,
+including native resume and return through the original launcher. Hosted GUI
+protocol results still do not establish physical-desktop acceptance. The
+supported writer/runtime boundary and exact final release gates remain open.
