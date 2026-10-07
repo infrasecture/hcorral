@@ -392,7 +392,7 @@ func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []
 			stdin.Close()
 			cancel()
 			cmd.Wait()
-			if err := stopNativeFixtureGroup(cmd); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			if err := cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				t.Errorf("stop native fixture children: %v", err)
 			}
 		}
@@ -532,7 +532,7 @@ func (s *codexServer) finish(t *testing.T) {
 	err := s.cmd.Wait()
 	s.cancel()
 	s.finished = true
-	if cleanupErr := stopNativeFixtureGroup(s.cmd); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrProcessDone) {
+	if cleanupErr := s.cmd.Cancel(); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrProcessDone) {
 		t.Errorf("stop native fixture children: %v", cleanupErr)
 	}
 	if err != nil {

@@ -20,7 +20,7 @@ development testing.
 | Numeric process identity and groups | Native Linux launcher/image checks passed; macOS pending | `9a71bca` compares packaged UID/GID/groups with the actual invoking process on both Linux architectures; all six images pass actual group-based file access and denial; static unknown-account cases also pass |
 | Bounded probes and readiness | Native Linux production-image checks passed | `f10c95c` passes blocked login/executable probes, runtime UID, container-side monitor/child reaping, bundled-version fallback and recovery on AMD64/ARM64 |
 | Read-only discovery | Implemented | Separate GUI Discover/Prepare paths; credential-inode preservation test; Compose cache effects documented |
-| Static binaries and packages on four targets | Partial | `9a71bca` builds all four targets with both Linux helpers and passes both Linux package jobs; real Homebrew audit exposed a redundant-version error, corrected at `6a69d1a`; native macOS installation and complete runtime qualification remain |
+| Static binaries and packages on four targets | Package execution passed; complete runtime qualification remains | `df30f26` builds all four targets with both Linux helpers, passes both Linux package jobs and both macOS Homebrew audit/version/install/exact-binary checks; remaining macOS endpoint checks and exact final artifacts still need qualification |
 | Manual image build workflow | Preserved; publication not performed | Separate native architecture workflow documented; builder Python dependency distinguished from launcher prerequisites; publication contract tests pass |
 | Mixed launcher/image versions | Native Linux matrix passed | At `f10c95c`, both architectures pass all four actual v0.1.0/current launcher and baseline/current recipe combinations, plus three-UID shared homes; transition evidence is recorded separately |
 | State-preserving myCodex transition | Native Linux named-volume matrix passed | `f10c95c` passes original launcher/recipe, copied/reused homes, preserved identity/metadata, native picker/resume, stopped import and return to myCodex on AMD64/ARM64 |
@@ -949,3 +949,24 @@ restarted or replaced while active. README/help now make the exit-or-unload
 prerequisite and qualified writer versions explicit; that guidance does not
 claim automatic detection of every process sharing a home or close the remaining
 runtime/storage boundary requirement.
+
+## Idempotent native process cleanup: 2026-10-07
+
+At `df30f26`, both macOS Homebrew gates passed with the intended `0.0.0`
+package version. Intel passed the full native Codex suite and entered its Colima
+step. ARM's native conversation cases passed, but the newly added child-cleanup
+regression failed after cancellation: its second process-group kill returned
+`EPERM`. The ARM job failed and did not reach Colima; the Intel job was still
+running when inspected.
+
+Darwin's [process-group signaling implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+filters zombie members and can return `EPERM` when no signalable member remains.
+Cancellation and post-Wait cleanup now share one idempotent kill operation,
+retaining its original result. This avoids signaling the already-terminated
+group again without treating arbitrary permission errors as success. The
+regression still requires the background child's inherited pipe to close.
+
+One hundred race-enabled repetitions of the child-cleanup cases pass locally.
+Session tests and vet pass, and both full native Codex version directions pass
+with the revised cleanup. Native macOS execution of this correction remains
+required; the successful Linux checks do not substitute for it.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -18,16 +19,21 @@ import (
 func nativeFixtureCommand(ctx context.Context, binary string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return stopNativeFixtureGroup(cmd) }
-	return cmd
-}
-
-func stopNativeFixtureGroup(cmd *exec.Cmd) error {
-	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return os.ErrProcessDone
+	// Cancellation and post-Wait cleanup can both reach this path. Signal
+	// the owned group once: macOS can return EPERM on a second kill while
+	// already-terminated children await reaping by their new parent.
+	var stopped sync.Once
+	var stopErr error
+	cmd.Cancel = func() error {
+		stopped.Do(func() {
+			stopErr = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if errors.Is(stopErr, syscall.ESRCH) {
+				stopErr = os.ErrProcessDone
+			}
+		})
+		return stopErr
 	}
-	return err
+	return cmd
 }
 
 func TestNativeFixtureStopsBackgroundChildren(t *testing.T) {
@@ -56,7 +62,7 @@ func TestNativeFixtureStopsBackgroundChildren(t *testing.T) {
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}
-			defer stopNativeFixtureGroup(cmd)
+			defer cmd.Cancel()
 			writer.Close()
 			if err := reader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				t.Fatal(err)
@@ -74,7 +80,7 @@ func TestNativeFixtureStopsBackgroundChildren(t *testing.T) {
 			if !cancelProcess && err != nil {
 				t.Fatalf("parent did not exit gracefully: %v", err)
 			}
-			if err := stopNativeFixtureGroup(cmd); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			if err := cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				t.Fatal(err)
 			}
 			if _, err := output.ReadByte(); !errors.Is(err, io.EOF) {
