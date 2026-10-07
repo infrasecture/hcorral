@@ -837,3 +837,24 @@ this property; real Linux and Colima execution is required before claiming it.
 The endpoint package tests and vet pass, and its acceptance executable builds
 with cgo disabled for all four launcher platforms. The actual new lock case has
 not yet run against Docker or Colima.
+
+## Updated platform matrix and Homebrew audit: 2026-10-07
+
+The original `f10c95c` run is terminal. Its Intel job
+[112597570541](https://github.com/infrasecture/hcorral/actions/runs/37560678376/job/112597570541)
+passed all lifecycle and endpoint cases, including storage aliases, faults,
+cancellation and writer refusal. It then failed resolving `github.com` while
+downloading Codex again for public Docker/native-resume composition. That suite
+did not execute; successful preceding endpoint tests are not a composition pass.
+
+Nonpublishing [CI run 37563361356](https://github.com/infrasecture/hcorral/actions/runs/37563361356)
+tests `9a71bca` on temporary branch `agent/qualify-go-successor-9a71bca`, preserving
+the then-active older Intel job. All six native image jobs passed, covering the
+new actual supplementary-group read/write and denied-access assertions for Codex,
+Claude and Pi on AMD64/ARM64. The source and release-build jobs also passed.
+
+The new ARM Homebrew gate reached real strict audit and rejected the formula's
+explicit `version`, which is redundant with the release archive URL. Formula
+generation now omits that field and retains versioned URLs, archive hashes and
+the executable-version assertion. Local shell and release-contract checks pass;
+native Homebrew audit/install still needs another run. No release was published.

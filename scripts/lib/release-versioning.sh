@@ -30,7 +30,6 @@ hcorral_write_homebrew_formula() {
 class Hcorral < Formula
   desc "Persistent AI development workstations in Docker"
   homepage "https://github.com/infrasecture/hcorral"
-  version "${pkg_version}"
   license "AGPL-3.0-or-later"
   depends_on :macos
 
