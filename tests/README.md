@@ -69,8 +69,10 @@ dependent jobs must also be reported when assessing CI speed.
 
 Go module/build caches are shared between commands; test results are not cached
 (`-count=1`). CI retains those caches between runs. Image build contexts exclude
-Git metadata, distribution artifacts and compilation caches. Historical fixture
-recipes remain pinned; cache reuse never substitutes a moving historical tag.
+Git metadata, distribution artifacts and compilation caches. Historical fixtures
+use pinned published image digests and validate source revision, version and
+architecture; they are downloaded, not rebuilt. Only the current recipe is
+built. Cache reuse never substitutes a moving tag.
 
 Image publication retains its native canaries on both architectures. Release
 preparation builds one versioned artifact set; platform qualification consumes

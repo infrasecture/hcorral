@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build each compatibility fixture once, then run independently named contracts.
+# Prepare each compatibility fixture once, then run independently named contracts.
 set -Eeuo pipefail
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/lib/hcorral-image.sh
@@ -7,16 +7,15 @@ source "$root/scripts/lib/hcorral-image.sh"
 arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 binary="${HCORRAL_TEST_BINARY:-$root/dist/bin/hcorral-linux-$arch}"
 [[ "$(uname -s)" == Linux && -x "$binary" ]]
-baseline=18fb3944f9b04758b920b1e9415fd017eff8cf51
+baseline=1f66be8c03a4ec6028d84e10278d32f44e91136a
+published_old=ghcr.io/infrasecture/hcorral-codex@sha256:e38378c130253d07f79c874474b1a599e251e471a66f4bcfd1554e64ec2550b7
 test_root="$(mktemp -d /tmp/hcorral-mixed.XXXXXX)"
-baseline_root="$test_root/baseline"
 old_repo="hcorral-compat-old-$$"
 new_repo="hcorral-compat-new-$$"
 old_image="$old_repo:fixture"
 new_image="$new_repo:fixture"
 cleanup() {
   docker image rm "$old_image" "$new_image" >/dev/null 2>&1 || true
-  git -C "$root" worktree remove --force "$baseline_root" >/dev/null 2>&1 || true
   rm -rf -- "$test_root"
 }
 trap cleanup EXIT
@@ -59,10 +58,13 @@ tar -xzf "$test_root/$archive" -C "$test_root" hcorral
 old_binary="$test_root/hcorral"
 "$old_binary" version
 
-# Build the historical recipe itself, retaining real provenance. No --push or
-# moving alias is used; the repositories below exist only on the test daemon.
-git -C "$root" worktree add --detach "$baseline_root" "$baseline"
-step historical-image build_fixture "$baseline_root" "$old_image" 0.160.0
+# Historical artifacts are immutable inputs, like the old launcher. Download
+# their exact published bytes instead of reinstalling an entire workstation on
+# every run. Keep the digest in Docker's cache; remove only our private tag.
+step historical-image docker pull "$published_old"
+docker image tag "$published_old" "$old_image"
+[[ "$(docker image inspect --format '{{.Architecture}}' "$old_image")" == "$arch" ]]
+[[ "$(docker run --rm --entrypoint codex "$old_image" --version)" == 'codex-cli 0.149.1' ]]
 step current-image build_fixture "$root" "$new_image" 0.160.1
 [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$old_image")" == "$baseline" ]]
 docker run --rm --entrypoint /bin/bash "$old_image" -c 'test ! -e /etc/hcorral/bashrc'

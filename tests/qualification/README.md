@@ -78,9 +78,11 @@ alone do not establish that Homebrew installation passed on either architecture.
 `compatibility.sh` prepares the pinned old/new artifacts once. Its separately
 reported shared-home, launcher/image, version-probe, hosted-GUI and migration
 steps consume those fixtures. `mixed-versions.sh` qualifies the actual published v0.1.0 launcher against the
-new launcher artifact, each with an image built from the pre-parity recipe at
-`18fb3944f9b04758b920b1e9415fd017eff8cf51` and the current recipe. The historical
-image contains pinned Codex 0.160.0; the current image uses pinned 0.160.1.
+new launcher artifact, each with the published pre-parity image from
+`1f66be8c03a4ec6028d84e10278d32f44e91136a` (Codex 0.149.1) and an image built
+from the current recipe with pinned Codex 0.160.1. Historical images are pinned
+by multi-platform manifest digest, with architecture, version and source labels
+checked after pulling. They are not rebuilt for each test run.
 The old launcher archive and Codex archives are checksum-verified before use.
 Fixture preparation does not rerun image publication canaries: the separate
 image jobs own those matrices. Three UID/GID pairs share a fresh home
@@ -111,8 +113,8 @@ the host process on both Linux architectures. This supplements the
 static Linux unknown-account unit test and image account-mapping matrix.
 
 The same job runs `mycodex-transition.sh` against its newly built Codex image.
-It fetches immutable myCodex source and builds the real historical image recipe
-with Codex 0.160.0, disabling optional unrelated agents. The original launcher
+It fetches immutable myCodex launcher source and the published image from that
+exact source baseline, pinned by digest with Codex 0.160.1. The original launcher
 creates/removes the old project; hcorral creates a separate project with an
 explicitly copied or reused state volume. It checks refusal while the old
 container exists, startup customization, numeric ownership, symlinks, volume
