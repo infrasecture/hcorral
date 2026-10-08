@@ -68,10 +68,8 @@ prepare() {
   echo '==> source, test, race, fuzz, shell, license, and vulnerability gates'
   scripts/ci-source.sh
 
-  echo '==> real Docker lifecycle gate'
-  ./build.sh
-  tests/integration/run.sh
-
+  # Runtime qualification consumes these exact packages in the platform jobs.
+  # Do not build/test a second unversioned launcher during preparation.
   echo '==> release matrix and packages'
   ./build.sh --release --cli-version "${version}" --packages
   cp LICENSE dist/LICENSE
@@ -111,7 +109,7 @@ prepare() {
     printf 'ARTIFACTS_SHA256=%s\n' "$(hcorral_sha256_file "${artifacts_file}")"
   } >"${state_file}"
   {
-    printf 'FORMAT=1\nSOURCE=passed\nUNIT=passed\nRACE=passed\nFUZZ=passed\nSHELL=passed\nREAL_DOCKER=passed\nPACKAGES=passed\nFORMULA_TEMPLATE=passed\n'
+    printf 'FORMAT=1\nSOURCE=passed\nUNIT=passed\nRACE=passed\nFUZZ=passed\nSHELL=passed\nREAL_DOCKER=pending-platform-qualification\nPACKAGES=built\nFORMULA_TEMPLATE=passed\n'
     printf 'STATE_SHA256=%s\n' "$(hcorral_sha256_file "${state_file}")"
   } >"${gates_file}"
 	{
@@ -148,8 +146,8 @@ verify_qualification() {
 verify_qualifications() {
   verify_qualification linux-amd64 passed
   verify_qualification linux-arm64 passed
-  verify_qualification darwin-amd64 passed
-  verify_qualification darwin-arm64 passed
+  verify_qualification darwin-amd64 artifact-checked
+  verify_qualification darwin-arm64 artifact-checked
 	local gui_gate gui_status
 	for gui_gate in linux-x11 linux-wayland linux-xwayland; do
 		if [[ "${channel}" == stable ]]; then

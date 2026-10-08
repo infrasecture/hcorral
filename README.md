@@ -267,9 +267,13 @@ does not migrate, adopt, relabel, or delete myCodex resources.
 ```console
 ./scripts/ci-source.sh
 ./build.sh --release --cli-version v0.1.0 --packages
-./scripts/build-harness-image.sh --harness codex --version 0.149.1 --revision 1
+./scripts/build-harness-image.sh --harness codex
 ```
 
 Launcher releases and each harness image stream are versioned independently.
 The project is licensed under `AGPL-3.0-or-later`; direct dependency notices are
 in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+Automated runtime tests cover Linux AMD64 and ARM64. Darwin archives are cross-built
+and inspected; macOS execution and Homebrew installation are not currently tested
+in CI. See the [test coverage map](tests/README.md).

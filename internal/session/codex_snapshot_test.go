@@ -18,6 +18,11 @@ import (
 // distinguishes an actively running conversation from a merely loaded thread.
 // Neither endpoint uses credentials or an external model service.
 func TestNativeCodexCopiesDuringRunningTurn(t *testing.T) {
+	testNativeCodexCopiesDuringRunningTurn(t, nativeEndpointTransfer, []string{"legacy", "paginated", "inherited"})
+}
+
+func testNativeCodexCopiesDuringRunningTurn(t *testing.T, transfer endpointTransfer, modes []string) {
+	t.Helper()
 	binary := os.Getenv("HCORRAL_TEST_CODEX")
 	if binary == "" {
 		t.Skip("set HCORRAL_TEST_CODEX to a selected Codex executable")
@@ -26,7 +31,7 @@ func TestNativeCodexCopiesDuringRunningTurn(t *testing.T) {
 	if peerBinary == "" {
 		peerBinary = binary
 	}
-	for _, mode := range []string{"legacy", "paginated", "inherited"} {
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			source, destination := nativeEndpointHome(t), nativeEndpointHome(t)
 			workspace := t.TempDir()
@@ -73,9 +78,9 @@ func TestNativeCodexCopiesDuringRunningTurn(t *testing.T) {
 				t.Fatal("native turn did not reach the held provider")
 			}
 			// This call must finish before release; a close-first or wait-until-
-			// idle implementation cannot pass. Exercise the public CLI as well
-			// when the Docker qualification harness is enabled.
-			result := nativeEndpointTransfer(t, source, destination, id, false)
+			// idle implementation cannot pass. The dedicated Docker journey
+			// supplies the public-command adapter; native cases stay local.
+			result := transfer(t, source, destination, id, false)
 			data, err := os.ReadFile(filepath.Join(destination.Path, result.MainPath))
 			if err != nil || !bytes.Contains(data, []byte("prompt during running turn")) || bytes.Contains(data, []byte("reply after snapshot")) {
 				t.Fatalf("snapshot missed saved prompt or included a future reply: %v", err)

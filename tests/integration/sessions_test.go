@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -290,6 +289,8 @@ func writeSession(t *testing.T, home, id, text string) []byte {
 
 func (f *dockerSession) transfer(env []string, operation, id, home string, wantError string) transferResult {
 	f.t.Helper()
+	started := time.Now()
+	defer func() { f.t.Logf("session %s: %s", operation, time.Since(started).Round(time.Millisecond)) }()
 	args := []string{"session", operation, id, "--format=json"}
 	if home != "" {
 		args = append(args, home)
@@ -385,79 +386,65 @@ func (f *dockerSession) volumes() string {
 	return strings.Join(volumes, "\n")
 }
 
+// CLI path precedence and the format/conflict matrix are application/core
+// contracts. Docker owns numeric permissions and running/stopped storage here.
 func TestDockerSessionEndpoints(t *testing.T) {
-	for _, ids := range [][2]string{{"1000", "1000"}, {"501", "20"}, {"12345", "23456"}} {
-		for _, running := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s-%s/running=%t", ids[0], ids[1], running), func(t *testing.T) {
-				f := newDockerSession(t, ids[0], ids[1], running, false)
-				before, volumes := f.state(), f.volumes()
-				for _, selection := range []string{"explicit", "environment", "default"} {
-					t.Run(selection, func(t *testing.T) {
-						local := *f
-						local.t = t
-						f := &local
-						destination := filepath.Join(f.root, "destination "+selection)
-						argument := destination
-						env := []string{"CODEX_HOME=" + filepath.Join(f.root, "unused environment")}
-						if selection == "environment" {
-							argument = ""
-							env = []string{"CODEX_HOME=" + destination}
-						}
-						if selection == "default" {
-							destination = filepath.Join(f.hostHome, ".codex")
-							argument = ""
-							env = nil
-						}
-						result := f.transfer(env, "export", threadA, argument, "")
-						// The result identifies the physical home. macOS temporary
-						// paths commonly traverse /var -> /private/var.
-						physicalDestination, err := filepath.EvalSymlinks(destination)
-						must(t, err)
-						if result.Result.Destination != physicalDestination {
-							t.Fatalf("wrong host destination: %+v", result)
-						}
-						data, err := os.ReadFile(filepath.Join(destination, result.Result.MainPath))
-						must(t, err)
-						if !bytes.Equal(data, rollout(threadA, "saved container conversation")) {
-							t.Fatal("history bytes changed")
-						}
-						info, err := os.Stat(filepath.Join(destination, result.Result.MainPath))
-						must(t, err)
-						if info.Mode().Perm() != 0o600 || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) {
-							t.Fatal("incorrect host destination ownership/mode")
-						}
-						for _, excluded := range []string{"auth.json", "config.toml", "history.jsonl", rolloutPath(threadC)} {
-							if _, err := os.Stat(filepath.Join(destination, excluded)); !os.IsNotExist(err) {
-								t.Fatalf("copied excluded state %s: %v", excluded, err)
-							}
-						}
-						// Repeating the transfer preserves the existing inode, mode and bytes.
-						second := f.transfer(env, "export", threadA, argument, "")
-						after, err := os.Stat(filepath.Join(destination, result.Result.MainPath))
-						must(t, err)
-						if second.Result.Files[0].Created || !os.SameFile(info, after) {
-							t.Fatal("repeat export replaced history")
-						}
-					})
+	for _, tc := range []struct {
+		uid, gid string
+		running  bool
+	}{
+		{"1000", "1000", true},
+		{"501", "20", false},
+		{"12345", "23456", true},
+	} {
+		t.Run(tc.uid+"-"+tc.gid, func(t *testing.T) {
+			f := newDockerSession(t, tc.uid, tc.gid, tc.running, false)
+			before, volumes := f.state(), f.volumes()
+			host := filepath.Join(f.root, "host home with spaces")
+			result := f.transfer(nil, "export", threadA, host, "")
+			physical, err := filepath.EvalSymlinks(host)
+			must(t, err)
+			if result.Result.Destination != physical {
+				t.Fatalf("wrong destination: %+v", result)
+			}
+			name := filepath.Join(host, result.Result.MainPath)
+			data, err := os.ReadFile(name)
+			must(t, err)
+			info, err := os.Stat(name)
+			must(t, err)
+			if !bytes.Equal(data, rollout(threadA, "saved container conversation")) || info.Mode().Perm() != 0o600 || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Geteuid()) {
+				t.Fatal("wrong exported bytes, ownership or permissions")
+			}
+			for _, excluded := range []string{"auth.json", "config.toml", "history.jsonl", rolloutPath(threadC)} {
+				if _, err := os.Stat(filepath.Join(host, excluded)); !os.IsNotExist(err) {
+					t.Fatalf("copied excluded state %s: %v", excluded, err)
 				}
-				source := filepath.Join(f.root, "host import source")
-				data := writeSession(t, source, threadB, "host conversation")
-				must(t, os.WriteFile(filepath.Join(source, "auth.json"), []byte("host credential sentinel"), 0o600))
-				result := f.transfer(nil, "import", threadB, source, "")
-				copied, header := f.containerFile(".codex/" + result.Result.MainPath)
-				if !bytes.Equal(copied, data) || strconv.Itoa(header.Uid) != ids[0] || strconv.Itoa(header.Gid) != ids[1] || header.Mode&0o777 != 0o600 {
-					t.Fatalf("wrong imported bytes/identity: %+v", header)
+			}
+			want := writeSession(t, host, threadB, "host conversation")
+			result = f.transfer(nil, "import", threadB, host, "")
+			copied, header := f.containerFile(".codex/" + result.Result.MainPath)
+			if !bytes.Equal(copied, want) || strconv.Itoa(header.Uid) != tc.uid || strconv.Itoa(header.Gid) != tc.gid || header.Mode&0o777 != 0o600 {
+				t.Fatalf("wrong imported bytes/identity: %+v", header)
+			}
+			// One real transport case proves idempotence/conflict integration.
+			// Every data/format combination remains in the core tests.
+			if tc.uid == "12345" {
+				second := f.transfer(nil, "export", threadA, host, "")
+				after, err := os.Stat(name)
+				must(t, err)
+				if second.Result.Files[0].Created || !os.SameFile(info, after) {
+					t.Fatal("repeat export replaced history")
 				}
-				f.transfer(nil, "import", threadB, source, "")
-				writeSession(t, source, threadB, "divergent history must be refused")
-				f.transfer(nil, "import", threadB, source, "conflict")
+				f.transfer(nil, "import", threadB, host, "")
+				writeSession(t, host, threadB, "divergent history")
+				f.transfer(nil, "import", threadB, host, "conflict")
 				copied, _ = f.containerFile(".codex/" + result.Result.MainPath)
-				if !bytes.Equal(copied, data) {
-					t.Fatal("conflicting import changed history")
+				if !bytes.Equal(copied, want) {
+					t.Fatal("conflict changed history")
 				}
-				f.assertPreserved(before, volumes)
-			})
-		}
+			}
+			f.assertPreserved(before, volumes)
+		})
 	}
 }
 

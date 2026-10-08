@@ -24,6 +24,11 @@ import (
 // histories and sends a follow-up to a loopback-only mock provider. No account
 // or external model call is needed. HOME, CODEX_HOME and workspaces are disposable.
 func TestCodexResumesNativeHistory(t *testing.T) {
+	testCodexResumesNativeHistory(t, nativeEndpointTransfer, []string{"legacy", "paginated", "paginated-prefix", "revert-prefix", "archived-revert-prefix"}, []bool{false, true})
+}
+
+func testCodexResumesNativeHistory(t *testing.T, transfer endpointTransfer, modes []string, destinations []bool) {
+	t.Helper()
 	binary := os.Getenv("HCORRAL_TEST_CODEX")
 	if binary == "" {
 		t.Skip("set HCORRAL_TEST_CODEX to an explicitly selected Codex executable")
@@ -32,8 +37,8 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 	if peerBinary == "" {
 		peerBinary = binary
 	}
-	for _, mode := range []string{"legacy", "paginated", "paginated-prefix", "revert-prefix", "archived-revert-prefix"} {
-		for _, existingHome := range []bool{false, true} {
+	for _, mode := range modes {
+		for _, existingHome := range destinations {
 			t.Run(fmt.Sprintf("%s/existing=%v", mode, existingHome), func(t *testing.T) {
 				source, h := nativeEndpointHome(t), nativeEndpointHome(t)
 				workspace := t.TempDir()
@@ -108,7 +113,7 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 				}
 				// Exercise the actual format/stream/staging/publication pipeline. The
 				// existing-home case keeps Codex alive after initial database backfill.
-				imported := nativeEndpointTransfer(t, source, h, id, true)
+				imported := transfer(t, source, h, id, true)
 				if imported.Archived != (mode == "archived-revert-prefix") {
 					t.Fatal("transfer changed archive state")
 				}
@@ -206,7 +211,7 @@ func TestCodexResumesNativeHistory(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(peerHome.Path, "config.toml"), []byte(config), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				nativeEndpointTransfer(t, h, peerHome, id, false)
+				transfer(t, h, peerHome, id, false)
 				peer := startCodex(t, peerBinary, peerHome.Path, workspace)
 				peer.call(t, "thread/resume", map[string]any{"threadId": id, "cwd": workspace, "modelProvider": "test-provider", "approvalPolicy": "never", "sandbox": "read-only"})
 				peer.call(t, "turn/start", map[string]any{"threadId": id, "input": []any{map[string]string{"type": "text", "text": "peer follow-up"}}})
@@ -354,13 +359,7 @@ func startCodex(t *testing.T, binary, home, workspace string) *codexServer {
 
 func startCodexWithEnv(t *testing.T, binary, home, workspace string, extraEnv []string) *codexServer {
 	t.Helper()
-	deadline := 30 * time.Second
-	if os.Getenv("HCORRAL_NATIVE_DOCKER") == "1" {
-		// The existing-home fixture remains alive during actual Docker setup
-		// and transfer, including software-emulated Colima guests.
-		deadline = 3 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	// Plugin catalog startup can clone from the network independently of the
 	// local model provider. These history fixtures need no plugins.
 	cmd := nativeFixtureCommand(ctx, binary, "--disable", "plugins", "app-server", "--listen", "stdio://")

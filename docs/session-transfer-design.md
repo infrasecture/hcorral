@@ -598,6 +598,11 @@ unfamiliar staging is never automatically removed.
 
 ## Qualification status
 
+The current test policy is defined in the [coverage map](../tests/README.md).
+Comprehensive tests run once on Linux, ARM64 receives focused execution checks,
+and macOS receives artifact checks only. The four-platform results below are
+historical evidence, not the current CI matrix.
+
 The public commands, helper packaging, streaming and cancellation, actual mount
 and identity discovery, non-overwriting publication and native resume composition
 are implemented. The full nonpublishing matrix passed at `2b41cc7` on Linux and
@@ -625,6 +630,6 @@ publication, picker visibility, selected rollout, actual resumed model context,
 destination writer exclusion, live source copying, and re-export of a completed
 native-written turn while its source remains loaded. That core-only
 invocation does not exercise Docker transport. The separate public Docker/native
-composition in `tests/qualification/codex-sessions.sh` does, using the same pinned
+composition in `tests/qualification/codex-sessions.sh journey` does, using the same pinned
 versions and synthetic conversations. Neither suite uses a real model service or
 claims that all metadata and external resources are portable.

@@ -12,35 +12,54 @@ import (
 	"time"
 
 	"github.com/infrasecture/hcorral/internal/identity"
+	"github.com/infrasecture/hcorral/internal/sessionconfig"
 )
 
 const maximumConfigBytes = 8 << 20
 
-// ReadConfig reads a selected configuration file from the actual workstation,
-// including its writable layer, while running or stopped. It does not start a
-// helper, extract an archive onto the host, or run the image's entrypoint.
-// Callers choose only relevant Codex configuration paths, never credentials.
-func (d Docker) ReadConfig(ctx context.Context, workspace identity.Workspace, target Target, path string) ([]byte, error) {
-	if !absolutePath(path) || path == "/" {
-		return nil, errors.New("container configuration path must be an absolute file path")
+// ResolveSQLiteHome brackets the whole configuration discovery with ownership
+// and storage checks. Rechecking around every candidate file adds four Docker
+// processes per file without giving the discovery an atomic filesystem view.
+// Read from the actual workstation, including its writable layer, even while
+// stopped; a helper created from its image would miss that configuration.
+func (d Docker) ResolveSQLiteHome(ctx context.Context, workspace identity.Workspace, target Target, explicit string) (sessionconfig.Resolution, error) {
+	options := sessionconfig.SQLiteOptions{Home: target.CodexHome, CWD: target.Workdir, Environment: target.SQLiteEnv, Explicit: explicit}
+	if explicit != "" {
+		return sessionconfig.SQLiteHome(ctx, options, nil)
 	}
 	if err := d.recheck(ctx, workspace, target); err != nil {
-		return nil, err
+		return sessionconfig.Resolution{}, err
+	}
+	result, err := sessionconfig.SQLiteHome(ctx, options, func(ctx context.Context, name string) ([]byte, error) {
+		return d.readConfig(ctx, target.ContainerID, name)
+	})
+	if err != nil {
+		return sessionconfig.Resolution{}, err
+	}
+	if err := d.recheck(ctx, workspace, target); err != nil {
+		return sessionconfig.Resolution{}, err
+	}
+	return result, nil
+}
+
+// readConfig only reads bounded configuration files; it never starts a process
+// in the workstation or extracts its filesystem onto the host. The caller owns
+// the checks around the complete discovery operation.
+func (d Docker) readConfig(ctx context.Context, containerID, path string) ([]byte, error) {
+	if !absolutePath(path) || path == "/" {
+		return nil, errors.New("container configuration path must be an absolute file path")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	archive := &boundedBuffer{maximum: maximumConfigBytes + (64 << 10), description: "configuration archive"}
 	stderr := &boundedBuffer{maximum: 16 << 10, description: "Docker configuration-read error"}
-	err := d.Runtime.Runner.Run(ctx, []string{"docker", "cp", "-L", target.ContainerID + ":" + path, "-"}, d.Runtime.Env, nil, archive, stderr)
+	err := d.Runtime.Runner.Run(ctx, []string{"docker", "cp", "-L", containerID + ":" + path, "-"}, d.Runtime.Env, nil, archive, stderr)
 	if err != nil {
 		// An unavailable container or failed transport is not a missing config.
-		// Docker's missing-file diagnostic is checked narrowly, then ownership
-		// and storage are rechecked before the caller may use an absent layer.
-		missing := "Could not find the file " + path + " in container " + target.ContainerID
+		// Docker's missing-file diagnostic is checked narrowly. The caller
+		// rechecks ownership and storage before using the resolved location.
+		missing := "Could not find the file " + path + " in container " + containerID
 		if strings.Contains(stderr.String(), missing) {
-			if checkErr := d.recheck(ctx, workspace, target); checkErr != nil {
-				return nil, checkErr
-			}
 			return nil, &os.PathError{Op: "read container config", Path: path, Err: os.ErrNotExist}
 		}
 		return nil, fmt.Errorf("read container configuration %s: %w", path, err)
@@ -59,9 +78,6 @@ func (d Docker) ReadConfig(ctx context.Context, workspace identity.Workspace, ta
 	}
 	if _, err := r.Next(); err != io.EOF {
 		return nil, errors.New("configuration archive contains extra or invalid members")
-	}
-	if err := d.recheck(ctx, workspace, target); err != nil {
-		return nil, err
 	}
 	return data, nil
 }

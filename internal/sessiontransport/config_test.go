@@ -6,8 +6,56 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 )
+
+func TestConfigurationDiscoveryChecksStorageOnceAroundAllReads(t *testing.T) {
+	d, f, workspace, target := transportFixture(t)
+	// An empty, valid configuration must still search every possible layer.
+	f.configArchive = configArchive(t, tar.TypeReg, false)
+	f.configArchive = bytes.ReplaceAll(f.configArchive, []byte("sqlite_home"), []byte("unused_home"))
+	result, err := d.ResolveSQLiteHome(context.Background(), workspace, target, "")
+	if err != nil || result.Path != target.CodexHome {
+		t.Fatalf("discovery: %+v %v", result, err)
+	}
+	counts := map[string]int{}
+	for _, args := range f.commands {
+		counts[args[1]]++
+	}
+	if counts["cp"] != 6 || counts["inspect"] != 2 || counts["volume"] != 2 || len(f.commands) != 10 {
+		t.Fatalf("configuration discovery amplified Docker work: %v", counts)
+	}
+}
+
+func TestConfigurationDiscoveryRejectsChangesBeforeReturning(t *testing.T) {
+	for _, change := range []string{"identity", "volume", "cancel"} {
+		t.Run(change, func(t *testing.T) {
+			d, f, workspace, target := transportFixture(t)
+			f.configArchive = configArchive(t, tar.TypeReg, false)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			f.changeAfterCopy = func() {
+				switch change {
+				case "identity":
+					f.workstation.Config.Env[0] = "HCORRAL_HOST_UID=1000"
+				case "volume":
+					f.volume = nil
+				case "cancel":
+					cancel()
+				}
+			}
+			if _, err := d.ResolveSQLiteHome(ctx, workspace, target, ""); err == nil {
+				t.Fatal("accepted configuration from changed or cancelled storage")
+			}
+			for _, args := range f.commands {
+				if strings.Contains(" create start rm stop ", " "+args[1]+" ") {
+					t.Fatalf("discovery mutated runtime: %q", args)
+				}
+			}
+		})
+	}
+}
 
 func configArchive(t *testing.T, kind byte, extra bool) []byte {
 	t.Helper()
@@ -43,10 +91,10 @@ func configArchive(t *testing.T, kind byte, extra bool) []byte {
 func TestReadConfigUsesActualContainerWithoutStartingAnything(t *testing.T) {
 	for _, state := range []string{"running", "exited"} {
 		t.Run(state, func(t *testing.T) {
-			d, f, workspace, target := transportFixture(t)
+			d, f, _, target := transportFixture(t)
 			f.workstation.State.Status, f.workstation.State.Running = state, state == "running"
 			f.configArchive = configArchive(t, tar.TypeReg, false)
-			data, err := d.ReadConfig(context.Background(), workspace, target, "/etc/codex/config.toml")
+			data, err := d.readConfig(context.Background(), target.ContainerID, "/etc/codex/config.toml")
 			if err != nil || string(data) != "sqlite_home = '/separate state'\n" {
 				t.Fatalf("config: %q %v", data, err)
 			}
@@ -60,17 +108,14 @@ func TestReadConfigUsesActualContainerWithoutStartingAnything(t *testing.T) {
 }
 
 func TestReadConfigDistinguishesAbsentLayerFromFailedInspection(t *testing.T) {
-	for _, problem := range []string{"missing", "container gone", "permission", "transport", "changed identity", "directory", "symlink", "extra member", "truncated", "oversized"} {
+	for _, problem := range []string{"missing", "container gone", "permission", "transport", "directory", "symlink", "extra member", "truncated", "oversized"} {
 		t.Run(problem, func(t *testing.T) {
-			d, f, workspace, target := transportFixture(t)
+			d, f, _, target := transportFixture(t)
 			path := "/etc/codex/config.toml"
 			f.configErr = errors.New("Docker copy failed")
 			switch problem {
-			case "missing", "changed identity":
+			case "missing":
 				f.configStderr = []byte("Error response from daemon: Could not find the file " + path + " in container " + target.ContainerID + "\n")
-				if problem == "changed identity" {
-					f.changeAfterCopy = func() { f.workstation.Config.Env[0] = "HCORRAL_HOST_UID=1000" }
-				}
 			case "container gone":
 				f.configStderr = []byte("No such container: " + target.ContainerID)
 			case "permission":
@@ -93,7 +138,7 @@ func TestReadConfigDistinguishesAbsentLayerFromFailedInspection(t *testing.T) {
 				f.configErr = nil
 				f.configArchive = make([]byte, maximumConfigBytes+128<<10)
 			}
-			if _, err := d.ReadConfig(context.Background(), workspace, target, path); err == nil || errors.Is(err, os.ErrNotExist) != (problem == "missing") {
+			if _, err := d.readConfig(context.Background(), target.ContainerID, path); err == nil || errors.Is(err, os.ErrNotExist) != (problem == "missing") {
 				t.Fatalf("incorrect missing-layer classification: %v", err)
 			}
 		})

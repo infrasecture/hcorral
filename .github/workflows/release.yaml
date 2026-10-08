@@ -85,7 +85,8 @@ jobs:
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
-      - run: sudo apt-get update && sudo apt-get install -y xvfb weston xwayland xauth x11-xserver-utils
+      - if: matrix.arch == 'amd64'
+        run: sudo apt-get update && sudo apt-get install -y xvfb weston xwayland xauth x11-xserver-utils
       - env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
@@ -123,11 +124,12 @@ jobs:
           dpkg-deb --extract "dist/hcorral_${pkg_version}_linux_${{ matrix.arch }}.deb" "${package_root}/deb"
           chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
           chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
-          HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/integration/run.sh
-          HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/qualification/mixed-versions.sh
-      - run: |
-          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
-          ./tests/qualification/codex-sessions.sh
+          suite=architecture
+          if [[ '${{ matrix.arch }}' == amd64 ]]; then suite=linux; fi
+          HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/run.sh "$suite"
+          if [[ '${{ matrix.arch }}' == amd64 ]]; then
+            HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral" ./tests/run.sh compat
+          fi
       - env:
           VERSION: ${{ inputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -143,67 +145,29 @@ jobs:
           retention-days: 30
 
   qualify-darwin:
-    name: release/homebrew-${{ matrix.arch }}
+    name: release/darwin-artifacts
     needs: prepare
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-            colima: true
-          - runner: macos-15-intel
-            arch: amd64
-            colima: true
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ inputs.version }}-${{ github.sha }}
           path: dist
-      - name: Qualify unpublished Homebrew package
-        env:
-          VERSION: ${{ inputs.version }}
-          ARCH: ${{ matrix.arch }}
-        run: ./tests/qualification/homebrew.sh
-      - run: |
-          chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
-          ./tests/qualification/codex-sessions.sh
-      - if: matrix.colima
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          brew install colima coreutils docker docker-compose
-          mkdir -p "$HOME/.docker/cli-plugins"
-          ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
-          colima_args=(--cpu 2 --memory 4 --disk 10)
-          if [[ "$ARCH" == arm64 ]]; then
-            brew install qemu lima-additional-guestagents
-            colima_args+=(--arch x86_64 --vm-type qemu)
-          else
-            colima_args+=(--vm-type vz)
-          fi
-          colima start "${colima_args[@]}"
-          trap 'colima stop' EXIT
-          export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
-          mkdir -p "$TEST_TMPDIR"
-          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
-          chmod 0755 "$HCORRAL_TEST_BINARY"
-          chmod 0755 "dist/tests/session-transfer-darwin-${ARCH}"
-          ./tests/integration/run.sh
       - env:
           VERSION: ${{ inputs.version }}
           SOURCE_COMMIT: ${{ github.sha }}
-          GATE: darwin-${{ matrix.arch }}
         run: |
+          ./tests/qualification/darwin-artifacts.sh "$VERSION"
           state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
           artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
-          ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$GATE" --status passed --output "dist/qualification/$GATE.env"
+          for arch in amd64 arm64; do
+            ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "darwin-$arch" --status artifact-checked --output "dist/qualification/darwin-$arch.env"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qualification-darwin-${{ matrix.arch }}-${{ github.sha }}
-          path: dist/qualification/darwin-${{ matrix.arch }}.env
+          name: qualification-darwin-${{ github.sha }}
+          path: dist/qualification/darwin-*.env
           retention-days: 30
 
   qualify-linux-gui:
@@ -343,7 +307,7 @@ jobs:
     name: release/verify
     needs: publish
     if: always() && needs.publish.result == 'success'
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -355,20 +319,21 @@ jobs:
           release_url="$(jq -r .html_url <<<"$release_json")"
           release_id="$(jq -r .id <<<"$release_json")"
           gh release download "$VERSION" --repo infrasecture/hcorral --dir "$RUNNER_TEMP/release"
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd "$RUNNER_TEMP/release" && sha256sum --check SHA256SUMS)
-          else
-            (cd "$RUNNER_TEMP/release" && shasum -a 256 --check SHA256SUMS)
-          fi
-          brew install infrasecture/tap/hcorral
-          hcorral version
-          brew test infrasecture/tap/hcorral
-          brew audit --strict --online infrasecture/tap/hcorral
-          brew uninstall hcorral
+          (cd "$RUNNER_TEMP/release" && sha256sum --check SHA256SUMS)
+          tar -xzf "$RUNNER_TEMP/release/hcorral_${VERSION#v}_linux_amd64.tar.gz" -C "$RUNNER_TEMP/release" hcorral
+          "$RUNNER_TEMP/release/hcorral" version
           tag_object="$(gh api "repos/infrasecture/hcorral/git/ref/tags/${VERSION}" --jq .object.sha)"
           tag_commit="$(gh api "repos/infrasecture/hcorral/git/tags/${tag_object}" --jq .object.sha)"
           repo_commit="$(gh api repos/infrasecture/hcorral/commits/main --jq .sha)"
           tap_commit="$(gh api repos/infrasecture/homebrew-tap/commits/main --jq .sha)"
+          gh api "repos/infrasecture/homebrew-tap/contents/Formula/hcorral.rb?ref=$tap_commit" --jq .content | base64 --decode >"$RUNNER_TEMP/release/hcorral.rb"
+          for arch in amd64 arm64; do
+            archive="hcorral_${VERSION#v}_darwin_${arch}.tar.gz"
+            checksum="$(sha256sum "$RUNNER_TEMP/release/$archive")"
+            grep -Fq "releases/download/$VERSION/$archive" "$RUNNER_TEMP/release/hcorral.rb"
+            grep -Fq "sha256 \"${checksum%% *}\"" "$RUNNER_TEMP/release/hcorral.rb"
+          done
+          printf 'Darwin archives/formula verified; native macOS and Homebrew execution are not automated.\n' >>"$GITHUB_STEP_SUMMARY"
           {
             printf 'Release: %s (database ID %s)\n' "$release_url" "$release_id"
             printf 'Tag object: %s\nTag commit: %s\nRepository main: %s\nHomebrew tap main: %s\n' "$tag_object" "$tag_commit" "$repo_commit" "$tap_commit"

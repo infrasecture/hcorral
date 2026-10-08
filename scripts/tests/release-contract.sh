@@ -42,16 +42,12 @@ grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'brew audit --strict "$qualified_formula"' tests/qualification/homebrew.sh || fail 'prepublication formula audit is missing'
 for workflow in .github/workflows/ci.yaml .github/workflows/release.yaml; do
-  grep -Fq './tests/qualification/homebrew.sh' "$workflow" || fail "$workflow omits the shared Homebrew gate"
+  grep -Fq './tests/qualification/darwin-artifacts.sh' "$workflow" || fail "$workflow omits Darwin artifact checks"
+  if grep -Eq 'runner: macos-|runs-on: macos-|colima start' "$workflow"; then fail "$workflow restored macOS runtime workers"; fi
 done
 grep -Fq 'hcorral_write_homebrew_formula' build.sh || fail 'nonpublishing build omits Homebrew formula generation'
-grep -Fq 'colima start' .github/workflows/release.yaml || fail 'macOS headless Colima qualification is missing'
-grep -Fq 'if: matrix.colima' .github/workflows/release.yaml || fail 'Colima qualification is not isolated to its supported macOS runner'
-grep -Fq 'fail-fast: false' .github/workflows/release.yaml || fail 'Darwin architecture qualification can cancel independent evidence'
 grep -Fq "if: always() && needs.approve.result == 'success'" .github/workflows/release.yaml || fail 'publish can be skipped through a waived preview qualification'
 grep -Fq "if: always() && needs.publish.result == 'success'" .github/workflows/release.yaml || fail 'verification can be skipped through a waived preview qualification'
-# shellcheck disable=SC2016 # Match literal workflow-shell expansions.
-grep -Fq 'export TEST_TMPDIR="$HOME/hcorral-ci-tmp"' .github/workflows/release.yaml || fail 'Colima qualification workspace is not daemon-visible'
 # shellcheck disable=SC2016 # Match the literal nested-default expression.
 grep -Fq 'TEST_TMPDIR:-${TMPDIR:-/tmp}' tests/integration/real-docker.sh || fail 'real Docker fixture root cannot be selected for remote daemons'
 grep -Fq 'os.waitstatus_to_exitcode(pty.spawn([sys.argv[1]]))' tests/integration/real-docker.sh || fail 'PTY attach recovery must preserve the child exit status'
@@ -105,6 +101,20 @@ scripts/release-qualification.sh \
   --output "${qualification_file}"
 grep -Fxq 'GATE=linux-amd64' "${qualification_file}" || fail 'qualification gate not recorded'
 grep -Fxq 'STATUS=passed' "${qualification_file}" || fail 'qualification status not recorded'
+for gate in darwin-amd64 darwin-arm64; do
+  scripts/release-qualification.sh --version v1.2.3 \
+    --source-commit "$(printf 'a%.0s' {1..40})" \
+    --artifacts-sha256 "$(printf 'b%.0s' {1..64})" \
+    --gate "$gate" --status artifact-checked --output "${qualification_dir}/$gate.env"
+  grep -Fxq 'STATUS=artifact-checked' "${qualification_dir}/$gate.env" || fail 'Darwin evidence misrepresents runtime qualification'
+done
+if scripts/release-qualification.sh --version v1.2.3 \
+  --source-commit "$(printf 'a%.0s' {1..40})" \
+  --artifacts-sha256 "$(printf 'b%.0s' {1..64})" \
+  --gate linux-amd64 --status artifact-checked --output "$qualification_file" >/dev/null 2>&1; then
+  fail 'Linux runtime qualification accepted artifact-only evidence'
+fi
+grep -Fxq 'STATUS=passed' "$qualification_file" || fail 'rejected qualification changed prior evidence'
 if scripts/release-qualification.sh \
   --version v1.2.3 \
   --source-commit "$(printf 'a%.0s' {1..40})" \

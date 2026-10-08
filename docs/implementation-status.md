@@ -1,5 +1,11 @@
 # Go successor implementation
 
+Current policy (2026-10-08): automated runtime qualification is Linux-only.
+Darwin archives remain cross-built and inspected, with `artifact-checked`
+release records. The dated results below are historical evidence. The current
+suite ownership and regression coverage are in [tests/README.md](../tests/README.md).
+
+
 Implementation of the accepted 2026-10-05 proposal in myCodex
 `.proposals/hcorral-go-successor.md`, based on hcorral `18fb394` and myCodex
 `ebc930a`. This is a working acceptance ledger, not a declaration that the

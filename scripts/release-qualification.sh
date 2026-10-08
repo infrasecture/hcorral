@@ -33,6 +33,11 @@ case "${gate}" in
 esac
 case "${status}" in
   passed|waived-preview) ;;
+  artifact-checked)
+    [[ "$gate" == darwin-amd64 || "$gate" == darwin-arm64 ]] || {
+      echo 'ERROR: artifact-only evidence is limited to Darwin' >&2; exit 2;
+    }
+    ;;
   *) echo "ERROR: invalid qualification status: ${status}" >&2; exit 2 ;;
 esac
 [[ -n "${output}" ]] || { echo 'ERROR: qualification output is required' >&2; exit 2; }

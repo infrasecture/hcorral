@@ -278,10 +278,19 @@ func TestSessionCommandsTransferThroughBothEndpointsWithoutWorkstationLifecycle(
 					if runner.workstation.State.Status != state || runner.helper != nil {
 						t.Fatal("workstation state changed or helper was retained")
 					}
+					configReads := 0
 					for _, args := range runner.commands {
+						if len(args) > 2 && args[1] == "cp" && args[2] == "-L" {
+							configReads++
+						}
 						if len(args) > 1 && (args[1] == "compose" || args[1] == "pull" || args[1] == "exec") {
 							t.Fatalf("transfer invoked lifecycle/login setup: %q", args)
 						}
+					}
+					// Six normal config candidates give 24 Docker invocations.
+					// Deeper workspaces add file reads, not repeated inspections.
+					if len(runner.commands) > 18+configReads {
+						t.Fatalf("transfer exceeded its Docker command budget: %d commands, %d config reads", len(runner.commands), configReads)
 					}
 				})
 			}

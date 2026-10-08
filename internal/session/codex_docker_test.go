@@ -34,14 +34,32 @@ func nativeEndpointHome(t *testing.T) *Home {
 	return home
 }
 
-// Optional composition gate: the same native resume/privacy/completed-turn
-// assertions run through the packaged public CLI and a real Docker helper.
-// Ordinary core qualification keeps using the in-process transfer pipeline.
-func nativeEndpointTransfer(t *testing.T, source, destination *Home, id string, fromContainer bool) Result {
+// Native compatibility uses the actual storage pipeline without Docker.
+type endpointTransfer func(*testing.T, *Home, *Home, string, bool) Result
+
+func nativeEndpointTransfer(t *testing.T, source, destination *Home, id string, _ bool) Result {
 	t.Helper()
-	if os.Getenv("HCORRAL_NATIVE_DOCKER") != "1" {
-		return published(t, received(t, destination, exported(t, source, id)))
+	return published(t, received(t, destination, exported(t, source, id)))
+}
+
+// Only these two journeys compose native Codex with the public Docker command.
+// History format and existing-home combinations belong to native qualification.
+func TestDockerCodexRoundTrip(t *testing.T) {
+	if os.Getenv("HCORRAL_TEST_CODEX") == "" {
+		t.Skip("requires native Codex and Docker qualification artifacts")
 	}
+	testCodexResumesNativeHistory(t, dockerEndpointTransfer, []string{"archived-revert-prefix"}, []bool{true})
+}
+
+func TestDockerCodexActiveTurn(t *testing.T) {
+	if os.Getenv("HCORRAL_TEST_CODEX") == "" {
+		t.Skip("requires native Codex and Docker qualification artifacts")
+	}
+	testNativeCodexCopiesDuringRunningTurn(t, dockerEndpointTransfer, []string{"inherited"})
+}
+
+func dockerEndpointTransfer(t *testing.T, source, destination *Home, id string, fromContainer bool) Result {
+	t.Helper()
 	binary, image := os.Getenv("HCORRAL_TEST_BINARY"), os.Getenv("HCORRAL_SESSION_TEST_IMAGE")
 	if !filepath.IsAbs(binary) || image == "" {
 		t.Fatal("native Docker qualification requires the packaged launcher and explicit fixture image")

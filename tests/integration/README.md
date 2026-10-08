@@ -1,6 +1,7 @@
 # Docker acceptance tests
 
-Run `./build.sh`, then `./tests/integration/run.sh`. The build produces the
+See [suite ownership and coverage](../README.md). Run `./build.sh`, then
+`./tests/run.sh linux` (the old `integration/run.sh` delegates to it). The build produces the
 launcher and a native session acceptance executable under `dist/tests/`.
 `HCORRAL_TEST_BINARY` can select an extracted package's launcher. Test executables
 are included in the CI transport artifact, not the user archives or packages.
@@ -10,7 +11,7 @@ The older lifecycle PTY test still uses Python as a test dependency.
 `session-transfer.sh` builds a disposable Alpine fixture containing only the
 tools needed to hold real filesystem locks. It supplies neither Codex nor a
 transfer helper. Tests execute the packaged launcher and its embedded helper
-through real Docker, for running and stopped workstations and numeric identities
+through real Docker, across representative running/stopped workstations and numeric identities
 1000:1000, 501:20 and 12345:23456. They check:
 
 - Host destination precedence, spaces, exact bytes, private permissions and
@@ -51,12 +52,11 @@ through real Docker, for running and stopped workstations and numeric identities
 
 The fixture carries runtime ownership labels but bypasses a workstation
 entrypoint. The endpoint executable tests the Docker transport contract;
-real-image shell initialization requires the image canaries. After those
-endpoint tests, the runner invokes `codex-sessions.sh` in public-command mode
-against the same daemon, fixture image and packaged launcher. That separate
-stage verifies native resume of richer histories and native-written return
-transfers with both pinned Codex versions. It requires the native session-core
-acceptance executable as well as the endpoint executable. Connection-fault
+real-image shell initialization requires the image canaries. Native Codex format qualification is a separate suite. Two dedicated public
+journeys connect that behavior to Docker: an archived inherited-history round
+trip and copying during a held turn. Both pinned version directions execute,
+but the full format/destination matrix is not repeated through Docker.
+Connection-fault
 coverage requires the explicit proxy
 cases to execute; ordinary local endpoint success does not establish it. The
 proxy plumbing also has a local protocol test for input EOF and reply suppression,
@@ -66,5 +66,6 @@ The tests retain the invoking Docker context/configuration and use fresh host
 homes and uniquely named Docker resources. Run against a development daemon
 without concurrent volume creation/removal: the volume inventory check is
 deliberately exact. Existing user sessions and credentials are never used as
-fixtures. Both Linux architectures run this suite in CI; the release Colima
-qualification also invokes it where supported.
+fixtures. The comprehensive suite runs on Linux AMD64. Linux ARM64 runs lifecycle,
+endpoint ownership and the public journeys. There is no automated macOS runtime
+qualification. The same selection is used for release artifacts.

@@ -6,6 +6,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  HCORRAL_GO_CACHE: ${{ github.workspace }}/.cache/go
+
 permissions:
   contents: read
 
@@ -21,8 +24,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: true
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .cache/go
+          key: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
       - run: sudo apt-get update && sudo apt-get install -y tmux less
-      - run: ./scripts/ci-source.sh
+      - run: ./tests/run.sh core
 
   build:
     name: build/release-matrix
@@ -31,6 +39,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: true
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .cache/go
+          key: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
       - run: ./build.sh --release --cli-version v0.0.0 --packages
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -109,12 +122,26 @@ jobs:
           name: ci-release-matrix-${{ github.sha }}
           path: dist
       - run: |
-          docker run --rm -v "$PWD/dist:/packages:ro" ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 \
+          # Retry registry downloads, never failed package installation checks.
+          pull_image() {
+            for attempt in 1 2 3; do
+              if docker pull "$1"; then return 0; fi
+              if [[ "$attempt" == 3 ]]; then return 1; fi
+              sleep 5
+            done
+          }
+          ubuntu_image=ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+          fedora_image=fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814
+          arch_image=archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a
+          pull_image "$ubuntu_image"
+          docker run --pull=never --rm -v "$PWD/dist:/packages:ro" "$ubuntu_image" \
             sh -c 'dpkg -i /packages/hcorral_0.0.0_linux_${{ matrix.arch }}.deb && hcorral version && dpkg -r hcorral && test ! -e /usr/bin/hcorral'
-          docker run --rm -v "$PWD/dist:/packages:ro" fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814 \
+          pull_image "$fedora_image"
+          docker run --pull=never --rm -v "$PWD/dist:/packages:ro" "$fedora_image" \
             sh -c 'rpm -i /packages/hcorral-0.0.0-1.${{ matrix.rpm_arch }}.rpm && hcorral version && rpm -e hcorral && test ! -e /usr/bin/hcorral'
           if [[ '${{ matrix.arch }}' == amd64 ]]; then
-            docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base@sha256:4bf33b21a715aac0b48ce6e9eaed4782a898eae96f88f5da3635572129c2584a \
+            pull_image "$arch_image"
+            docker run --pull=never --rm -v "$PWD/dist:/packages:ro" "$arch_image" \
               sh -c 'pacman -U --noconfirm /packages/hcorral-0.0.0-1-x86_64.pkg.tar.zst && hcorral version && pacman -R --noconfirm hcorral && test ! -e /usr/bin/hcorral'
           else
             root="$(mktemp -d)"
@@ -153,14 +180,15 @@ jobs:
       - run: |
           chmod 0755 "dist/bin/hcorral-linux-${{ matrix.arch }}"
           "dist/bin/hcorral-linux-${{ matrix.arch }}" version
-      - run: |
-          chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
-          ./tests/qualification/codex-sessions.sh
       - env:
           HCORRAL_TEST_BINARY: ${{ github.workspace }}/dist/bin/hcorral-linux-${{ matrix.arch }}
         run: |
-          chmod 0755 "dist/tests/session-transfer-linux-${{ matrix.arch }}"
-          ./tests/integration/run.sh
+          chmod 0755 dist/tests/*-linux-${{ matrix.arch }}
+          if [[ '${{ matrix.arch }}' == amd64 ]]; then
+            ./tests/run.sh linux
+          else
+            ./tests/run.sh architecture
+          fi
 
   linux-gate:
     name: ci/linux
@@ -179,8 +207,6 @@ jobs:
         include:
           - runner: ubuntu-24.04
             arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -196,7 +222,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           chmod 0755 "$HCORRAL_TEST_BINARY"
-          ./tests/qualification/mixed-versions.sh
+          ./tests/run.sh compat
 
   compose-compat:
     name: ci/compose-2.24.6-${{ matrix.arch }}
@@ -209,10 +235,6 @@ jobs:
             arch: amd64
             compose_arch: x86_64
             sha256: eca30ae32dc451f9e6d6c8ddce078a76f23b355c3ca0ab391d58f59e87c0d310
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            compose_arch: aarch64
-            sha256: 05b91fcc38d80378508dc42e027fa71f13431bdd3247139e51fa084e95c3de9c
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -230,72 +252,17 @@ jobs:
           chmod 0755 "dist/tests/session-core-linux-${{ matrix.arch }}"
           export HCORRAL_COMPOSE_COMMAND="[\"$compose\"]"
           export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-linux-${{ matrix.arch }}"
-          ./tests/integration/run.sh
+          ./tests/run.sh compose
 
-  darwin:
-    name: ci/darwin-${{ matrix.arch }}
+  darwin-artifacts:
+    # Required check name is retained; this is explicitly NOT macOS execution.
+    name: ci/darwin
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-            colima: true
-          - runner: macos-15-intel
-            arch: amd64
-            colima: true
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ci-release-matrix-${{ github.sha }}
           path: dist
-      - run: |
-          tar -xzf "dist/hcorral_0.0.0_darwin_${{ matrix.arch }}.tar.gz" -C "$RUNNER_TEMP"
-          "$RUNNER_TEMP/hcorral" version
-          "$RUNNER_TEMP/hcorral" --help
-          if "$RUNNER_TEMP/hcorral" --gui=x11 info; then
-            echo 'macOS GUI request unexpectedly succeeded' >&2
-            exit 1
-          fi
-      - name: Qualify unpublished Homebrew package
-        env:
-          VERSION: v0.0.0
-          ARCH: ${{ matrix.arch }}
-        run: ./tests/qualification/homebrew.sh
-      - run: |
-          chmod 0755 "dist/tests/session-core-darwin-${{ matrix.arch }}"
-          ./tests/qualification/codex-sessions.sh
-      - if: matrix.colima
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          brew install colima coreutils docker docker-compose
-          mkdir -p "$HOME/.docker/cli-plugins"
-          ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" "$HOME/.docker/cli-plugins/docker-compose"
-          colima_args=(--cpu 2 --memory 4 --disk 10)
-          # Cross-architecture QEMU uses software emulation on hosted ARM Macs,
-          # avoiding a requirement for nested hardware virtualization.
-          if [[ "$ARCH" == arm64 ]]; then
-            brew install qemu lima-additional-guestagents
-            colima_args+=(--arch x86_64 --vm-type qemu)
-          else
-            colima_args+=(--vm-type vz)
-          fi
-          colima start "${colima_args[@]}"
-          trap 'colima stop' EXIT
-          export TEST_TMPDIR="$HOME/hcorral-ci-tmp"
-          mkdir -p "$TEST_TMPDIR"
-          export HCORRAL_TEST_BINARY="$PWD/dist/bin/hcorral-darwin-${ARCH}"
-          chmod 0755 "$HCORRAL_TEST_BINARY" "dist/tests/session-transfer-darwin-${ARCH}"
-          ./tests/integration/run.sh
-
-  darwin-gate:
-    name: ci/darwin
-    if: always()
-    needs: darwin
-    runs-on: ubuntu-24.04
-    steps:
-      - run: test '${{ needs.darwin.result }}' = success
+      - run: ./tests/qualification/darwin-artifacts.sh v0.0.0

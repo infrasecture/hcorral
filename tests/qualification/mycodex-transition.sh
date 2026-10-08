@@ -11,6 +11,7 @@ arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 binary="${HCORRAL_TEST_BINARY:-$root/dist/bin/hcorral-linux-$arch}"
 [[ "$(uname -s)" == Linux && -x "$binary" ]]
 baseline=ebc930ac00adea662789d6c2f43666ec1003eca0
+published_legacy=ghcr.io/infrasecture/harness-workstation@sha256:15f5731cf9fe37b99a0d4e3d2f1a4c38c693773928b3afc80cd11f0f17defe19
 test_root="$(mktemp -d /tmp/hcorral-transition.XXXXXX)"
 legacy_root="$test_root/myCodex"
 legacy_image="hcorral-transition-legacy:$$"
@@ -37,11 +38,14 @@ git init --quiet "$legacy_root"
 git -C "$legacy_root" fetch --quiet --depth=1 https://github.com/emsi/myCodex.git "$baseline"
 git -C "$legacy_root" checkout --quiet --detach FETCH_HEAD
 [[ "$(git -C "$legacy_root" rev-parse HEAD)" == "$baseline" ]]
-docker buildx build --load --platform "linux/$arch" --tag "$legacy_image" \
-  --build-arg CODEX_VERSION=0.160.0 --build-arg "MYCODEX_SOURCE_REVISION=$baseline" \
-  --build-arg INSTALL_CLAUDE_CODE=0 --build-arg INSTALL_GEMINI_CLI=0 --build-arg INSTALL_OPENCODE=0 \
-  "$legacy_root"
+# The published image is from this exact source baseline on both architectures.
+# Pin the multi-platform digest, validate the selected platform and provenance,
+# and retain the immutable download cache while cleaning up our private tag.
+docker pull "$published_legacy"
+docker image tag "$published_legacy" "$legacy_image"
+[[ "$(docker image inspect --format '{{.Architecture}}' "$legacy_image")" == "$arch" ]]
 [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$legacy_image")" == "$baseline" ]]
+[[ "$(docker run --rm --entrypoint codex "$legacy_image" --version)" == 'codex-cli 0.160.1' ]]
 
 export XDG_CONFIG_HOME="$test_root/config" XDG_CACHE_HOME="$test_root/cache"
 export HCORRAL_HARNESS=codex HCORRAL_GUI=none HCORRAL_UPDATE_CHECK=false HCORRAL_AUTO_PULL=false
