@@ -85,6 +85,14 @@ docker run --rm --user root \
   --volume "${gobuild_cache_volume}:/tmp/go-build" \
   "${builder_image}" sh -c 'chown -R "$1:$2" /go/pkg/mod /tmp/go-build' sh "$(id -u)" "$(id -g)"
 
+# Populate the complete locked module set before offline artifact checks. The
+# helper alone does not import every dependency of the launcher or its tests.
+docker run --rm --user "$(id -u):$(id -g)" \
+  --env HOME=/tmp --env GOWORK=off --env GOPATH=/tmp/gopath \
+  --env GOMODCACHE=/go/pkg/mod --env GOCACHE=/tmp/go-build \
+  --volume "${script_dir}:/src:ro" --volume "${gomod_cache_volume}:/go/pkg/mod" --volume "${gobuild_cache_volume}:/tmp/go-build" \
+  --workdir /src "${builder_image}" go mod download
+
 # Every launcher can target either Linux architecture, regardless of its host.
 # Build helpers first, then validate and embed their exact compressed bytes.
 for helper_arch in amd64 arm64; do

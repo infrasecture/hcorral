@@ -20,6 +20,10 @@ cleanup() {
   printf 'Suite %s: %ss, exit %s\n' "$suite" "$((SECONDS-started))" "$status"
 }
 trap cleanup EXIT
+# A deadline must be reported as a failure even if the interrupted child was
+# between commands and its EXIT cleanup returned success.
+trap 'exit 124' TERM
+trap 'exit 130' INT
 step() {
   local name="$1" before=$SECONDS
   shift
