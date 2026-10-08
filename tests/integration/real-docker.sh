@@ -10,8 +10,8 @@ mkdir -p "${test_tmpdir}"
 test_root="$(mktemp -d "${test_tmpdir%/}/hcorral-integration.XXXXXX")"
 workspace="${test_root}/Client Portal"
 mkdir -p "${workspace}" "${test_root}/cache"
-fixture_image="hcorral-integration-fixture:$(date +%s)-$$"
-registry_container="hcorral-test-registry-$$"
+fixture_image="${HCORRAL_TEST_RUNTIME_IMAGE:-hcorral-integration-fixture:$(date +%s)-$$}"
+registry_container="${HCORRAL_TEST_REGISTRY:-hcorral-test-registry-$$}"
 image=""
 
 export XDG_CACHE_HOME="${test_root}/cache"
@@ -26,15 +26,19 @@ cleanup() {
     "${binary}" down -v >/dev/null 2>&1 || true
   fi
   if [[ -n "${image}" ]]; then docker image rm "${image}" >/dev/null 2>&1 || true; fi
-  docker image rm "${fixture_image}" >/dev/null 2>&1 || true
-  docker rm --force "${registry_container}" >/dev/null 2>&1 || true
+  if [[ -z "${HCORRAL_TEST_RUNTIME_IMAGE:-}" ]]; then docker image rm "${fixture_image}" >/dev/null 2>&1 || true; fi
+  if [[ -z "${HCORRAL_TEST_REGISTRY:-}" ]]; then docker rm --force "${registry_container}" >/dev/null 2>&1 || true; fi
   rm -r -- "${test_root}"
 }
 trap cleanup EXIT
 
-docker build --quiet --tag "${fixture_image}" --file "${repo_root}/tests/fixtures/minimal-image/Dockerfile" "${repo_root}" >/dev/null
-docker run --detach --name "${registry_container}" --publish 127.0.0.1::5000 \
-  registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 >/dev/null
+if [[ -z "${HCORRAL_TEST_RUNTIME_IMAGE:-}" ]]; then
+  docker build --quiet --tag "${fixture_image}" --file "${repo_root}/tests/fixtures/minimal-image/Dockerfile" "${repo_root}" >/dev/null
+fi
+if [[ -z "${HCORRAL_TEST_REGISTRY:-}" ]]; then
+  docker run --detach --name "${registry_container}" --publish 127.0.0.1::5000 \
+    registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 >/dev/null
+fi
 registry_port="$(docker port "${registry_container}" 5000/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')"
 [[ "${registry_port}" =~ ^[1-9][0-9]*$ ]] || { echo 'could not resolve local registry port' >&2; exit 1; }
 registry_ready=false

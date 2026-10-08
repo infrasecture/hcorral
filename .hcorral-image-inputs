@@ -1,3 +1,4 @@
+.dockerignore
 image/Dockerfile
 image/entrypoint.sh
 image/session-init.sh

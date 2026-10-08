@@ -7,26 +7,27 @@ Run the source, package, shell, contract, race, and vulnerability gates with:
 ./build.sh --release --cli-version v0.1.0 --packages
 ```
 
-Building both Darwin release targets also generates `dist/Formula/hcorral.rb`
-from those exact archives. On a clean native macOS qualification runner, use
-`VERSION=v0.1.0 ARCH=arm64 ./tests/qualification/homebrew.sh` (or `ARCH=amd64`).
-The same script runs in ordinary CI and before release publication: it audits
-the release formula in a temporary local tap, installs the unpublished archive,
-checks the installed binary against the build, runs the formula test, and removes
-its installation and tap. It refuses to replace an existing hcorral installation.
-This check publishes nothing and requires no GitHub release or tap update.
+The [test design and coverage map](../tests/README.md) defines suite ownership.
+Use `./tests/run.sh core`, then build once and run `./tests/run.sh linux` for
+comprehensive Linux behavior. `architecture`, `compose`, `codex`, `journey` and
+`compat` select independent boundaries without rerunning unrelated matrices.
 
-`CI` uses hosted Linux amd64/arm64 and macOS Intel/Apple Silicon runners. The
-release workflow prepares one artifact set, qualifies deb/rpm/Arch packages,
-both Darwin archives and Homebrew formulae, and headless Colima on both macOS
-architectures, then publishes the exact prepared bytes. Intel uses the VZ
-driver. The hosted ARM runner uses an emulated x86_64 QEMU guest, so its native
-ARM launcher also exercises selection of the embedded Linux AMD64 helper;
-it does not qualify a native ARM64 guest. Current results and remaining gates
-are recorded in [the implementation ledger](implementation-status.md).
-Preview releases may explicitly waive unavailable
-Linux X11/Wayland/XWayland evidence; stable releases require the corresponding
-self-hosted runners. Docker Desktop is not a target.
+CI runs comprehensive behavior on native Linux AMD64 and focused architecture
+checks on Linux ARM64. Darwin AMD64/ARM64 archives are cross-built, inspected
+for linkage and embedded helpers, and checked against their generated Homebrew
+formula by `./tests/qualification/darwin-artifacts.sh v0.0.0`.
+**There are no automated macOS runtime, Homebrew installation or Colima jobs.**
+The required `ci/darwin` check represents artifact validation only. Release
+records use `artifact-checked` for Darwin; Linux records require runtime passes.
+The optional `tests/qualification/homebrew.sh` remains available for manual
+native verification and does not publish or replace an existing installation.
+
+Release qualification consumes one exact versioned artifact set. Preview
+releases may explicitly waive unavailable Linux X11/Wayland/XWayland evidence;
+stable releases require the corresponding self-hosted runners. Docker Desktop
+is not a target. Historical qualification results remain in
+[the implementation ledger](implementation-status.md); they do not describe the
+current automated platform matrix.
 
 The protected `release` environment needs repository-scoped
 `HCORRAL_REPOSITORY_TOKEN` and tap-scoped `HCORRAL_TAP_TOKEN`. The protected
@@ -77,4 +78,5 @@ runtime. Launcher and image publication do not depend on being performed togethe
 Create a launcher preview through `Release launcher` with `v0.1.0` and
 `preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,
 and `infrasecture/homebrew-tap/Formula/hcorral.rb`, then verifies public
-checksums and a fresh Homebrew installation.
+checksums, the native Linux archive and the published Homebrew formula's URLs
+and archive digests. Homebrew installation requires the optional manual check.

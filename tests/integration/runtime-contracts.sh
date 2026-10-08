@@ -10,7 +10,7 @@ mkdir -p "${test_tmpdir}"
 test_root="$(mktemp -d "${test_tmpdir%/}/hcorral-contracts.XXXXXX")"
 cache="${test_root}/cache"
 workspace="${test_root}/workspace"
-image="hcorral-contracts:$(date +%s)-$$"
+image="${HCORRAL_TEST_RUNTIME_IMAGE:-hcorral-contracts:$(date +%s)-$$}"
 legacy_name="hcorral-test-legacy-$$"
 ambiguous_name="hcorral-test-ambiguous-$$-codex"
 foreign_name="hcorral-test-foreign-codex-$$"
@@ -62,12 +62,14 @@ cleanup() {
   if [[ "${shared_created}" == true ]]; then
     docker volume rm hcorral_state >/dev/null 2>&1 || true
   fi
-  docker image rm "${image}" >/dev/null 2>&1 || true
+  if [[ -z "${HCORRAL_TEST_RUNTIME_IMAGE:-}" ]]; then docker image rm "${image}" >/dev/null 2>&1 || true; fi
   rm -r -- "${test_root}"
 }
 trap cleanup EXIT
 
-docker build --quiet --tag "${image}" --file "${repo_root}/tests/fixtures/minimal-image/Dockerfile" "${repo_root}" >/dev/null
+if [[ -z "${HCORRAL_TEST_RUNTIME_IMAGE:-}" ]]; then
+  docker build --quiet --tag "${image}" --file "${repo_root}/tests/fixtures/minimal-image/Dockerfile" "${repo_root}" >/dev/null
+fi
 
 run_hcorral() {
   XDG_CACHE_HOME="${cache}" \

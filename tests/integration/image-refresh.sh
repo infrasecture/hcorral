@@ -9,7 +9,7 @@ test_tmpdir="${TEST_TMPDIR:-${TMPDIR:-/tmp}}"
 mkdir -p "${test_tmpdir}"
 test_root="$(mktemp -d "${test_tmpdir%/}/hcorral-refresh.XXXXXX")"
 workspace="${test_root}/workspace"
-registry="hcorral-refresh-registry-$$"
+registry="${HCORRAL_TEST_REGISTRY:-hcorral-refresh-registry-$$}"
 fixture="hcorral-refresh-fixture:$$"
 reference=""
 project=""
@@ -21,7 +21,7 @@ export XDG_CACHE_HOME="${test_root}/cache"
 
 cleanup() {
   if [[ -n "${project}" ]]; then "${binary}" down -v >/dev/null 2>&1 || true; fi
-  docker rm --force "${registry}" >/dev/null 2>&1 || true
+  if [[ -z "${HCORRAL_TEST_REGISTRY:-}" ]]; then docker rm --force "${registry}" >/dev/null 2>&1 || true; fi
   if [[ -n "${reference}" ]]; then docker image rm "${reference}" >/dev/null 2>&1 || true; fi
   docker image rm "${fixture}" >/dev/null 2>&1 || true
   for image_id in "${image_ids[@]}"; do docker image rm "${image_id}" >/dev/null 2>&1 || true; done
@@ -29,8 +29,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker run -d --name "${registry}" --publish 127.0.0.1::5000 \
-  registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 >/dev/null
+if [[ -z "${HCORRAL_TEST_REGISTRY:-}" ]]; then
+  docker run -d --name "${registry}" --publish 127.0.0.1::5000 \
+    registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373 >/dev/null
+fi
 port="$(docker port "${registry}" 5000/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')"
 [[ "${port}" =~ ^[1-9][0-9]*$ ]]
 reference="127.0.0.1:${port}/hcorral/refresh:latest"
@@ -42,8 +44,12 @@ done
 curl --fail --silent "http://127.0.0.1:${port}/v2/" >/dev/null
 
 publish_fixture() {
-  docker build --quiet --label "hcorral-test-generation=$1" --tag "${fixture}" \
-    --file "${root}/tests/fixtures/minimal-image/Dockerfile" "${root}" >/dev/null
+  if [[ -n "${HCORRAL_TEST_RUNTIME_IMAGE:-}" ]]; then
+    printf 'FROM %s\n' "$HCORRAL_TEST_RUNTIME_IMAGE" | docker build --quiet --label "hcorral-test-generation=$1" --tag "$fixture" - >/dev/null
+  else
+    docker build --quiet --label "hcorral-test-generation=$1" --tag "${fixture}" \
+      --file "${root}/tests/fixtures/minimal-image/Dockerfile" "${root}" >/dev/null
+  fi
   image_ids+=("$(docker image inspect --format '{{.Id}}' "${fixture}")")
   docker image tag "${fixture}" "${reference}"
   docker push "${reference}" >/dev/null

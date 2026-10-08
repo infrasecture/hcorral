@@ -10,15 +10,18 @@ test_binary="${HCORRAL_SESSION_TEST_BINARY:-${repo_root}/dist/tests/session-tran
   exit 2
 }
 
-HCORRAL_SESSION_TEST_IMAGE="hcorral-session-fixture:$(date +%s)-$$"
-export HCORRAL_SESSION_TEST_IMAGE
-trap 'docker image rm "$HCORRAL_SESSION_TEST_IMAGE" >/dev/null 2>&1 || true' EXIT
-docker build --quiet --tag "${HCORRAL_SESSION_TEST_IMAGE}" \
-  --file "${repo_root}/tests/fixtures/session-image/Dockerfile" "${repo_root}" >/dev/null
-# The full serial matrix can exceed 15 minutes through Colima on hosted Macs.
-# Keep room for VM overhead; individual transfers and cancellation checks retain
-# their shorter deadlines in the test executable.
-"${test_binary}" -test.v -test.timeout=30m
-# Reuse the same real daemon/image and packaged launcher for the richer native
-# Codex histories, including a completed-turn return through public commands.
-HCORRAL_NATIVE_DOCKER=1 "${repo_root}/tests/qualification/codex-sessions.sh"
+if [[ -z "${HCORRAL_SESSION_TEST_IMAGE:-}" ]]; then
+  HCORRAL_SESSION_TEST_IMAGE="hcorral-session-fixture:$(date +%s)-$$"
+  export HCORRAL_SESSION_TEST_IMAGE
+  trap 'docker image rm "$HCORRAL_SESSION_TEST_IMAGE" >/dev/null 2>&1 || true' EXIT
+  docker build --quiet --tag "$HCORRAL_SESSION_TEST_IMAGE" \
+    --file "$repo_root/tests/fixtures/session-image/Dockerfile" "$repo_root" >/dev/null
+fi
+case "${1:-docker}" in
+  docker) "$test_binary" -test.v -test.timeout=2m ;;
+  architecture)
+    "$test_binary" -test.v -test.timeout=1m -test.run '^TestDockerSessionEndpoints$'
+    ;;
+  journey) "${repo_root}/tests/qualification/codex-sessions.sh" journey ;;
+  *) echo 'usage: session-transfer.sh [docker|architecture|journey]' >&2; exit 2 ;;
+esac

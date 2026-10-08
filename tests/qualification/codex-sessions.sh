@@ -13,8 +13,8 @@ cleanup() {
   rm -rf -- "$test_root"
 }
 trap cleanup EXIT
-# Native core qualification precedes Colima. Reuse its verified public assets
-# later in the same job, without needing another network lookup after VM setup.
+# Native compatibility and public journeys reuse verified public assets
+# within the same CI job, without repeating their network downloads.
 # Local runs remain temporary unless a cache directory is explicitly selected.
 cache_root="${HCORRAL_CODEX_TEST_CACHE:-${RUNNER_TEMP:-$test_root}/hcorral-codex-test-assets}"
 mkdir -p "$cache_root"
@@ -64,14 +64,18 @@ done
 # Every process uses synthetic homes and an in-process loopback provider. The
 # tests exercise native indexing/resume and a completed-turn return transfer;
 # neither the user's credentials nor an external model service are involved.
-test_args=(-test.v -test.timeout=10m)
-if [[ "${HCORRAL_NATIVE_DOCKER:-}" == 1 ]]; then
-  [[ -n "${HCORRAL_SESSION_TEST_IMAGE:-}" && -x "${HCORRAL_TEST_BINARY:-}" ]] || {
-    echo 'public native qualification requires a launcher and Docker fixture image' >&2
-    exit 2
-  }
-  test_args=(-test.v -test.timeout=20m -test.run '^Test(CodexResumesNativeHistory|NativeCodexCopiesDuringRunningTurn)$')
-fi
+# Native version qualification does not rerun the version-independent core.
+# Public Docker journeys are a separate suite, never a mode of that matrix.
+case "${1:-native}" in
+  native) selection='^Test(NativeCodex|Codex)' ;;
+  journey)
+    [[ -n "${HCORRAL_SESSION_TEST_IMAGE:-}" && -x "${HCORRAL_TEST_BINARY:-}" ]] || {
+      echo 'Docker journeys require a launcher and fixture image' >&2; exit 2;
+    }
+    selection='^TestDockerCodex' ;;
+  *) echo 'usage: codex-sessions.sh [native|journey]' >&2; exit 2 ;;
+esac
+test_args=(-test.v -test.timeout=2m -test.run "$selection")
 for index in 0 1; do
   peer=$((1 - index))
   printf 'Native Codex qualification: %s -> %s (%s)\n' "${binaries[$index]}" "${binaries[$peer]}" "$platform"

@@ -198,10 +198,7 @@ func runSession(ctx context.Context, cfg config.Config, workspace identity.Works
 		stopDiscovery()
 		return failSession(ctx, streams.Err, fmt.Errorf("host SQLite discovery: %w; use --host-sqlite-home for an explicit selection", err))
 	}
-	containerRead := func(ctx context.Context, name string) ([]byte, error) {
-		return transport.ReadConfig(ctx, workspace, target, name)
-	}
-	containerState, err := sessionconfig.SQLiteHome(discoveryCtx, sessionconfig.SQLiteOptions{Home: target.CodexHome, CWD: target.Workdir, Environment: target.SQLiteEnv, Explicit: request.containerSQLite}, containerRead)
+	containerState, err := transport.ResolveSQLiteHome(discoveryCtx, workspace, target, request.containerSQLite)
 	stopDiscovery()
 	if err != nil {
 		return failSession(ctx, streams.Err, fmt.Errorf("container SQLite discovery: %w; use --container-sqlite-home for an explicit selection", err))

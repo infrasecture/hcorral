@@ -1,4 +1,4 @@
-.plan/
-dist/
-.cache/
+.git
+.cache
+dist
 internal/sessiontransport/helpers/*.gz
