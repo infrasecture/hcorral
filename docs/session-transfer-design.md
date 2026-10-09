@@ -305,10 +305,13 @@ the final selection check and repair.
 
 This narrow adapter opens only an existing `state_5.sqlite` in read-write mode
 and uses `BEGIN IMMEDIATE`. It requires completed initial indexing, migration 58
-with its native checksum, known column types/primary key and known thread trigger
-definitions. The tested native versions are 0.160.0 and 0.160.1. A schema change
-requires qualification. The update rechecks the expected old selection and
-database inode; it changes only `rollout_path`, `archived` and `archived_at`.
+or 59 with its exact native checksum, known column types/primary key and known
+thread trigger definitions. Migration 59, used by Codex 0.162.0, only adds
+an index on `thread_attachments`; it does not change the selection update.
+Native qualification covers 0.160.1 and 0.162.0 in both directions, retaining
+the previously qualified migration 58 used by 0.160.0/0.160.1. Unknown migrations
+or changed checksums still require qualification. The update rechecks the expected
+old selection and database inode; it changes only `rollout_path`, `archived` and `archived_at`.
 Titles, unrelated rows and other metadata are preserved. No database is created,
 migrated or copied, and source metadata stays read-only. Unknown layouts or
 unconfirmed commits return errors with explicit retry information.

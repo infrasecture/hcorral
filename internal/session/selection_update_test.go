@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func promotionDB(t *testing.T, home *Home, id, selected string) *sql.DB {
 			t.Fatal(err)
 		}
 	}
-	checksum, err := hex.DecodeString(selectionMigrationChecksum)
+	checksum, err := hex.DecodeString(selectionMigrations[58])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +47,16 @@ func promotionDB(t *testing.T, home *Home, id, selected string) *sql.DB {
 }
 
 func TestParentPromotionPreservesMetadataAndSupportsRetry(t *testing.T) {
-	for _, interrupted := range []bool{false, true} {
-		t.Run(map[bool]string{true: "interrupted", false: "complete"}[interrupted], func(t *testing.T) {
+	for _, tc := range []struct {
+		version     int
+		interrupted bool
+	}{{58, false}, {58, true}, {59, false}, {59, true}} {
+		t.Run(fmt.Sprintf("migration=%d/interrupted=%v", tc.version, tc.interrupted), func(t *testing.T) {
 			src, dst := fixtureHome(t), fixtureHome(t)
 			parent, child, prefix := fixtureFork(t, src)
 			first := published(t, received(t, dst, exported(t, src, threadB)))
 			db := promotionDB(t, dst, threadA, first.Files[0].Path)
+			setPromotionMigration(t, db, tc.version)
 			other := fixturePath(threadC, threadC)
 			writeFixture(t, dst, other, fixtureBytes(t, threadC, "paginated", nil, "unrelated"))
 			if _, err := db.Exec("INSERT INTO threads(id, rollout_path, archived, history_mode) VALUES (?, ?, 0, 'paginated')", threadC, other); err != nil {
@@ -59,7 +64,7 @@ func TestParentPromotionPreservesMetadataAndSupportsRetry(t *testing.T) {
 			}
 			stream := exported(t, src, threadA)
 			in := received(t, dst, stream)
-			if interrupted {
+			if tc.interrupted {
 				stop := errors.New("interrupted before metadata commit")
 				if _, err := in.publish(context.Background(), dst, func(int) error { return stop }); !errors.Is(err, stop) {
 					t.Fatalf("unexpected interruption: %v", err)
@@ -97,8 +102,20 @@ func TestParentPromotionPreservesMetadataAndSupportsRetry(t *testing.T) {
 	}
 }
 
+func setPromotionMigration(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+	checksum, err := hex.DecodeString(selectionMigrations[version])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE _sqlx_migrations SET version = ?, checksum = ?", version, checksum); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParentPromotionRejectsUnsupportedMetadataBeforePublication(t *testing.T) {
 	for _, mutation := range []string{
+		"UPDATE _sqlx_migrations SET version = 60",
 		"UPDATE _sqlx_migrations SET version = 59",
 		"UPDATE _sqlx_migrations SET checksum = X'00'",
 		"UPDATE _sqlx_migrations SET success = 0",
