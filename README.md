@@ -4,10 +4,9 @@
 Docker. Each harness gets an independent container in the same physical
 workspace, while the workspace and an optional persisted home can be shared.
 
-The installation commands below select the published `v0.1.0` preview. Automatic
-GUI discovery, inactive image refresh, retained notices and session transfer
-described here are development changes after that release. Shared shell defaults
-also require an updated workstation image. See the
+The installation commands below select the `v0.2.0` preview, including automatic
+GUI discovery, inactive image refresh, retained notices and session transfer.
+Shared shell defaults are included in the refreshed workstation images. See the
 [implementation ledger](docs/implementation-status.md) for qualification results;
 updating a source checkout does not update an installed launcher or running image.
 
@@ -19,27 +18,27 @@ Hcorral requires Docker and Docker Compose v2, installed separately.
 
 Linux is the primary target. DEB, RPM, Arch Linux, and standalone archives for
 AMD64 and ARM64 are available from the
-[v0.1.0 preview release](https://github.com/infrasecture/hcorral/releases/tag/v0.1.0).
+[v0.2.0 preview release](https://github.com/infrasecture/hcorral/releases/tag/v0.2.0).
 Download `SHA256SUMS` once, then choose the package for your distribution. For
 x86-64 Linux:
 
 ```console
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/SHA256SUMS
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.2.0/SHA256SUMS
 
 # Debian or Ubuntu
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral_0.1.0_linux_amd64.deb
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.2.0/hcorral_0.2.0_linux_amd64.deb
 $ sha256sum --ignore-missing --check SHA256SUMS
-$ sudo apt install ./hcorral_0.1.0_linux_amd64.deb
+$ sudo apt install ./hcorral_0.2.0_linux_amd64.deb
 
 # Fedora, RHEL, or another RPM-based distribution
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral-0.1.0-1.x86_64.rpm
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.2.0/hcorral-0.2.0-1.x86_64.rpm
 $ sha256sum --ignore-missing --check SHA256SUMS
-$ sudo dnf install ./hcorral-0.1.0-1.x86_64.rpm
+$ sudo dnf install ./hcorral-0.2.0-1.x86_64.rpm
 
 # Arch Linux
-$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.1.0/hcorral-0.1.0-1-x86_64.pkg.tar.zst
+$ curl -fLO https://github.com/infrasecture/hcorral/releases/download/v0.2.0/hcorral-0.2.0-1-x86_64.pkg.tar.zst
 $ sha256sum --ignore-missing --check SHA256SUMS
-$ sudo pacman -U ./hcorral-0.1.0-1-x86_64.pkg.tar.zst
+$ sudo pacman -U ./hcorral-0.2.0-1-x86_64.pkg.tar.zst
 ```
 
 For ARM64, select the release asset containing `arm64` for DEB or `aarch64` for
@@ -266,7 +265,7 @@ does not migrate, adopt, relabel, or delete myCodex resources.
 
 ```console
 ./scripts/ci-source.sh
-./build.sh --release --cli-version v0.1.0 --packages
+./build.sh --release --cli-version v0.2.0 --packages
 ./scripts/build-harness-image.sh --harness codex
 ```
 
