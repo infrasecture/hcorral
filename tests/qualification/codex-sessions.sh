@@ -30,7 +30,7 @@ verify_archive() {
 }
 
 binaries=()
-for version in 0.160.0 0.160.1; do
+for version in 0.160.1 0.162.0; do
   entry="$(awk -v version="$version" -v platform="$platform" '$1 == version && $2 == platform {print $3, $4}' "$repo_root/tests/fixtures/codex-releases.tsv")"
   [[ -n "$entry" && "$entry" != *$'\n'* ]] || {
     echo "missing or duplicate pinned Codex asset for $version $platform" >&2

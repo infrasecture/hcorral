@@ -13,9 +13,18 @@ import (
 )
 
 // Metadata writes are deliberately narrower than read-only format support.
-// This adapter targets Codex 0.160.0/0.160.1, state_5 migration 58.
+// Qualified state_5 layouts: Codex 0.160.0/0.160.1 (58) and 0.162.0 (59).
+// Migration 59 only adds a reverse lookup index on thread_attachments.
 // A later schema requires qualification; no migrations or bulk row imports run.
-const selectionMigrationChecksum = "68467af3ce1ff09777c3f7167d522e11d88586fbb80a1588c631cf643a7d4985b221a6c8e8623997b37d44605b7e1091"
+var selectionMigrations = map[int]string{
+	58: "68467af3ce1ff09777c3f7167d522e11d88586fbb80a1588c631cf643a7d4985b221a6c8e8623997b37d44605b7e1091",
+	59: "4297dffb4fb308f0c665e4d126b7d2a96db7be48eb2e13c7e1245a5d95c4df4e66d64e79ad00fec26b0910436703090c",
+}
+
+func qualifiedSelectionMigration(version int, checksum []byte, success bool) bool {
+	want, known := selectionMigrations[version]
+	return known && success && hex.EncodeToString(checksum) == want
+}
 
 // Hash whitespace-normalized sqlite_schema SQL, without the final semicolon.
 // These native timestamp triggers do not fire for our path/archive-only update.
@@ -83,8 +92,8 @@ func validateSelectionSchema(ctx context.Context, tx *sql.Tx) error {
 	var version int
 	var checksum []byte
 	var success bool
-	if err := tx.QueryRowContext(ctx, "SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version DESC LIMIT 1").Scan(&version, &checksum, &success); err != nil || version != 58 || !success || hex.EncodeToString(checksum) != selectionMigrationChecksum {
-		return errors.New("destination metadata promotion requires the qualified state_5 migration 58 layout")
+	if err := tx.QueryRowContext(ctx, "SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version DESC LIMIT 1").Scan(&version, &checksum, &success); err != nil || !qualifiedSelectionMigration(version, checksum, success) {
+		return errors.New("destination metadata promotion requires a qualified state_5 migration layout")
 	}
 	var status string
 	if err := tx.QueryRowContext(ctx, "SELECT status FROM backfill_state WHERE id = 1").Scan(&status); err != nil || status != "complete" {
@@ -199,7 +208,7 @@ func (h *Home) publicationSelection(ctx context.Context, id string) (string, *se
 	if version < 58 && success {
 		return "", nil, fmt.Errorf("%w: destination schema migrations have not reached the qualified layout", ErrBusy)
 	}
-	if version != 58 || !success || hex.EncodeToString(checksum) != selectionMigrationChecksum {
+	if !qualifiedSelectionMigration(version, checksum, success) {
 		return "", nil, errors.New("cannot confirm destination indexing against an unqualified state_5 schema")
 	}
 	status := "pending"

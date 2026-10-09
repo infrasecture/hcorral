@@ -4,7 +4,7 @@ Run the source, package, shell, contract, race, and vulnerability gates with:
 
 ```console
 ./scripts/ci-source.sh
-./build.sh --release --cli-version v0.1.0 --packages
+./build.sh --release --cli-version vX.Y.Z --packages
 ```
 
 The [test design and coverage map](../tests/README.md) defines suite ownership.
@@ -75,7 +75,7 @@ installing the compiled launcher. Linux binaries are built with `CGO_ENABLED=0`;
 Darwin binaries use macOS system libraries without requiring an installed Go
 runtime. Launcher and image publication do not depend on being performed together.
 
-Create a launcher preview through `Release launcher` with `v0.1.0` and
+Create a launcher preview through `Release launcher` with a new `vX.Y.Z` and
 `preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,
 and `infrasecture/homebrew-tap/Formula/hcorral.rb`, then verifies public
 checksums, the native Linux archive and the published Homebrew formula's URLs
