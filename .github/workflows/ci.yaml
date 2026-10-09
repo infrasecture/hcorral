@@ -27,8 +27,8 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .cache/go
-          key: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+          key: go-1.26.9-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: go-1.26.9-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
       - run: sudo apt-get update && sudo apt-get install -y tmux less
       - run: ./tests/run.sh core
 
@@ -42,8 +42,8 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .cache/go
-          key: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: go-1.25.13-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+          key: go-1.26.9-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: go-1.26.9-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
       - run: ./build.sh --release --cli-version v0.0.0 --packages
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -6,7 +6,7 @@ cd "${script_dir}"
 # shellcheck source=scripts/lib/release-versioning.sh
 source "${script_dir}/scripts/lib/release-versioning.sh"
 
-builder_image="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c60731c8ba49088448b91f63e2aed97ca9d1a9791622a05946}"
+builder_image="${HCORRAL_GOLANG_IMAGE:-golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0}"
 nfpm_image="${HCORRAL_NFPM_IMAGE:-ghcr.io/goreleaser/nfpm:v2.47.0@sha256:a662cb167d7b6d3a83920c83d76b12d02b8ac5dd2c13e5c62c15270b23f6df0c}"
 release=false
 packages=false
