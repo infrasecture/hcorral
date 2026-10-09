@@ -29,10 +29,13 @@ is not a target. Historical qualification results remain in
 [the implementation ledger](implementation-status.md); they do not describe the
 current automated platform matrix.
 
-The protected `release` environment needs repository-scoped
-`HCORRAL_REPOSITORY_TOKEN` and tap-scoped `HCORRAL_TAP_TOKEN`. The protected
-`image-release` environment publishes through `GITHUB_TOKEN` with
-`packages:write`. Actions are pinned to full commits.
+GitHub Actions is the normal release path; `release.sh` is for local use only.
+The launcher workflow uses GitHub's automatically provided `GITHUB_TOKEN` with
+`contents:write`; the image workflow uses it with `packages:write`. Neither needs
+a personal token or a custom repository secret. Each workflow has **one**
+environment approval gate (`release` or `image-release`). The image gate covers
+all resolved streams, native builds, and manifests. Actions are pinned to full
+commits and publication is restricted to `main`.
 
 Merging a PR and running `CI` do not publish images. After changing the shared
 image recipe, entrypoint or session setup, publish **all three streams** so each
@@ -68,15 +71,38 @@ must use the same reviewed source, harness version and recipe revision:
 ./scripts/build-harness-image.sh --harness codex --version VERSION --revision REVISION --manifest
 ```
 
-The image builder currently uses Python 3 for JSON parsing. Python 3, tmux and
-less are also development prerequisites for the real terminal tests in
+The image builder currently uses Python 3 for JSON parsing. Python 3, jq, tmux
+and less are development prerequisites for the real terminal tests in
 `ci-source.sh`. These are maintainer dependencies, not requirements for users
 installing the compiled launcher. Linux binaries are built with `CGO_ENABLED=0`;
 Darwin binaries use macOS system libraries without requiring an installed Go
 runtime. Launcher and image publication do not depend on being performed together.
 
-Create a launcher preview through `Release launcher` with a new `vX.Y.Z` and
-`preview`. Publication updates `infrasecture/hcorral`, GitHub release assets,
-and `infrasecture/homebrew-tap/Formula/hcorral.rb`, then verifies public
-checksums, the native Linux archive and the published Homebrew formula's URLs
-and archive digests. Homebrew installation requires the optional manual check.
+Create a launcher preview, approve its publication once, then update Homebrew:
+
+```console
+gh workflow run release.yaml --repo infrasecture/hcorral -f version=vX.Y.Z -f channel=preview
+# After Release launcher succeeds:
+gh workflow run update-hcorral.yaml --repo infrasecture/homebrew-tap -f version=vX.Y.Z
+```
+
+The launcher workflow builds and qualifies one exact set of archives and Linux
+packages, then publishes and verifies the GitHub release. The tap workflow
+downloads the public Darwin archives, checks their digests, and updates the
+formula using **its own** repository's `GITHUB_TOKEN`. No credential crosses
+repository boundaries. Updating the `homebrew-tap` submodule pointer afterward
+is an ordinary repository change through a PR, not part of package publication.
+Homebrew installation still requires the optional manual check.
+
+If publication fails after qualification, resume the exact prepared run:
+
+```console
+gh workflow run release.yaml --repo infrasecture/hcorral -f version=vX.Y.Z -f channel=preview -f prepared_run_id=RUN_ID
+```
+
+Recovery checks the original main-branch workflow identity, successful
+qualification jobs, artifact ownership, expiry and ZIP digest, recorded source,
+channel and file hashes. It never rebuilds. Existing annotated tags and public
+assets must match; only missing assets may be uploaded. Use the original build
+run ID within its 30-day artifact retention period. Expired or conflicting
+evidence requires investigation; do not overwrite a published version.

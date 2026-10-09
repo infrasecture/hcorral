@@ -13,6 +13,10 @@ on:
         default: preview
         type: choice
         options: [preview, stable]
+      prepared_run_id:
+        description: Optional qualified run to resume without rebuilding or replacing published bytes
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,6 +28,7 @@ concurrency:
 jobs:
   prepare:
     name: release/prepare
+    if: github.ref == 'refs/heads/main' && inputs.prepared_run_id == ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -32,8 +37,9 @@ jobs:
           fetch-depth: 0
           submodules: true
       - env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --prepare-only
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+        run: ./scripts/actions-release.sh prepare
       - id: prepared
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -218,89 +224,39 @@ jobs:
           path: dist/qualification/${{ matrix.gate }}.env
           retention-days: 30
 
-  approve:
-    name: release/approve
-    needs: [qualify-linux, qualify-darwin, qualify-linux-gui]
-    if: always() && needs.qualify-linux.result == 'success' && needs.qualify-darwin.result == 'success' && (needs.qualify-linux-gui.result == 'success' || (inputs.channel == 'preview' && needs.qualify-linux-gui.result == 'skipped'))
-    runs-on: ubuntu-24.04
-    environment: release
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - if: inputs.channel == 'preview'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ inputs.version }}-${{ github.sha }}
-          path: dist
-      - if: inputs.channel == 'preview'
-        env:
-          VERSION: ${{ inputs.version }}
-          SOURCE_COMMIT: ${{ github.sha }}
-        run: |
-          state="dist/release-state/$VERSION/$SOURCE_COMMIT/release.env"
-          artifacts_sha="$(sed -n 's/^ARTIFACTS_SHA256=//p' "$state")"
-          for gate in linux-x11 linux-wayland linux-xwayland; do
-            ./scripts/release-qualification.sh --version "$VERSION" --source-commit "$SOURCE_COMMIT" --artifacts-sha256 "$artifacts_sha" --gate "$gate" --status waived-preview --output "dist/qualification/$gate.env"
-          done
-      - if: inputs.channel == 'preview'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: qualification-linux-gui-waived-${{ github.sha }}
-          path: dist/qualification/linux-*.env
-          retention-days: 30
-      - run: echo 'Publication approved for ${{ inputs.version }}'
-
   publish:
     name: release/publish
-    needs: approve
-    # The preview GUI matrix is intentionally skipped. GitHub propagates that
-    # skipped ancestor through the dependency graph unless this job explicitly
-    # evaluates the successful approval result.
-    if: always() && needs.approve.result == 'success'
+    needs: [prepare, qualify-linux, qualify-darwin, qualify-linux-gui]
+    # Explicit result checks prevent skipped preview/recovery ancestors from
+    # skipping publication. Recovery independently verifies the original jobs.
+    if: >-
+      always() && !cancelled() && github.ref == 'refs/heads/main' &&
+      (inputs.prepared_run_id != '' ||
+       (needs.prepare.result == 'success' && needs.qualify-linux.result == 'success' &&
+        needs.qualify-darwin.result == 'success' &&
+        (needs.qualify-linux-gui.result == 'success' ||
+         (inputs.channel == 'preview' && needs.qualify-linux-gui.result == 'skipped'))))
     runs-on: ubuntu-24.04
     environment: release
     permissions:
-      contents: read
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: true
-          # The protected repository and tap tokens below must authenticate
-          # publication. A persisted read-only GITHUB_TOKEN extraheader takes
-          # precedence over credentials in the rewritten remote URLs.
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ inputs.version }}-${{ github.sha }}
-          path: dist
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: qualification-*-${{ github.sha }}
-          path: dist/qualification
-          merge-multiple: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-transport-${{ github.sha }}
-          path: dist
       - env:
-          GH_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}
-          HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}
-          HCORRAL_TAP_TOKEN: ${{ secrets.HCORRAL_TAP_TOKEN }}
-          HCORRAL_REQUIRE_ACTIONS_TRANSPORT: "true"
-          HCORRAL_RELEASE_SOURCE_COMMIT: ${{ github.sha }}
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C homebrew-tap config user.name github-actions[bot]
-          git -C homebrew-tap config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"
-          git -C homebrew-tap remote set-url origin "https://x-access-token:${HCORRAL_TAP_TOKEN}@github.com/infrasecture/homebrew-tap.git"
-          ./release.sh --version '${{ inputs.version }}' --channel '${{ inputs.channel }}' --publish-prepared
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          PREPARED_RUN_ID: ${{ inputs.prepared_run_id || github.run_id }}
+        run: ./scripts/actions-release.sh publish
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-ledger-${{ github.sha }}
-          path: dist/release-state/${{ inputs.version }}/${{ github.sha }}/publication-ledger.tsv
+          name: release-ledger-${{ github.run_id }}
+          path: dist/release-state/${{ inputs.version }}/*/publication-ledger.tsv
           retention-days: 90
 
   verify:
@@ -324,18 +280,11 @@ jobs:
           "$RUNNER_TEMP/release/hcorral" version
           tag_object="$(gh api "repos/infrasecture/hcorral/git/ref/tags/${VERSION}" --jq .object.sha)"
           tag_commit="$(gh api "repos/infrasecture/hcorral/git/tags/${tag_object}" --jq .object.sha)"
-          repo_commit="$(gh api repos/infrasecture/hcorral/commits/main --jq .sha)"
-          tap_commit="$(gh api repos/infrasecture/homebrew-tap/commits/main --jq .sha)"
-          gh api "repos/infrasecture/homebrew-tap/contents/Formula/hcorral.rb?ref=$tap_commit" --jq .content | base64 --decode >"$RUNNER_TEMP/release/hcorral.rb"
-          for arch in amd64 arm64; do
-            archive="hcorral_${VERSION#v}_darwin_${arch}.tar.gz"
-            checksum="$(sha256sum "$RUNNER_TEMP/release/$archive")"
-            grep -Fq "releases/download/$VERSION/$archive" "$RUNNER_TEMP/release/hcorral.rb"
-            grep -Fq "sha256 \"${checksum%% *}\"" "$RUNNER_TEMP/release/hcorral.rb"
-          done
-          printf 'Darwin archives/formula verified; native macOS and Homebrew execution are not automated.\n' >>"$GITHUB_STEP_SUMMARY"
+          source_commit="$(jq -r .commit "$RUNNER_TEMP/release/component-manifest.json")"
+          [[ "$tag_commit" == "$source_commit" ]]
           {
             printf 'Release: %s (database ID %s)\n' "$release_url" "$release_id"
-            printf 'Tag object: %s\nTag commit: %s\nRepository main: %s\nHomebrew tap main: %s\n' "$tag_object" "$tag_commit" "$repo_commit" "$tap_commit"
-            printf 'Formula: https://github.com/infrasecture/homebrew-tap/blob/%s/Formula/hcorral.rb\n' "$tap_commit"
+            printf 'Tag object: %s\nTag commit: %s\n' "$tag_object" "$tag_commit"
+            printf 'Darwin archives validated; native macOS execution is not automated.\n'
+            printf 'Homebrew is published separately by the tap repository workflow.\n'
           } >>"$GITHUB_STEP_SUMMARY"

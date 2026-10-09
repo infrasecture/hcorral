@@ -20,25 +20,26 @@ grep -Fq '/usr/share/doc/hcorral/THIRD_PARTY_GO_LICENSES.txt' build.sh || fail '
 grep -Fq 'Authorization: Bearer ${token}' scripts/build-harness-image.sh || fail 'GitHub API image resolution does not support authenticated CI requests'
 if grep -Fq 'find dist -maxdepth 1' build.sh release.sh; then fail 'release artifacts are discovered from stale dist contents'; fi
 # shellcheck disable=SC2016 # Match the literal release-script expansion.
-grep -Fq 'dist/hcorral-${package_version}-1-aarch64.pkg.tar.zst' release.sh || fail 'explicit release artifact inventory is incomplete'
+grep -Fq 'dist/hcorral-${package_version}-1-aarch64.pkg.tar.zst' scripts/lib/release-state.sh || fail 'explicit release artifact inventory is incomplete'
 
 release_help="$(./release.sh --help)"
 grep -Fq -- '--prepare-only' <<<"${release_help}" || fail 'release help lacks prepare-only'
 grep -Fq -- '--publish-prepared' <<<"${release_help}" || fail 'release help lacks publish-prepared'
 grep -Fq 'publish-prepared' release.sh || fail 'publish phase missing'
 grep -Fq 'verify_qualifications' release.sh || fail 'publish phase does not enforce qualification records'
-grep -Fq 'publication-ledger.tsv' release.sh || fail 'publication ledger is missing'
+grep -Fq 'publication-ledger.tsv' scripts/lib/release-state.sh || fail 'publication ledger is missing'
 grep -Fq 'reconcile_existing_release' release.sh || fail 'partial release recovery is missing'
 grep -Fq 'existing pointer-bump child references a different formula' release.sh || fail 'tap retry identity check is missing'
-grep -Fq 'actions/artifacts/' release.sh || fail 'Actions transport identity is not verified remotely'
+grep -Fq 'actions/artifacts/' scripts/lib/release-state.sh || fail 'Actions transport identity is not verified remotely'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'artifact_digest="sha256:${artifact_digest}"' .github/workflows/release.yaml || fail 'bare upload-artifact digest is not normalized to the API identity form'
-grep -Fq 'object_type}" == tag' release.sh || fail 'existing release tag type is not verified'
+grep -Fq 'object_type}" == tag' scripts/lib/release-state.sh || fail 'existing release tag type is not verified'
+# Actions credentials belong to the repository that publishes the artifacts.
 # shellcheck disable=SC2016 # Match literal workflow expressions.
-grep -Fq 'HCORRAL_REPOSITORY_TOKEN: ${{ secrets.HCORRAL_REPOSITORY_TOKEN }}' .github/workflows/release.yaml || fail 'protected repository publication credential is missing'
-grep -A24 -F 'name: release/publish' .github/workflows/release.yaml | grep -Fq 'persist-credentials: false' || fail 'publish checkout can override protected credentials with its read-only token'
-# shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
-grep -Fq 'git remote set-url origin "https://x-access-token:${HCORRAL_REPOSITORY_TOKEN}@github.com/infrasecture/hcorral.git"' .github/workflows/release.yaml || fail 'repository publication does not use its protected credential'
+grep -Fq 'GH_TOKEN: ${{ github.token }}' .github/workflows/release.yaml || fail 'built-in Actions credential missing'
+if grep -Eq 'HCORRAL_(REPOSITORY|TAP)_TOKEN|release\.sh --' .github/workflows/release.yaml; then fail 'Actions uses local publication or custom credentials'; fi
+[[ "$(grep -c 'environment: release$' .github/workflows/release.yaml)" == 1 ]] || fail 'launcher release has duplicate approval gates'
+[[ "$(grep -c 'environment: image-release$' .github/workflows/publish-harness-image.yaml)" == 1 ]] || fail 'image publication has duplicate approval gates'
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'brew audit --strict "$qualified_formula"' tests/qualification/homebrew.sh || fail 'prepublication formula audit is missing'
 for workflow in .github/workflows/ci.yaml .github/workflows/release.yaml; do
@@ -46,7 +47,7 @@ for workflow in .github/workflows/ci.yaml .github/workflows/release.yaml; do
   if grep -Eq 'runner: macos-|runs-on: macos-|colima start' "$workflow"; then fail "$workflow restored macOS runtime workers"; fi
 done
 grep -Fq 'hcorral_write_homebrew_formula' build.sh || fail 'nonpublishing build omits Homebrew formula generation'
-grep -Fq "if: always() && needs.approve.result == 'success'" .github/workflows/release.yaml || fail 'publish can be skipped through a waived preview qualification'
+grep -Fq "always() && !cancelled()" .github/workflows/release.yaml || fail 'publish can be skipped through a waived preview qualification'
 grep -Fq "if: always() && needs.publish.result == 'success'" .github/workflows/release.yaml || fail 'verification can be skipped through a waived preview qualification'
 # shellcheck disable=SC2016 # Match the literal nested-default expression.
 grep -Fq 'TEST_TMPDIR:-${TMPDIR:-/tmp}' tests/integration/real-docker.sh || fail 'real Docker fixture root cannot be selected for remote daemons'
@@ -55,7 +56,7 @@ grep -Fq 'timeout_binary=gtimeout' tests/integration/real-docker.sh || fail 'mac
 grep -Fq 'tmux list-clients -t hcorral' tests/integration/real-docker.sh || fail 'remote attach qualification relies on a fixed delay instead of observed readiness'
 if grep -R -E '(^|[[:space:]])(mapfile|readarray)([[:space:]]|$)' tests/integration; then fail 'integration tests require Bash features newer than macOS Bash 3.2'; fi
 if grep -Fq 'docker-desktop' .github/workflows/release.yaml release.sh; then fail 'Docker Desktop remains a release target'; fi
-grep -Fq 'artifact}" != dist/Formula/hcorral.rb' release.sh || fail 'release checksums do not exclude the tap-only formula'
+grep -Fq 'artifact}" != dist/Formula/hcorral.rb' scripts/lib/release-state.sh || fail 'release checksums do not exclude the tap-only formula'
 if grep -Fq 'brew audit --strict dist/Formula/hcorral.rb' tests/qualification/homebrew.sh; then fail 'Homebrew qualification audits a disabled formula path'; fi
 # shellcheck disable=SC2016 # Match the literal workflow-shell expansion.
 grep -Fq 'brew tap-new --no-git "$qualification_tap"' tests/qualification/homebrew.sh || fail 'Homebrew qualification does not use an isolated local tap'
@@ -66,6 +67,31 @@ grep -Fq 'HCORRAL_TEST_BINARY="${package_root}/deb/usr/bin/hcorral"' .github/wor
 
 qualification_dir="$(mktemp -d "${TMPDIR:-/tmp}/hcorral-qualification.XXXXXX")"
 trap 'rm -rf -- "${qualification_dir}"' EXIT
+
+# Recovery must not turn arbitrary workflow artifacts or failed qualifications
+# into a public release. Exercise the checks with API-shaped responses.
+(
+  source scripts/actions-release.sh
+  run_file="$qualification_dir/run.json"
+  jobs_file="$qualification_dir/jobs.json"
+  jq -n '{event:"workflow_dispatch",head_branch:"main",path:".github/workflows/release.yaml",head_repository:{full_name:"infrasecture/hcorral"},head_sha:("a"*40)}' >"$run_file"
+  [[ "$(validate_release_run "$run_file")" == "$(printf 'a%.0s' {1..40})" ]] || fail 'qualified release source was rejected'
+  for invalid in '.event="pull_request"' '.head_branch="feature"' '.path=".github/workflows/ci.yaml"' '.head_repository.full_name="fork/hcorral"' '.head_sha="bad"'; do
+    jq "$invalid" "$run_file" >"$run_file.invalid"
+    if validate_release_run "$run_file.invalid" >/dev/null; then fail "unsafe prepared run accepted: $invalid"; fi
+  done
+  jq -n '[{jobs:(["release/prepare","release/linux-amd64","release/linux-arm64","release/darwin-artifacts"] | map({name:.,conclusion:"success"}))}]' >"$jobs_file"
+  channel=preview
+  validate_release_jobs "$jobs_file" || fail 'successful preview qualification rejected'
+  jq '.[0].jobs[1].conclusion="failure"' "$jobs_file" >"$jobs_file.invalid"
+  if validate_release_jobs "$jobs_file.invalid" 2>/dev/null; then fail 'failed native qualification accepted'; fi
+  jq '.[0].jobs |= .[1:]' "$jobs_file" >"$jobs_file.invalid"
+  if validate_release_jobs "$jobs_file.invalid" 2>/dev/null; then fail 'missing preparation gate accepted'; fi
+  channel=stable
+  if validate_release_jobs "$jobs_file" 2>/dev/null; then fail 'stable release accepted missing desktop qualification'; fi
+  jq '.[0].jobs += (["release/linux-x11","release/linux-wayland","release/linux-xwayland"] | map({name:.,conclusion:"success"}))' "$jobs_file" >"$jobs_file.stable"
+  validate_release_jobs "$jobs_file.stable" || fail 'qualified stable release rejected'
+)
 
 # Formula generation uses real archive bytes, validates both inputs before
 # replacing output, and shares the same version contract as release publication.

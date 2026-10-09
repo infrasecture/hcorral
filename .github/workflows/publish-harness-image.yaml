@@ -34,8 +34,8 @@ concurrency:
 jobs:
   resolve:
     name: image/resolve
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    environment: image-release
     permissions:
       contents: read
       packages: read
@@ -87,15 +87,23 @@ jobs:
             jq -r '.[] | "- `hcorral-\(.harness):\(.version)-r\(.revision)`"' <<<"$releases"
           } >>"$GITHUB_STEP_SUMMARY"
 
+  approve:
+    name: image/approve
+    needs: resolve
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: image-release
+    steps:
+      - run: echo 'Approve all resolved streams and architectures for this run.'
+
   build:
     name: image/${{ matrix.harness }}/${{ matrix.arch }}
-    needs: resolve
+    needs: [resolve, approve]
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.resolve.outputs.builds) }}
     runs-on: ${{ matrix.runner }}
-    environment: image-release
     permissions:
       contents: read
       packages: write
@@ -125,7 +133,6 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.resolve.outputs.releases) }}
     runs-on: ubuntu-24.04
-    environment: image-release
     permissions:
       contents: read
       packages: write
