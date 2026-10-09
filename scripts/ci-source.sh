@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"
-builder="${HCORRAL_GOLANG_IMAGE:-golang:1.25.13-alpine@sha256:1e0126852075c9c60731c8ba49088448b91f63e2aed97ca9d1a9791622a05946}"
+builder="${HCORRAL_GOLANG_IMAGE:-golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0}"
 
 cache="${HCORRAL_GO_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/hcorral/go}"
 mkdir -p "$cache/mod" "$cache/build"
